@@ -2,13 +2,25 @@
 
 namespace App\Services;
 
+use InvalidArgumentException;
+
 class TechnicalIndicatorService
 {
     public function calculate(array $prices): array
     {
-        $closes = array_map(fn ($price) => (float) $price->close, $prices);
-        $highs = array_map(fn ($price) => (float) $price->high, $prices);
-        $lows = array_map(fn ($price) => (float) $price->low, $prices);
+        if ($prices === []) {
+            throw new InvalidArgumentException('At least one price is required to calculate indicators.');
+        }
+
+        $normalized = array_map(
+            fn ($price, $index) => $this->normalizePrice($price, $index),
+            $prices,
+            array_keys($prices),
+        );
+
+        $closes = array_column($normalized, 'close');
+        $highs = array_column($normalized, 'high');
+        $lows = array_column($normalized, 'low');
 
         $ma5 = $this->average(array_slice($closes, -5));
         $ma20 = $this->average(array_slice($closes, -20));
@@ -48,6 +60,7 @@ class TechnicalIndicatorService
 
     private function macd(array $closes): array
     {
+        // Foundation MVP approximation, not a canonical MACD signal-line series calculation.
         $ema12 = $this->ema($closes, 12);
         $ema26 = $this->ema($closes, 26);
         $macd = $ema12 - $ema26;
@@ -66,5 +79,41 @@ class TechnicalIndicatorService
         }
 
         return $ema;
+    }
+
+    private function normalizePrice(mixed $price, int|string $index): array
+    {
+        $fields = ['open', 'high', 'low', 'close', 'volume'];
+        $normalized = [];
+
+        foreach ($fields as $field) {
+            $value = $this->readField($price, $field);
+
+            if (! is_numeric($value)) {
+                throw new InvalidArgumentException(
+                    sprintf(
+                        'Price item at index %s must contain numeric open, high, low, close, and volume values.',
+                        $index,
+                    ),
+                );
+            }
+
+            $normalized[$field] = (float) $value;
+        }
+
+        return $normalized;
+    }
+
+    private function readField(mixed $price, string $field): mixed
+    {
+        if (is_array($price)) {
+            return $price[$field] ?? null;
+        }
+
+        if (is_object($price) && isset($price->{$field})) {
+            return $price->{$field};
+        }
+
+        return null;
     }
 }
