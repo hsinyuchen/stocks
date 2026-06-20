@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Data\LlmRequestData;
 use App\Services\Fake\FakeLlmProvider;
 use App\Services\Fake\FakeMarketDataProvider;
 use App\Services\Fake\FakeNewsProvider;
@@ -92,5 +93,14 @@ class ProviderContractTest extends TestCase
 
         $this->assertSame('fake-model', $response->model);
         $this->assertStringContainsString('reference', $response->content);
+    }
+
+    public function test_llm_request_data_stores_constructor_values(): void
+    {
+        $request = new LlmRequestData('fake-model', 'Analyze AAPL', ['temperature' => 0.2]);
+
+        $this->assertSame('fake-model', $request->model);
+        $this->assertSame('Analyze AAPL', $request->prompt);
+        $this->assertSame(['temperature' => 0.2], $request->options);
     }
 }
