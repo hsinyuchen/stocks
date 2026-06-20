@@ -547,6 +547,12 @@ button {
     text-transform: uppercase;
 }
 
+.form-field small {
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
 .form-field input,
 .form-field select {
     background: var(--surface-strong);
@@ -890,6 +896,126 @@ button {
     padding-left: 18px;
 }
 
+.settings-page,
+.settings-stack,
+.settings-panel,
+.settings-provider {
+    display: grid;
+    gap: 16px;
+}
+
+.settings-panel,
+.settings-provider {
+    background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    padding: 20px;
+}
+
+.settings-panel__head,
+.settings-provider__head,
+.settings-provider__actions,
+.settings-toggle,
+.key-status,
+.default-badge {
+    align-items: center;
+    display: flex;
+}
+
+.settings-panel__head,
+.settings-provider__head {
+    gap: 16px;
+    justify-content: space-between;
+}
+
+.settings-panel__head h2 {
+    font-size: 1.45rem;
+    font-weight: 800;
+    line-height: 1.2;
+    margin: 6px 0 10px;
+}
+
+.settings-panel__head p:last-child,
+.settings-provider__title span {
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 0;
+}
+
+.settings-form-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.settings-form-grid .form-field:nth-child(4),
+.settings-form-grid .form-field:nth-child(5) {
+    grid-column: span 2;
+}
+
+.settings-toggle {
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.88rem;
+    font-weight: 800;
+    gap: 10px;
+    justify-self: start;
+}
+
+.settings-toggle input {
+    accent-color: var(--accent);
+    height: 18px;
+    width: 18px;
+}
+
+.settings-provider {
+    background: color-mix(in srgb, var(--surface-strong) 78%, var(--positive) 22%);
+}
+
+.settings-provider__title {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.settings-provider__title strong,
+.settings-provider__title span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-provider__actions {
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.key-status,
+.default-badge {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    gap: 6px;
+    min-height: 34px;
+    padding: 6px 10px;
+    white-space: nowrap;
+}
+
+.key-status {
+    background: var(--surface-strong);
+    color: var(--muted);
+}
+
+.key-status--active,
+.default-badge {
+    background: color-mix(in srgb, var(--positive) 18%, var(--surface-strong));
+    border-color: color-mix(in srgb, var(--positive) 42%, var(--border));
+    color: var(--positive);
+}
+
 .shell-overlay {
     display: none;
 }
@@ -959,8 +1085,14 @@ button {
     .stock-search-header,
     .stock-workspace,
     .stock-quote,
-    .stock-search-form {
+    .stock-search-form,
+    .settings-form-grid {
         grid-template-columns: 1fr;
+    }
+
+    .settings-form-grid .form-field:nth-child(4),
+    .settings-form-grid .form-field:nth-child(5) {
+        grid-column: auto;
     }
 
     .hero-panel {
@@ -973,9 +1105,15 @@ button {
 
     .watchlist-create,
     .watchlist-card__header,
-    .instrument-row {
+    .instrument-row,
+    .settings-panel__head,
+    .settings-provider__head {
         align-items: stretch;
         flex-direction: column;
+    }
+
+    .settings-provider__actions {
+        justify-content: flex-start;
     }
 
     .watchlist-title-form {

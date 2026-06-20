@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\LlmProviderSettingController;
 use App\Http\Controllers\StockSearchController;
 use App\Http\Controllers\WatchlistController;
 use Illuminate\Support\Facades\Route;
@@ -28,8 +29,9 @@ Route::middleware('auth')->group(function (): void {
         'title' => 'AI 分析紀錄',
         'status' => 'Analysis history will be implemented after stock analysis actions are wired to the UI.',
     ]))->name('analyses.index');
-    Route::get('/settings', fn () => Inertia::render('Placeholder', [
-        'title' => '設定',
-        'status' => 'LLM provider settings will be implemented in the settings task.',
-    ]))->name('settings.index');
+    Route::get('/settings', [LlmProviderSettingController::class, 'index'])->name('settings.index');
+    Route::post('/settings', [LlmProviderSettingController::class, 'store'])->name('settings.store');
+    Route::patch('/settings/{llmProviderSetting}', [LlmProviderSettingController::class, 'update'])->name('settings.update');
+    Route::delete('/settings/{llmProviderSetting}', [LlmProviderSettingController::class, 'destroy'])->name('settings.destroy');
+    Route::patch('/settings/{llmProviderSetting}/default', [LlmProviderSettingController::class, 'makeDefault'])->name('settings.default');
 });
