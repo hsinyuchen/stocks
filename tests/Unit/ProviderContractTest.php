@@ -35,6 +35,7 @@ class ProviderContractTest extends TestCase
     public function test_fake_market_provider_returns_empty_prices_for_non_positive_days(): void
     {
         $this->assertSame([], (new FakeMarketDataProvider())->dailyPrices('AAPL', 0));
+        $this->assertSame([], (new FakeMarketDataProvider())->dailyPrices('AAPL', -1));
     }
 
     public function test_fake_market_provider_returns_stable_values_for_same_input(): void
@@ -60,7 +61,9 @@ class ProviderContractTest extends TestCase
         $provider = new FakeNewsProvider();
 
         $this->assertSame([], $provider->latestMarketNews('US', 0));
+        $this->assertSame([], $provider->latestMarketNews('US', -1));
         $this->assertSame([], $provider->relatedNews('AAPL', 0));
+        $this->assertSame([], $provider->relatedNews('AAPL', -1));
     }
 
     public function test_fake_news_provider_returns_related_stock_news_for_symbol(): void
