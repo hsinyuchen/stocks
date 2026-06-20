@@ -1,0 +1,17 @@
+{
+    "name": "Stock Analysis Platform",
+    "short_name": "Stocks",
+    "description": "Market radar and AI stock analysis workspace.",
+    "start_url": "/dashboard",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#f5efe4",
+    "theme_color": "#b85c38",
+    "icons": [
+        {
+            "src": "/favicon.ico",
+            "sizes": "48x48",
+            "type": "image/x-icon"
+        }
+    ]
+}
