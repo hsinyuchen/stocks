@@ -4,11 +4,20 @@ namespace App\Services\Fake;
 
 use App\Contracts\NewsProvider;
 use App\Data\NewsItemData;
+use Carbon\CarbonImmutable;
 
 class FakeNewsProvider implements NewsProvider
 {
+    private const BASE_TIMESTAMP = '2026-06-20T09:00:00+00:00';
+
     public function latestMarketNews(string $market, int $limit): array
     {
+        if ($limit <= 0) {
+            return [];
+        }
+
+        $baseTimestamp = self::baseTimestamp();
+
         return array_map(
             fn (int $index) => new NewsItemData(
                 source: 'fake-news',
@@ -16,7 +25,7 @@ class FakeNewsProvider implements NewsProvider
                 summary: 'Central bank expectations and semiconductor demand remain key market drivers.',
                 topic: 'macro',
                 relatedSymbols: ['QQQ', '2330.TW'],
-                publishedAt: now()->subMinutes($index * 15)->toIso8601String(),
+                publishedAt: $baseTimestamp->subMinutes(($index - 1) * 15)->toIso8601String(),
             ),
             range(1, $limit)
         );
@@ -24,6 +33,12 @@ class FakeNewsProvider implements NewsProvider
 
     public function relatedNews(string $symbol, int $limit): array
     {
+        if ($limit <= 0) {
+            return [];
+        }
+
+        $baseTimestamp = self::baseTimestamp();
+
         return array_map(
             fn (int $index) => new NewsItemData(
                 source: 'fake-news',
@@ -31,9 +46,14 @@ class FakeNewsProvider implements NewsProvider
                 summary: 'Revenue momentum and AI supply chain sentiment are being watched.',
                 topic: 'stock',
                 relatedSymbols: [$symbol],
-                publishedAt: now()->subMinutes($index * 20)->toIso8601String(),
+                publishedAt: $baseTimestamp->subMinutes(($index - 1) * 20)->toIso8601String(),
             ),
             range(1, $limit)
         );
+    }
+
+    private static function baseTimestamp(): CarbonImmutable
+    {
+        return CarbonImmutable::parse(self::BASE_TIMESTAMP);
     }
 }
