@@ -91,6 +91,16 @@ class TechnicalIndicatorServiceTest extends TestCase
         ]);
     }
 
+    public function test_throws_when_open_is_outside_high_low_range(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Price item at index 0 has invalid open: open must be within the low/high range.');
+
+        (new TechnicalIndicatorService())->calculate([
+            $this->price(close: 100.0, high: 102.0, low: 98.0, open: 103.0),
+        ]);
+    }
+
     public function test_throws_when_volume_is_negative(): void
     {
         $this->expectException(InvalidArgumentException::class);
