@@ -26,6 +26,7 @@ class LlmProviderSetting extends Model
     protected function casts(): array
     {
         return [
+            'api_key_encrypted' => 'encrypted',
             'timeout_seconds' => 'integer',
             'temperature' => 'decimal:2',
             'max_tokens' => 'integer',

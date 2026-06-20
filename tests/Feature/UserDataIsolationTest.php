@@ -3,12 +3,14 @@
 namespace Tests\Feature;
 
 use App\Models\Instrument;
-use App\Models\LlmProviderSetting;
 use App\Models\DailyPrice;
+use App\Models\LlmProviderSetting;
 use App\Models\User;
 use App\Models\Watchlist;
 use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class UserDataIsolationTest extends TestCase
@@ -63,6 +65,33 @@ class UserDataIsolationTest extends TestCase
         $this->assertArrayNotHasKey('api_key_encrypted', $serialized);
     }
 
+    public function test_llm_provider_setting_encrypts_api_key_at_rest_and_decrypts_on_read(): void
+    {
+        $user = User::factory()->create();
+
+        $setting = $user->llmProviderSettings()->create([
+            'provider_type' => 'openai',
+            'display_name' => 'Primary',
+            'base_url' => 'https://api.example.test',
+            'api_key_encrypted' => 'secret-key',
+            'model' => 'gpt-5',
+            'timeout_seconds' => 60,
+            'temperature' => '0.20',
+            'max_tokens' => 1200,
+            'is_default' => true,
+        ]);
+
+        $storedValue = DB::table('llm_provider_settings')
+            ->where('id', $setting->id)
+            ->value('api_key_encrypted');
+
+        $freshSetting = $setting->fresh();
+
+        $this->assertNotSame('secret-key', $storedValue);
+        $this->assertSame('secret-key', $freshSetting->api_key_encrypted);
+        $this->assertArrayNotHasKey('api_key_encrypted', $freshSetting->toArray());
+    }
+
     public function test_daily_price_casts_decimal_fields_and_date_with_normalized_scale(): void
     {
         $instrument = Instrument::factory()->create();
@@ -83,5 +112,67 @@ class UserDataIsolationTest extends TestCase
         $this->assertSame('120.1000', $price->low);
         $this->assertSame('124.9876', $price->close);
         $this->assertSame(1000, $price->volume);
+    }
+
+    public function test_watchlist_direct_create_cannot_override_user_id_and_relation_create_sets_it(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+
+        try {
+            Watchlist::create([
+                'user_id' => $otherUser->id,
+                'name' => 'Unsafe',
+            ]);
+
+            $this->fail('Expected direct watchlist create without relation to fail.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('user_id', $exception->getMessage());
+        }
+
+        $watchlist = $user->watchlists()->create([
+            'name' => 'Safe',
+        ]);
+
+        $this->assertSame($user->id, $watchlist->user_id);
+    }
+
+    public function test_llm_provider_setting_direct_create_cannot_override_user_id_and_relation_create_sets_it(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+
+        try {
+            LlmProviderSetting::create([
+                'user_id' => $otherUser->id,
+                'provider_type' => 'openai',
+                'display_name' => 'Unsafe',
+                'base_url' => 'https://api.example.test',
+                'api_key_encrypted' => 'secret-key',
+                'model' => 'gpt-5',
+                'timeout_seconds' => 60,
+                'temperature' => '0.20',
+                'max_tokens' => 1200,
+                'is_default' => true,
+            ]);
+
+            $this->fail('Expected direct provider setting create without relation to fail.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('user_id', $exception->getMessage());
+        }
+
+        $setting = $user->llmProviderSettings()->create([
+            'provider_type' => 'openai',
+            'display_name' => 'Safe',
+            'base_url' => 'https://api.example.test',
+            'api_key_encrypted' => 'secret-key',
+            'model' => 'gpt-5',
+            'timeout_seconds' => 60,
+            'temperature' => '0.20',
+            'max_tokens' => 1200,
+            'is_default' => true,
+        ]);
+
+        $this->assertSame($user->id, $setting->user_id);
     }
 }
