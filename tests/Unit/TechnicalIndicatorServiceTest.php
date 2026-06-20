@@ -37,7 +37,7 @@ class TechnicalIndicatorServiceTest extends TestCase
     public function test_calculates_indicators_for_one_day_price_history(): void
     {
         $snapshot = (new TechnicalIndicatorService())->calculate([
-            $this->price(close: 123.45, high: 126.0, low: 121.0),
+            $this->price(close: 123.45, high: 126.0, low: 121.0, open: 122.0),
         ]);
 
         $this->assertSame(123.45, $snapshot['ma5']);
@@ -52,9 +52,9 @@ class TechnicalIndicatorServiceTest extends TestCase
     public function test_flat_prices_produce_neutral_kd_values(): void
     {
         $snapshot = (new TechnicalIndicatorService())->calculate([
-            $this->price(close: 100.0, high: 100.0, low: 100.0),
-            $this->price(close: 100.0, high: 100.0, low: 100.0, date: '2026-06-19'),
-            $this->price(close: 100.0, high: 100.0, low: 100.0, date: '2026-06-20'),
+            $this->price(close: 100.0, high: 100.0, low: 100.0, open: 100.0),
+            $this->price(close: 100.0, high: 100.0, low: 100.0, open: 100.0, date: '2026-06-19'),
+            $this->price(close: 100.0, high: 100.0, low: 100.0, open: 100.0, date: '2026-06-20'),
         ]);
 
         $this->assertSame(50.0, $snapshot['k']);
@@ -68,6 +68,36 @@ class TechnicalIndicatorServiceTest extends TestCase
 
         (new TechnicalIndicatorService())->calculate([
             new stdClass(),
+        ]);
+    }
+
+    public function test_throws_when_high_is_below_low(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Price item at index 0 has invalid range: high must be greater than or equal to low.');
+
+        (new TechnicalIndicatorService())->calculate([
+            $this->price(close: 100.0, high: 95.0, low: 96.0),
+        ]);
+    }
+
+    public function test_throws_when_close_is_outside_high_low_range(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Price item at index 0 has invalid close: close must be within the low/high range.');
+
+        (new TechnicalIndicatorService())->calculate([
+            $this->price(close: 105.0, high: 102.0, low: 98.0),
+        ]);
+    }
+
+    public function test_throws_when_volume_is_negative(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Price item at index 0 has invalid volume: volume must be zero or greater.');
+
+        (new TechnicalIndicatorService())->calculate([
+            $this->price(close: 100.0, volume: -1),
         ]);
     }
 
@@ -97,9 +127,9 @@ class TechnicalIndicatorServiceTest extends TestCase
     public function test_calculates_exact_moving_averages_for_short_deterministic_history(): void
     {
         $snapshot = (new TechnicalIndicatorService())->calculate([
-            $this->price(close: 10.0),
-            $this->price(close: 20.0, date: '2026-06-19'),
-            $this->price(close: 30.0, date: '2026-06-20'),
+            $this->price(close: 10.0, high: 10.0, low: 10.0, open: 10.0),
+            $this->price(close: 20.0, high: 20.0, low: 20.0, open: 20.0, date: '2026-06-19'),
+            $this->price(close: 30.0, high: 30.0, low: 30.0, open: 30.0, date: '2026-06-20'),
         ]);
 
         $this->assertSame(20.0, $snapshot['ma5']);

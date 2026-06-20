@@ -101,6 +101,42 @@ class TechnicalIndicatorService
             $normalized[$field] = (float) $value;
         }
 
+        if ($normalized['high'] < $normalized['low']) {
+            throw new InvalidArgumentException(
+                sprintf(
+                    'Price item at index %s has invalid range: high must be greater than or equal to low.',
+                    $index,
+                ),
+            );
+        }
+
+        if ($normalized['open'] < $normalized['low'] || $normalized['open'] > $normalized['high']) {
+            throw new InvalidArgumentException(
+                sprintf(
+                    'Price item at index %s has invalid open: open must be within the low/high range.',
+                    $index,
+                ),
+            );
+        }
+
+        if ($normalized['close'] < $normalized['low'] || $normalized['close'] > $normalized['high']) {
+            throw new InvalidArgumentException(
+                sprintf(
+                    'Price item at index %s has invalid close: close must be within the low/high range.',
+                    $index,
+                ),
+            );
+        }
+
+        if ($normalized['volume'] < 0) {
+            throw new InvalidArgumentException(
+                sprintf(
+                    'Price item at index %s has invalid volume: volume must be zero or greater.',
+                    $index,
+                ),
+            );
+        }
+
         return $normalized;
     }
 

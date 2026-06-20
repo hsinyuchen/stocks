@@ -26,25 +26,31 @@ class SignalEngine
         if ($k > $d) {
             $score++;
             $reasons[] = 'KD is positive because K is above D.';
-        } else {
+        } elseif ($k < $d) {
             $score--;
-            $reasons[] = 'KD is cautious because K is below or equal to D.';
+            $reasons[] = 'KD is cautious because K is below D.';
+        } else {
+            $reasons[] = 'KD is neutral because K equals D.';
         }
 
         if ($macdHistogram > 0) {
             $score++;
             $reasons[] = 'MACD histogram is positive.';
-        } else {
+        } elseif ($macdHistogram < 0) {
             $score--;
-            $reasons[] = 'MACD histogram is negative or flat.';
+            $reasons[] = 'MACD histogram is negative.';
+        } else {
+            $reasons[] = 'MACD histogram is neutral.';
         }
 
         if ($ma5 > $ma20) {
             $score++;
             $reasons[] = 'Short-term moving average is above medium-term moving average.';
-        } else {
+        } elseif ($ma5 < $ma20) {
             $score--;
-            $reasons[] = 'Short-term moving average is below or equal to medium-term moving average.';
+            $reasons[] = 'Short-term moving average is below medium-term moving average.';
+        } else {
+            $reasons[] = 'Short-term moving average is neutral because it equals the medium-term moving average.';
         }
 
         $stance = match (true) {
