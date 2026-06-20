@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\LlmProviderSetting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
@@ -75,6 +76,28 @@ class LlmSettingsTest extends TestCase
         $this->assertFalse($existingDefault->fresh()->is_default);
     }
 
+    public function test_user_can_create_llamacpp_setting_with_spec_provider_key(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->post('/settings', $this->validPayload([
+                'provider_type' => 'llamacpp',
+                'display_name' => 'Remote llama.cpp',
+                'base_url' => 'http://192.168.1.20:8080/v1',
+                'api_key' => '',
+                'model' => 'local-model',
+            ]))
+            ->assertRedirect('/settings')
+            ->assertValid();
+
+        $this->assertDatabaseHas('llm_provider_settings', [
+            'user_id' => $user->id,
+            'provider_type' => 'llamacpp',
+            'display_name' => 'Remote llama.cpp',
+        ]);
+    }
+
     public function test_update_without_api_key_preserves_existing_key_and_update_with_api_key_changes_it(): void
     {
         $user = User::factory()->create();
@@ -125,6 +148,26 @@ class LlmSettingsTest extends TestCase
         $this->assertFalse($oldDefault->fresh()->is_default);
         $this->assertTrue($newDefault->fresh()->is_default);
         $this->assertTrue($otherDefault->fresh()->is_default);
+        $this->assertSame(1, $user->llmProviderSettings()->where('is_default', true)->count());
+    }
+
+    public function test_database_prevents_multiple_defaults_for_same_user(): void
+    {
+        $user = User::factory()->create();
+
+        $this->createSetting($user, [
+            'display_name' => 'Default A',
+            'is_default' => true,
+            'default_marker' => true,
+        ]);
+
+        $this->expectException(QueryException::class);
+
+        $this->createSetting($user, [
+            'display_name' => 'Default B',
+            'is_default' => true,
+            'default_marker' => true,
+        ]);
     }
 
     public function test_user_cannot_update_delete_or_set_default_for_another_users_setting(): void

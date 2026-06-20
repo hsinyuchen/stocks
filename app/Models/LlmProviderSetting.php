@@ -17,6 +17,7 @@ class LlmProviderSetting extends Model
         'temperature',
         'max_tokens',
         'is_default',
+        'default_marker',
     ];
 
     protected $hidden = [
@@ -31,6 +32,7 @@ class LlmProviderSetting extends Model
             'temperature' => 'decimal:2',
             'max_tokens' => 'integer',
             'is_default' => 'boolean',
+            'default_marker' => 'boolean',
         ];
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\LlmProviderType;
 use App\Models\LlmProviderSetting;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ class LlmProviderSettingController extends Controller
                 'temperature' => (float) $setting->temperature,
                 'max_tokens' => $setting->max_tokens,
                 'is_default' => $setting->is_default,
-                'has_api_key' => filled($setting->api_key_encrypted),
+                'has_api_key' => filled($setting->getRawOriginal('api_key_encrypted')),
                 'created_at' => $setting->created_at?->toIso8601String(),
                 'updated_at' => $setting->updated_at?->toIso8601String(),
             ])
@@ -100,14 +101,7 @@ class LlmProviderSettingController extends Controller
     private function validatedData(Request $request): array
     {
         return $request->validate([
-            'provider_type' => ['required', 'string', Rule::in([
-                'openai',
-                'gemini',
-                'openrouter',
-                'openai_compatible',
-                'ollama',
-                'llama_cpp',
-            ])],
+            'provider_type' => ['required', Rule::enum(LlmProviderType::class)],
             'display_name' => ['required', 'string', 'max:80'],
             'base_url' => ['nullable', 'url', 'max:255'],
             'api_key' => ['nullable', 'string', 'max:2048'],
@@ -134,6 +128,7 @@ class LlmProviderSettingController extends Controller
             'temperature' => $data['temperature'],
             'max_tokens' => $data['max_tokens'],
             'is_default' => $data['is_default'],
+            'default_marker' => $data['is_default'] ? true : null,
         ];
 
         if ($existing === null || filled($data['api_key'] ?? null)) {
@@ -151,7 +146,10 @@ class LlmProviderSettingController extends Controller
             $query->whereKeyNot($except->id);
         }
 
-        $query->update(['is_default' => false]);
+        $query->update([
+            'is_default' => false,
+            'default_marker' => null,
+        ]);
     }
 
     private function authorizeSetting(Request $request, LlmProviderSetting $setting): void

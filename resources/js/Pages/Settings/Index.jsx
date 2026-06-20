@@ -1,4 +1,5 @@
 import { router, useForm } from '@inertiajs/react';
+import { useEffect } from 'react';
 import { KeyRound, Plus, Save, Star, Trash2 } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 
@@ -8,7 +9,7 @@ const providerOptions = [
     { value: 'openrouter', label: 'OpenRouter' },
     { value: 'openai_compatible', label: 'Zeabur / OpenAI-compatible' },
     { value: 'ollama', label: 'Ollama' },
-    { value: 'llama_cpp', label: 'llama.cpp' },
+    { value: 'llamacpp', label: 'llama.cpp' },
 ];
 
 const providerHints = {
@@ -17,7 +18,7 @@ const providerHints = {
     openrouter: 'OpenRouter base_url: https://openrouter.ai/api/v1',
     openai_compatible: 'Zeabur/OpenAI-compatible: use your deployed service /v1 endpoint.',
     ollama: 'Ollama remote: http://192.168.1.10:11434/v1 or the Ollama OpenAI-compatible endpoint.',
-    llama_cpp: 'llama.cpp remote: http://192.168.1.20:8080/v1',
+    llamacpp: 'llama.cpp remote: http://192.168.1.20:8080/v1',
 };
 
 const emptyForm = {
@@ -212,7 +213,7 @@ function EditProviderForm({ setting }) {
         timeout_seconds: setting.timeout_seconds,
         temperature: setting.temperature,
         max_tokens: setting.max_tokens,
-        is_default: setting.is_default,
+        is_default: Boolean(setting.is_default),
     });
 
     const submit = (event) => {
@@ -222,6 +223,10 @@ function EditProviderForm({ setting }) {
             onSuccess: () => form.reset('api_key'),
         });
     };
+
+    useEffect(() => {
+        form.setData('is_default', Boolean(setting.is_default));
+    }, [setting.is_default]);
 
     const destroy = () => {
         router.delete(`/settings/${setting.id}`, {
@@ -266,7 +271,7 @@ function EditProviderForm({ setting }) {
                     </button>
                 </div>
             </div>
-            <ProviderFormFields form={form} setting={setting} />
+                        <ProviderFormFields form={form} setting={setting} />
         </form>
     );
 }
