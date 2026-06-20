@@ -166,7 +166,7 @@ button {
         transform 160ms ease;
 }
 
-.nav-menu__item:first-child,
+.nav-menu__item--active,
 .nav-menu__item:hover,
 .nav-menu__item:focus-visible {
     background: color-mix(in srgb, var(--accent) 14%, var(--surface));
@@ -229,6 +229,7 @@ button {
     border: 1px solid var(--border);
     border-radius: 8px;
     gap: 10px;
+    min-width: 0;
     padding: 10px;
 }
 
@@ -248,6 +249,14 @@ button {
 .user-chip small {
     display: block;
     line-height: 1.2;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-chip__body {
+    min-width: 0;
 }
 
 .shell-main {
@@ -373,6 +382,26 @@ button {
 
 .table-panel {
     padding: 22px;
+}
+
+.placeholder-panel {
+    background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    padding: 28px;
+}
+
+.placeholder-panel h2 {
+    font-size: 1.45rem;
+    font-weight: 800;
+    margin: 6px 0 10px;
+}
+
+.placeholder-panel p:last-child {
+    color: var(--muted);
+    line-height: 1.65;
+    margin: 0;
 }
 
 .panel-heading {

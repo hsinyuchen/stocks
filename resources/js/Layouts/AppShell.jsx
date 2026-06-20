@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Head, usePage } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import {
     BarChart3,
     Bell,
@@ -13,26 +13,40 @@ import HamburgerButton from '../Components/HamburgerButton';
 import ThemeToggle from '../Components/ThemeToggle';
 
 const menuItems = [
-    { label: '市場雷達', icon: BarChart3 },
-    { label: '即時新聞', icon: Newspaper },
-    { label: '觀察清單', icon: Star },
-    { label: '個股搜尋', icon: Search },
-    { label: 'AI 分析紀錄', icon: Bot },
-    { label: '設定', icon: Settings },
+    { href: '/dashboard', label: '市場雷達', icon: BarChart3 },
+    { href: '/news', label: '即時新聞', icon: Newspaper },
+    { href: '/watchlists', label: '觀察清單', icon: Star },
+    { href: '/stocks/search', label: '個股搜尋', icon: Search },
+    { href: '/analyses', label: 'AI 分析紀錄', icon: Bot },
+    { href: '/settings', label: '設定', icon: Settings },
 ];
 
 function normalizeTheme(theme) {
     return theme === 'dark' ? 'dark' : 'warm';
 }
 
+function readStoredTheme() {
+    try {
+        return window.localStorage.getItem('stock-theme');
+    } catch {
+        return null;
+    }
+}
+
+function writeStoredTheme(theme) {
+    try {
+        window.localStorage.setItem('stock-theme', theme);
+    } catch {
+        // Storage can be unavailable in private or locked-down browsing contexts.
+    }
+}
+
 export default function AppShell({ children, title = 'Dashboard' }) {
-    const { props } = usePage();
+    const { props, url } = usePage();
     const user = props.auth?.user;
-    const initialTheme = useMemo(
-        () => normalizeTheme(user?.profile?.theme ?? window.localStorage.getItem('stock-theme')),
-        [user?.profile?.theme],
-    );
-    const [theme, setTheme] = useState(initialTheme);
+    const currentPath = url.split(/[?#]/)[0];
+    const initialTheme = useMemo(() => normalizeTheme(readStoredTheme() ?? user?.profile?.theme), [user?.profile?.theme]);
+    const [theme, setTheme] = useState(() => initialTheme);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
     useEffect(() => {
@@ -40,7 +54,7 @@ export default function AppShell({ children, title = 'Dashboard' }) {
         document
             .querySelector('meta[name="theme-color"]')
             ?.setAttribute('content', theme === 'dark' ? '#111111' : '#f5efe4');
-        window.localStorage.setItem('stock-theme', theme);
+        writeStoredTheme(theme);
     }, [theme]);
 
     useEffect(() => {
@@ -73,12 +87,19 @@ export default function AppShell({ children, title = 'Dashboard' }) {
                     <nav className="nav-menu">
                         {menuItems.map((item) => {
                             const Icon = item.icon;
+                            const isActive = currentPath === item.href || currentPath.startsWith(`${item.href}/`);
 
                             return (
-                                <a className="nav-menu__item" href="#dashboard" key={item.label}>
+                                <Link
+                                    aria-current={isActive ? 'page' : undefined}
+                                    className={`nav-menu__item ${isActive ? 'nav-menu__item--active' : ''}`}
+                                    href={item.href}
+                                    key={item.href}
+                                    onClick={() => setIsMenuOpen(false)}
+                                >
                                     <Icon aria-hidden="true" size={19} />
                                     <span>{item.label}</span>
-                                </a>
+                                </Link>
                             );
                         })}
                     </nav>
@@ -87,7 +108,7 @@ export default function AppShell({ children, title = 'Dashboard' }) {
                         <ThemeToggle theme={theme} onToggle={toggleTheme} />
                         <div className="user-chip">
                             <span>{user?.name?.charAt(0)?.toUpperCase() ?? 'U'}</span>
-                            <div>
+                            <div className="user-chip__body">
                                 <strong>{user?.name ?? 'User'}</strong>
                                 <small>{user?.profile?.preferred_market ?? 'TW_US'}</small>
                             </div>

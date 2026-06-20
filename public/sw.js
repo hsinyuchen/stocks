@@ -1,11 +1,21 @@
-const CACHE_NAME = 'stock-platform-shell-v1';
-const APP_SHELL = ['/', '/dashboard', '/manifest.json', '/favicon.ico'];
+const CACHE_NAME = 'stock-platform-static-v2';
+const STATIC_ASSETS = ['/manifest.json', '/favicon.ico'];
+
+function isCacheableStaticRequest(request) {
+    const url = new URL(request.url);
+
+    if (url.origin !== self.location.origin || request.method !== 'GET') {
+        return false;
+    }
+
+    return url.pathname.startsWith('/build/') || STATIC_ASSETS.includes(url.pathname);
+}
 
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches
             .open(CACHE_NAME)
-            .then((cache) => cache.addAll(APP_SHELL))
+            .then((cache) => cache.addAll(STATIC_ASSETS))
             .catch(() => undefined),
     );
     self.skipWaiting();
@@ -21,19 +31,23 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-    if (event.request.method !== 'GET') {
+    if (!isCacheableStaticRequest(event.request)) {
         return;
     }
 
     event.respondWith(
-        fetch(event.request)
-            .then((response) => {
-                const copy = response.clone();
+        caches.match(event.request).then((cached) => {
+            if (cached) {
+                return cached;
+            }
 
-                caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+            return fetch(event.request).then((response) => {
+                if (response.ok) {
+                    caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
+                }
 
                 return response;
-            })
-            .catch(() => caches.match(event.request).then((response) => response || caches.match('/dashboard'))),
+            });
+        }),
     );
 });
