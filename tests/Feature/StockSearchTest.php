@@ -19,6 +19,15 @@ class StockSearchTest extends TestCase
             ->assertRedirect('/login');
     }
 
+    public function test_guest_is_redirected_from_stock_analysis_action_to_login(): void
+    {
+        $instrument = Instrument::factory()->create(['symbol' => 'AAPL']);
+
+        $this->post("/stocks/{$instrument->id}/analyses", [
+            'model' => 'reference-model',
+        ])->assertRedirect('/login');
+    }
+
     public function test_authenticated_user_can_open_stock_search_page(): void
     {
         $user = User::factory()->create();

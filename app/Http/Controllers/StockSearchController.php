@@ -98,7 +98,7 @@ class StockSearchController extends Controller
         $symbol = strtoupper(trim((string) $quote->symbol));
         $market = str_ends_with($symbol, '.TW') ? MarketRegion::Taiwan : MarketRegion::UnitedStates;
 
-        return Instrument::query()->firstOrCreate(
+        return Instrument::query()->createOrFirst(
             ['symbol' => $symbol],
             [
                 'name' => $symbol,
