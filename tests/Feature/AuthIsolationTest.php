@@ -17,5 +17,6 @@ class AuthIsolationTest extends TestCase
         $this->assertNotNull($user->profile);
         $this->assertSame('warm', $user->profile->theme);
         $this->assertSame('Asia/Taipei', $user->profile->timezone);
+        $this->assertSame('TW_US', $user->profile->preferred_market);
     }
 }
