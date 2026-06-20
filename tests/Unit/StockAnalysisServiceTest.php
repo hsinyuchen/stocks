@@ -49,6 +49,8 @@ class StockAnalysisServiceTest extends TestCase
             'score' => 1,
             'reasons' => ['Short-term setup is constructive but not confirmed.'],
         ];
+        $technicalSnapshotJson = json_encode($technicalSnapshot, JSON_UNESCAPED_UNICODE);
+        $ruleSignalJson = json_encode($ruleSignal, JSON_UNESCAPED_UNICODE);
 
         $service = new StockAnalysisService(
             $marketData,
@@ -70,12 +72,26 @@ class StockAnalysisServiceTest extends TestCase
         $this->assertSame('NVDA', $news->lastRelatedNewsSymbol);
         $this->assertSame(5, $news->lastRelatedNewsLimit);
         $this->assertNotNull($llm->lastPrompt);
-        $this->assertStringContainsString('Symbol: NVDA', $llm->lastPrompt);
-        $this->assertStringContainsString('Price: 128.5', $llm->lastPrompt);
         $this->assertStringContainsString(
-            'Rule signal: '.json_encode($ruleSignal, JSON_UNESCAPED_UNICODE),
+            'Provide reference analysis only, not guaranteed investment advice.',
             $llm->lastPrompt,
         );
+        $this->assertStringContainsString('BEGIN_SYMBOL', $llm->lastPrompt);
+        $this->assertStringContainsString('Symbol: NVDA', $llm->lastPrompt);
+        $this->assertStringContainsString('END_SYMBOL', $llm->lastPrompt);
+        $this->assertStringContainsString('BEGIN_QUOTE', $llm->lastPrompt);
+        $this->assertStringContainsString('Price: 128.5', $llm->lastPrompt);
+        $this->assertStringContainsString('END_QUOTE', $llm->lastPrompt);
+        $this->assertStringContainsString('BEGIN_TECHNICAL_SNAPSHOT', $llm->lastPrompt);
+        $this->assertStringContainsString('Technical snapshot:', $llm->lastPrompt);
+        $this->assertStringContainsString($technicalSnapshotJson, $llm->lastPrompt);
+        $this->assertStringContainsString('END_TECHNICAL_SNAPSHOT', $llm->lastPrompt);
+        $this->assertStringContainsString('BEGIN_RULE_SIGNAL', $llm->lastPrompt);
+        $this->assertStringContainsString(
+            'Rule signal: '.$ruleSignalJson,
+            $llm->lastPrompt,
+        );
+        $this->assertStringContainsString('END_RULE_SIGNAL', $llm->lastPrompt);
         $this->assertStringContainsString('BEGIN_RELATED_NEWS', $llm->lastPrompt);
         $this->assertStringContainsString('END_RELATED_NEWS', $llm->lastPrompt);
         $this->assertStringContainsString('NVDA headline: Channel demand remains strong.', $llm->lastPrompt);
