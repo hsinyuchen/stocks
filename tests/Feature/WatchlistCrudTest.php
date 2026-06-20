@@ -121,7 +121,7 @@ class WatchlistCrudTest extends TestCase
         ]);
     }
 
-    public function test_user_can_add_existing_and_new_instruments_to_watchlist_and_duplicate_item_fails_validation(): void
+    public function test_user_can_add_existing_instrument_to_watchlist_and_duplicate_item_fails_validation(): void
     {
         $user = User::factory()->create();
         $watchlist = Watchlist::factory()->for($user)->create(['name' => 'Core']);
@@ -158,23 +158,7 @@ class WatchlistCrudTest extends TestCase
             'exchange' => 'NASDAQ',
         ]);
 
-        $this->actingAs($user)
-            ->post("/watchlists/{$watchlist->id}/items", [
-                'symbol' => 'msft',
-                'name' => 'Microsoft',
-                'market' => 'US',
-                'asset_type' => 'stock',
-                'currency' => 'USD',
-                'exchange' => 'NASDAQ',
-                'note' => null,
-            ])
-            ->assertRedirect('/watchlists');
-
-        $this->assertDatabaseHas('instruments', [
-            'symbol' => 'MSFT',
-            'name' => 'Microsoft',
-        ]);
-        $this->assertSame(2, $watchlist->items()->count());
+        $this->assertSame(1, $watchlist->items()->count());
 
         $this->actingAs($user)
             ->from('/watchlists')
@@ -190,7 +174,31 @@ class WatchlistCrudTest extends TestCase
             ->assertInvalid(['symbol']);
     }
 
-    public function test_user_cannot_update_delete_another_users_watchlist_or_remove_another_users_item(): void
+    public function test_missing_instrument_symbol_fails_validation_instead_of_creating_global_instrument(): void
+    {
+        $user = User::factory()->create();
+        $watchlist = Watchlist::factory()->for($user)->create(['name' => 'Core']);
+
+        $this->actingAs($user)
+            ->from('/watchlists')
+            ->post("/watchlists/{$watchlist->id}/items", [
+                'symbol' => 'msft',
+                'name' => 'User Supplied Microsoft',
+                'market' => 'US',
+                'asset_type' => 'stock',
+                'currency' => 'USD',
+                'exchange' => 'NASDAQ',
+            ])
+            ->assertRedirect('/watchlists')
+            ->assertInvalid(['symbol']);
+
+        $this->assertDatabaseMissing('instruments', [
+            'symbol' => 'MSFT',
+        ]);
+        $this->assertSame(0, $watchlist->items()->count());
+    }
+
+    public function test_user_cannot_update_delete_another_users_watchlist_or_add_or_remove_another_users_item(): void
     {
         $user = User::factory()->create();
         $otherUser = User::factory()->create();
@@ -208,6 +216,16 @@ class WatchlistCrudTest extends TestCase
 
         $this->actingAs($user)
             ->delete("/watchlists/{$otherWatchlist->id}")
+            ->assertForbidden();
+
+        $this->actingAs($user)
+            ->post("/watchlists/{$otherWatchlist->id}/items", [
+                'symbol' => 'NVDA',
+                'name' => 'Nvidia',
+                'market' => 'US',
+                'asset_type' => 'stock',
+                'currency' => 'USD',
+            ])
             ->assertForbidden();
 
         $this->actingAs($user)

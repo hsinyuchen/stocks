@@ -626,6 +626,11 @@ button {
     grid-template-columns: minmax(110px, 0.75fr) minmax(180px, 1.35fr) minmax(92px, 0.55fr) minmax(98px, 0.6fr) minmax(96px, 0.6fr) minmax(130px, 0.8fr);
 }
 
+.instrument-form__grid--compact {
+    align-items: end;
+    grid-template-columns: minmax(180px, 1fr) auto;
+}
+
 .instrument-row {
     background: var(--surface-strong);
     border: 1px solid var(--border);

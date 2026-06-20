@@ -2,11 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\AssetType;
-use App\Enums\MarketRegion;
 use App\Models\Instrument;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -44,18 +43,6 @@ class WatchlistController extends Controller
 
         return Inertia::render('Watchlists/Index', [
             'watchlists' => $watchlists,
-            'marketOptions' => collect(MarketRegion::cases())
-                ->map(fn (MarketRegion $market): array => [
-                    'value' => $market->value,
-                    'label' => $market->name,
-                ])
-                ->values(),
-            'assetTypeOptions' => collect(AssetType::cases())
-                ->map(fn (AssetType $assetType): array => [
-                    'value' => $assetType->value,
-                    'label' => $assetType->name,
-                ])
-                ->values(),
         ]);
     }
 
@@ -72,7 +59,11 @@ class WatchlistController extends Controller
             ],
         ]);
 
-        $request->user()->watchlists()->create($data);
+        try {
+            $request->user()->watchlists()->create($data);
+        } catch (QueryException $exception) {
+            $this->throwUniqueValidation($exception, 'name', 'A watchlist with this name already exists.');
+        }
 
         return redirect()->route('watchlists.index');
     }
@@ -93,7 +84,11 @@ class WatchlistController extends Controller
             ],
         ]);
 
-        $watchlist->update($data);
+        try {
+            $watchlist->update($data);
+        } catch (QueryException $exception) {
+            $this->throwUniqueValidation($exception, 'name', 'A watchlist with this name already exists.');
+        }
 
         return redirect()->route('watchlists.index');
     }
@@ -113,39 +108,31 @@ class WatchlistController extends Controller
         $this->normalizeInstrumentInput($request);
 
         $data = $request->validate([
-            'symbol' => ['required', 'string', 'max:32'],
-            'name' => ['required', 'string', 'max:255'],
-            'market' => ['required', Rule::enum(MarketRegion::class)],
-            'asset_type' => ['required', Rule::enum(AssetType::class)],
-            'currency' => ['required', 'string', 'max:8'],
-            'exchange' => ['nullable', 'string', 'max:255'],
+            'symbol' => ['required', 'string', 'max:32', Rule::exists('instruments', 'symbol')],
             'note' => ['nullable', 'string', 'max:255'],
+        ], [
+            'symbol.exists' => 'Search and create this instrument before adding it to a watchlist.',
         ]);
 
-        $instrument = Instrument::query()->where('symbol', $data['symbol'])->first();
+        $instrument = Instrument::query()
+            ->where('symbol', $data['symbol'])
+            ->firstOrFail();
 
-        if ($instrument && $watchlist->items()->where('instrument_id', $instrument->id)->exists()) {
+        if ($watchlist->items()->where('instrument_id', $instrument->id)->exists()) {
             throw ValidationException::withMessages([
                 'symbol' => 'This symbol is already on this watchlist.',
             ]);
         }
 
-        $instrument ??= Instrument::query()->firstOrCreate(
-            ['symbol' => $data['symbol']],
-            [
-                'name' => $data['name'],
-                'market' => $data['market'],
-                'asset_type' => $data['asset_type'],
-                'currency' => $data['currency'],
-                'exchange' => $data['exchange'] ?? null,
-            ],
-        );
-
-        $watchlist->items()->create([
-            'instrument_id' => $instrument->id,
-            'sort_order' => ((int) $watchlist->items()->max('sort_order')) + 1,
-            'note' => $data['note'] ?? null,
-        ]);
+        try {
+            $watchlist->items()->create([
+                'instrument_id' => $instrument->id,
+                'sort_order' => ((int) $watchlist->items()->max('sort_order')) + 1,
+                'note' => $data['note'] ?? null,
+            ]);
+        } catch (QueryException $exception) {
+            $this->throwUniqueValidation($exception, 'symbol', 'This symbol is already on this watchlist.');
+        }
 
         return redirect()->route('watchlists.index');
     }
@@ -175,14 +162,31 @@ class WatchlistController extends Controller
 
     private function normalizeInstrumentInput(Request $request): void
     {
-        $exchange = $request->input('exchange');
-
         $request->merge([
             'symbol' => strtoupper(trim((string) $request->input('symbol', ''))),
-            'name' => trim((string) $request->input('name', '')),
-            'currency' => strtoupper(trim((string) $request->input('currency', ''))),
-            'exchange' => $exchange === null ? null : trim((string) $exchange),
             'note' => $request->input('note') === null ? null : trim((string) $request->input('note')),
         ]);
+    }
+
+    private function throwUniqueValidation(QueryException $exception, string $field, string $message): never
+    {
+        if (! $this->isUniqueConstraintViolation($exception)) {
+            throw $exception;
+        }
+
+        throw ValidationException::withMessages([
+            $field => $message,
+        ]);
+    }
+
+    private function isUniqueConstraintViolation(QueryException $exception): bool
+    {
+        $sqlState = (string) ($exception->errorInfo[0] ?? $exception->getCode());
+        $driverCode = (string) ($exception->errorInfo[1] ?? '');
+        $message = $exception->getMessage();
+
+        return $sqlState === '23505'
+            || $driverCode === '1062'
+            || str_contains($message, 'UNIQUE constraint failed');
     }
 }

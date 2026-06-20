@@ -20,16 +20,6 @@ function TextField({ error, label, ...props }) {
     );
 }
 
-function SelectField({ children, error, label, ...props }) {
-    return (
-        <label className="form-field">
-            <span>{label}</span>
-            <select {...props}>{children}</select>
-            <FieldError message={error} />
-        </label>
-    );
-}
-
 function CreateWatchlistForm() {
     const form = useForm({ name: '' });
 
@@ -87,14 +77,9 @@ function RenameWatchlistForm({ watchlist }) {
     );
 }
 
-function AddInstrumentForm({ assetTypeOptions, marketOptions, watchlist }) {
+function AddInstrumentForm({ watchlist }) {
     const form = useForm({
         symbol: '',
-        name: '',
-        market: marketOptions[0]?.value ?? 'US',
-        asset_type: assetTypeOptions[0]?.value ?? 'stock',
-        currency: marketOptions[0]?.value === 'TW' ? 'TWD' : 'USD',
-        exchange: '',
         note: '',
     });
 
@@ -102,77 +87,26 @@ function AddInstrumentForm({ assetTypeOptions, marketOptions, watchlist }) {
         event.preventDefault();
         form.post(`/watchlists/${watchlist.id}/items`, {
             preserveScroll: true,
-            onSuccess: () => form.reset('symbol', 'name', 'exchange', 'note'),
+            onSuccess: () => form.reset('symbol', 'note'),
         });
     };
 
     return (
         <form className="instrument-form" onSubmit={submit}>
-            <div className="instrument-form__grid">
+            <div className="instrument-form__grid instrument-form__grid--compact">
                 <TextField
                     error={form.errors.symbol}
-                    label="Symbol"
+                    label="Existing symbol"
                     maxLength="32"
                     onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
                     placeholder="AAPL"
                     type="text"
                     value={form.data.symbol}
                 />
-                <TextField
-                    error={form.errors.name}
-                    label="Name"
-                    onChange={(event) => form.setData('name', event.target.value)}
-                    placeholder="Apple Inc."
-                    type="text"
-                    value={form.data.name}
-                />
-                <SelectField
-                    error={form.errors.market}
-                    label="Market"
-                    onChange={(event) => {
-                        form.setData({
-                            ...form.data,
-                            market: event.target.value,
-                            currency: event.target.value === 'TW' ? 'TWD' : form.data.currency,
-                        });
-                    }}
-                    value={form.data.market}
-                >
-                    {marketOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                            {option.value}
-                        </option>
-                    ))}
-                </SelectField>
-                <SelectField
-                    error={form.errors.asset_type}
-                    label="Type"
-                    onChange={(event) => form.setData('asset_type', event.target.value)}
-                    value={form.data.asset_type}
-                >
-                    {assetTypeOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                            {option.value.toUpperCase()}
-                        </option>
-                    ))}
-                </SelectField>
-                <TextField
-                    error={form.errors.currency}
-                    label="Currency"
-                    maxLength="8"
-                    onChange={(event) => form.setData('currency', event.target.value.toUpperCase())}
-                    placeholder="USD"
-                    type="text"
-                    value={form.data.currency}
-                />
-                <TextField
-                    error={form.errors.exchange}
-                    label="Exchange"
-                    onChange={(event) => form.setData('exchange', event.target.value)}
-                    placeholder="NASDAQ"
-                    type="text"
-                    value={form.data.exchange}
-                />
+                <button className="button-secondary" disabled={form.processing} type="submit">
+                    <Plus aria-hidden="true" size={18} />
+                    <span>Add stock</span>
+                </button>
             </div>
             <TextField
                 error={form.errors.note}
@@ -183,10 +117,6 @@ function AddInstrumentForm({ assetTypeOptions, marketOptions, watchlist }) {
                 type="text"
                 value={form.data.note}
             />
-            <button className="button-secondary" disabled={form.processing} type="submit">
-                <Plus aria-hidden="true" size={18} />
-                <span>Add stock</span>
-            </button>
         </form>
     );
 }
@@ -220,7 +150,7 @@ function InstrumentRow({ item, watchlist }) {
     );
 }
 
-function WatchlistCard({ assetTypeOptions, marketOptions, watchlist }) {
+function WatchlistCard({ watchlist }) {
     const destroy = () => {
         router.delete(`/watchlists/${watchlist.id}`, {
             preserveScroll: true,
@@ -249,16 +179,12 @@ function WatchlistCard({ assetTypeOptions, marketOptions, watchlist }) {
                 )}
             </div>
 
-            <AddInstrumentForm
-                assetTypeOptions={assetTypeOptions}
-                marketOptions={marketOptions}
-                watchlist={watchlist}
-            />
+            <AddInstrumentForm watchlist={watchlist} />
         </article>
     );
 }
 
-export default function WatchlistsIndex({ assetTypeOptions = [], marketOptions = [], watchlists = [] }) {
+export default function WatchlistsIndex({ watchlists = [] }) {
     return (
         <AppShell title="Watchlists">
             <div className="watchlists-page">
@@ -267,7 +193,7 @@ export default function WatchlistsIndex({ assetTypeOptions = [], marketOptions =
                         <p className="section-kicker">Watchlists</p>
                         <h2>Track symbols by strategy</h2>
                         <p>
-                            Manage personal lists, add instruments, and keep short notes for follow-up analysis.
+                            Manage personal lists, add known instruments, and keep short notes for follow-up analysis.
                         </p>
                     </div>
                     <CreateWatchlistForm />
@@ -277,9 +203,7 @@ export default function WatchlistsIndex({ assetTypeOptions = [], marketOptions =
                     {watchlists.length > 0 ? (
                         watchlists.map((watchlist) => (
                             <WatchlistCard
-                                assetTypeOptions={assetTypeOptions}
                                 key={watchlist.id}
-                                marketOptions={marketOptions}
                                 watchlist={watchlist}
                             />
                         ))
