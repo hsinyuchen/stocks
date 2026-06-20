@@ -61,6 +61,56 @@ body {
     font-family: var(--font-sans);
 }
 
+.auth-page {
+    display: grid;
+    gap: 28px;
+    min-height: 100vh;
+    padding: 40px;
+}
+
+.auth-hero {
+    align-self: end;
+    max-width: 760px;
+}
+
+.auth-hero h1 {
+    font-size: clamp(2rem, 5vw, 4rem);
+    font-weight: 850;
+    line-height: 1;
+    margin: 8px 0 14px;
+}
+
+.auth-hero p:last-child,
+.auth-card p {
+    color: var(--muted);
+    line-height: 1.65;
+    margin: 0;
+}
+
+.auth-grid {
+    align-items: start;
+    display: grid;
+    gap: 18px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 1120px;
+}
+
+.auth-card {
+    background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    display: grid;
+    gap: 14px;
+    padding: 24px;
+}
+
+.auth-card h2 {
+    font-size: 1.35rem;
+    font-weight: 800;
+    margin: 4px 0 8px;
+}
+
 a {
     color: inherit;
     text-decoration: none;
@@ -1027,6 +1077,14 @@ button {
 }
 
 @media (max-width: 900px) {
+    .auth-page {
+        padding: 22px;
+    }
+
+    .auth-grid {
+        grid-template-columns: 1fr;
+    }
+
     .app-shell {
         display: block;
     }

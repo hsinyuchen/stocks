@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\AuthController;
 use App\Http\Controllers\LlmProviderSettingController;
 use App\Http\Controllers\StockSearchController;
 use App\Http\Controllers\WatchlistController;
@@ -9,7 +10,10 @@ use Inertia\Inertia;
 
 Route::get('/', fn () => redirect()->route('dashboard'));
 
-Route::get('/login', fn () => response('Login placeholder', 200))->name('login');
+Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
+Route::post('/login', [AuthController::class, 'login'])->name('login.store');
+Route::post('/register', [AuthController::class, 'register'])->name('register.store');
+Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
