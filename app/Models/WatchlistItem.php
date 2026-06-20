@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class WatchlistItem extends Model
 {
     protected $fillable = [
-        'watchlist_id',
         'instrument_id',
         'sort_order',
         'note',

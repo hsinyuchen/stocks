@@ -21,6 +21,11 @@ class DailyPrice extends Model
     {
         return [
             'priced_at' => 'date',
+            'open' => 'decimal:4',
+            'high' => 'decimal:4',
+            'low' => 'decimal:4',
+            'close' => 'decimal:4',
+            'volume' => 'integer',
         ];
     }
 

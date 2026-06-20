@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class StockAnalysis extends Model
 {
     protected $fillable = [
-        'user_id',
         'instrument_id',
         'technical_snapshot_id',
         'provider_type',

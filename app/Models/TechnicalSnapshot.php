@@ -24,6 +24,13 @@ class TechnicalSnapshot extends Model
     {
         return [
             'calculated_at' => 'date',
+            'k' => 'decimal:4',
+            'd' => 'decimal:4',
+            'macd' => 'decimal:4',
+            'macd_signal' => 'decimal:4',
+            'macd_histogram' => 'decimal:4',
+            'ma5' => 'decimal:4',
+            'ma20' => 'decimal:4',
             'signals' => 'array',
         ];
     }

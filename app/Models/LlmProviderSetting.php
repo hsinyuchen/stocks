@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class LlmProviderSetting extends Model
 {
     protected $fillable = [
-        'user_id',
         'provider_type',
         'display_name',
         'base_url',
@@ -20,11 +19,17 @@ class LlmProviderSetting extends Model
         'is_default',
     ];
 
+    protected $hidden = [
+        'api_key_encrypted',
+    ];
+
     protected function casts(): array
     {
         return [
-            'is_default' => 'bool',
+            'timeout_seconds' => 'integer',
             'temperature' => 'decimal:2',
+            'max_tokens' => 'integer',
+            'is_default' => 'boolean',
         ];
     }
 
