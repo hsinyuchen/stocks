@@ -1,58 +1,111 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Stock Market Analysis PWA
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel 13 PWA foundation for Taiwan and US stock, ETF, and index analysis.
 
-## About Laravel
+This foundation includes:
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- Inertia React app shell with warm and dark themes.
+- PWA manifest and service worker for static assets.
+- User profiles, watchlists, stock search, and saved reference analyses.
+- Technical indicators: KD, MACD, moving averages, volume-aware signal rules.
+- LLM provider settings for OpenAI, Gemini, OpenRouter, Zeabur/OpenAI-compatible endpoints, Ollama, and llama.cpp.
+- Python YouTube worker skeleton for future transcript cleanup and chunking.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+The analysis output is reference material only. It is not guaranteed investment advice.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Local Setup
 
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```powershell
+composer install
+npm install
+Copy-Item .env.example .env -Force
+if (!(Test-Path database\database.sqlite)) { New-Item -ItemType File database\database.sqlite }
+php artisan key:generate
+php artisan migrate
+npm run build
+php artisan serve
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Open the app at the URL printed by `php artisan serve`.
 
-## Contributing
+## Development
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```powershell
+php artisan test
+npm run build
+```
 
-## Code of Conduct
+The app currently uses fake market, news, and LLM providers. Real data vendors and real LLM calls are intentionally deferred behind provider contracts.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## LLM Provider Examples
 
-## Security Vulnerabilities
+The settings page stores API keys encrypted at rest. These examples show the values to enter or mirror in environment configuration when real providers are wired.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+OpenRouter:
 
-## License
+```env
+LLM_PROVIDER=openrouter
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=your-key
+OPENROUTER_MODEL=openai/gpt-4.1-mini
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Zeabur OpenAI-compatible endpoint:
+
+```env
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://your-llm-gateway.zeabur.app/v1
+LLM_API_KEY=your-key
+LLM_MODEL=your-model-name
+```
+
+Remote Ollama on another computer:
+
+```env
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://192.168.1.50:11434/v1
+OLLAMA_MODEL=llama3.1:8b
+```
+
+Remote llama.cpp on another computer:
+
+```env
+LLM_PROVIDER=llamacpp
+LLAMACPP_BASE_URL=http://192.168.1.50:8080/v1
+LLAMACPP_MODEL=local-model
+```
+
+Keep remote local LLM endpoints on LAN, VPN, or an authenticated HTTPS reverse proxy. Do not expose unauthenticated local model servers directly to the public internet.
+
+## Python YouTube Worker
+
+The Python worker currently exposes a fake contract payload:
+
+```powershell
+python scripts\youtube_worker.py --fake
+```
+
+Expected output is JSON with one normalized YouTube item containing `source`, `title`, `summary`, `topic`, `related_symbols`, and `published_at`.
+
+Future work can replace `--fake` with transcript retrieval, cleanup, chunking, and queue integration while keeping the same normalized payload contract.
+
+## Verification
+
+```powershell
+php artisan test
+npm run build
+python scripts\youtube_worker.py --fake
+```
+
+Expected:
+
+- PHPUnit passes.
+- Vite build succeeds.
+- Python command returns JSON with one normalized YouTube item.
+
+## Current Limits
+
+- Market/news/LLM providers are fake implementations.
+- Stock analysis is saved as reference analysis only.
+- Watchlists can add instruments that already exist in the platform instrument table; stock search creates provider-derived instruments.
+- Real YouTube ingestion, RSS/news ingestion, provider jobs, and deployment automation are later tasks.
