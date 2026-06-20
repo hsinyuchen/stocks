@@ -1,0 +1,296 @@
+import { router, useForm } from '@inertiajs/react';
+import { Plus, Save, Trash2, X } from 'lucide-react';
+import AppShell from '../../Layouts/AppShell';
+
+function FieldError({ message }) {
+    if (!message) {
+        return null;
+    }
+
+    return <p className="field-error">{message}</p>;
+}
+
+function TextField({ error, label, ...props }) {
+    return (
+        <label className="form-field">
+            <span>{label}</span>
+            <input {...props} />
+            <FieldError message={error} />
+        </label>
+    );
+}
+
+function SelectField({ children, error, label, ...props }) {
+    return (
+        <label className="form-field">
+            <span>{label}</span>
+            <select {...props}>{children}</select>
+            <FieldError message={error} />
+        </label>
+    );
+}
+
+function CreateWatchlistForm() {
+    const form = useForm({ name: '' });
+
+    const submit = (event) => {
+        event.preventDefault();
+        form.post('/watchlists', {
+            preserveScroll: true,
+            onSuccess: () => form.reset(),
+        });
+    };
+
+    return (
+        <form className="watchlist-create" onSubmit={submit}>
+            <TextField
+                error={form.errors.name}
+                label="New watchlist"
+                maxLength="80"
+                onChange={(event) => form.setData('name', event.target.value)}
+                placeholder="Core holdings"
+                type="text"
+                value={form.data.name}
+            />
+            <button className="button-primary" disabled={form.processing} type="submit">
+                <Plus aria-hidden="true" size={18} />
+                <span>Create</span>
+            </button>
+        </form>
+    );
+}
+
+function RenameWatchlistForm({ watchlist }) {
+    const form = useForm({ name: watchlist.name });
+
+    const submit = (event) => {
+        event.preventDefault();
+        form.patch(`/watchlists/${watchlist.id}`, {
+            preserveScroll: true,
+        });
+    };
+
+    return (
+        <form className="watchlist-title-form" onSubmit={submit}>
+            <TextField
+                error={form.errors.name}
+                label="Watchlist name"
+                maxLength="80"
+                onChange={(event) => form.setData('name', event.target.value)}
+                type="text"
+                value={form.data.name}
+            />
+            <button className="icon-button" disabled={form.processing} title="Save name" type="submit">
+                <Save aria-hidden="true" size={18} />
+            </button>
+        </form>
+    );
+}
+
+function AddInstrumentForm({ assetTypeOptions, marketOptions, watchlist }) {
+    const form = useForm({
+        symbol: '',
+        name: '',
+        market: marketOptions[0]?.value ?? 'US',
+        asset_type: assetTypeOptions[0]?.value ?? 'stock',
+        currency: marketOptions[0]?.value === 'TW' ? 'TWD' : 'USD',
+        exchange: '',
+        note: '',
+    });
+
+    const submit = (event) => {
+        event.preventDefault();
+        form.post(`/watchlists/${watchlist.id}/items`, {
+            preserveScroll: true,
+            onSuccess: () => form.reset('symbol', 'name', 'exchange', 'note'),
+        });
+    };
+
+    return (
+        <form className="instrument-form" onSubmit={submit}>
+            <div className="instrument-form__grid">
+                <TextField
+                    error={form.errors.symbol}
+                    label="Symbol"
+                    maxLength="32"
+                    onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
+                    placeholder="AAPL"
+                    type="text"
+                    value={form.data.symbol}
+                />
+                <TextField
+                    error={form.errors.name}
+                    label="Name"
+                    onChange={(event) => form.setData('name', event.target.value)}
+                    placeholder="Apple Inc."
+                    type="text"
+                    value={form.data.name}
+                />
+                <SelectField
+                    error={form.errors.market}
+                    label="Market"
+                    onChange={(event) => {
+                        form.setData({
+                            ...form.data,
+                            market: event.target.value,
+                            currency: event.target.value === 'TW' ? 'TWD' : form.data.currency,
+                        });
+                    }}
+                    value={form.data.market}
+                >
+                    {marketOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                            {option.value}
+                        </option>
+                    ))}
+                </SelectField>
+                <SelectField
+                    error={form.errors.asset_type}
+                    label="Type"
+                    onChange={(event) => form.setData('asset_type', event.target.value)}
+                    value={form.data.asset_type}
+                >
+                    {assetTypeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                            {option.value.toUpperCase()}
+                        </option>
+                    ))}
+                </SelectField>
+                <TextField
+                    error={form.errors.currency}
+                    label="Currency"
+                    maxLength="8"
+                    onChange={(event) => form.setData('currency', event.target.value.toUpperCase())}
+                    placeholder="USD"
+                    type="text"
+                    value={form.data.currency}
+                />
+                <TextField
+                    error={form.errors.exchange}
+                    label="Exchange"
+                    onChange={(event) => form.setData('exchange', event.target.value)}
+                    placeholder="NASDAQ"
+                    type="text"
+                    value={form.data.exchange}
+                />
+            </div>
+            <TextField
+                error={form.errors.note}
+                label="Note"
+                maxLength="255"
+                onChange={(event) => form.setData('note', event.target.value)}
+                placeholder="Earnings, valuation, or thesis note"
+                type="text"
+                value={form.data.note}
+            />
+            <button className="button-secondary" disabled={form.processing} type="submit">
+                <Plus aria-hidden="true" size={18} />
+                <span>Add stock</span>
+            </button>
+        </form>
+    );
+}
+
+function InstrumentRow({ item, watchlist }) {
+    const instrument = item.instrument;
+
+    const remove = () => {
+        router.delete(`/watchlists/${watchlist.id}/items/${item.id}`, {
+            preserveScroll: true,
+        });
+    };
+
+    return (
+        <article className="instrument-row">
+            <div>
+                <strong>{instrument.symbol}</strong>
+                <span>{instrument.name}</span>
+            </div>
+            <div className="instrument-row__meta">
+                <span>{instrument.market}</span>
+                <span>{instrument.asset_type.toUpperCase()}</span>
+                <span>{instrument.currency}</span>
+                {instrument.exchange ? <span>{instrument.exchange}</span> : null}
+            </div>
+            {item.note ? <p>{item.note}</p> : <p className="muted-text">No note</p>}
+            <button className="icon-button" onClick={remove} title="Remove stock" type="button">
+                <X aria-hidden="true" size={18} />
+            </button>
+        </article>
+    );
+}
+
+function WatchlistCard({ assetTypeOptions, marketOptions, watchlist }) {
+    const destroy = () => {
+        router.delete(`/watchlists/${watchlist.id}`, {
+            preserveScroll: true,
+        });
+    };
+
+    return (
+        <article className="watchlist-card">
+            <header className="watchlist-card__header">
+                <RenameWatchlistForm watchlist={watchlist} />
+                <button className="icon-button icon-button--danger" onClick={destroy} title="Delete watchlist" type="button">
+                    <Trash2 aria-hidden="true" size={18} />
+                </button>
+            </header>
+
+            <div className="watchlist-items">
+                {watchlist.items.length > 0 ? (
+                    watchlist.items.map((item) => (
+                        <InstrumentRow item={item} key={item.id} watchlist={watchlist} />
+                    ))
+                ) : (
+                    <div className="empty-state">
+                        <strong>No stocks yet</strong>
+                        <span>Add the first symbol to start tracking this list.</span>
+                    </div>
+                )}
+            </div>
+
+            <AddInstrumentForm
+                assetTypeOptions={assetTypeOptions}
+                marketOptions={marketOptions}
+                watchlist={watchlist}
+            />
+        </article>
+    );
+}
+
+export default function WatchlistsIndex({ assetTypeOptions = [], marketOptions = [], watchlists = [] }) {
+    return (
+        <AppShell title="Watchlists">
+            <div className="watchlists-page">
+                <section className="watchlists-header">
+                    <div>
+                        <p className="section-kicker">Watchlists</p>
+                        <h2>Track symbols by strategy</h2>
+                        <p>
+                            Manage personal lists, add instruments, and keep short notes for follow-up analysis.
+                        </p>
+                    </div>
+                    <CreateWatchlistForm />
+                </section>
+
+                <section className="watchlists-stack">
+                    {watchlists.length > 0 ? (
+                        watchlists.map((watchlist) => (
+                            <WatchlistCard
+                                assetTypeOptions={assetTypeOptions}
+                                key={watchlist.id}
+                                marketOptions={marketOptions}
+                                watchlist={watchlist}
+                            />
+                        ))
+                    ) : (
+                        <div className="watchlist-card empty-state">
+                            <strong>No watchlists</strong>
+                            <span>Create a watchlist to group stocks by market, thesis, or review cadence.</span>
+                        </div>
+                    )}
+                </section>
+            </div>
+        </AppShell>
+    );
+}

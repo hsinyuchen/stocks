@@ -35,7 +35,7 @@ class PageRenderTest extends TestCase
     {
         $user = User::factory()->create();
 
-        foreach (['/news', '/watchlists', '/stocks/search', '/analyses', '/settings'] as $path) {
+        foreach (['/news', '/stocks/search', '/analyses', '/settings'] as $path) {
             $this->actingAs($user)
                 ->get($path)
                 ->assertOk()
@@ -44,5 +44,18 @@ class PageRenderTest extends TestCase
                     ->has('title')
                     ->where('auth.user.id', $user->id));
         }
+    }
+
+    public function test_authenticated_user_can_render_watchlists_page(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/watchlists')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Watchlists/Index')
+                ->has('watchlists', 0)
+                ->where('auth.user.id', $user->id));
     }
 }
