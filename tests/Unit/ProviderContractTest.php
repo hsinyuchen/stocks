@@ -74,6 +74,8 @@ class ProviderContractTest extends TestCase
         $this->assertSame('stock', $items[0]->topic);
         $this->assertSame(['AAPL'], $items[0]->relatedSymbols);
         $this->assertSame('2026-06-20T09:00:00+00:00', $items[0]->publishedAt);
+        $this->assertGreaterThan($items[1]->publishedAt, $items[0]->publishedAt);
+        $this->assertGreaterThan($items[2]->publishedAt, $items[1]->publishedAt);
     }
 
     public function test_fake_news_provider_returns_stable_values_for_same_input(): void
