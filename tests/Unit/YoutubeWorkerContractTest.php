@@ -19,5 +19,7 @@ class YoutubeWorkerContractTest extends TestCase
         $this->assertArrayHasKey('title', $payload[0]);
         $this->assertArrayHasKey('summary', $payload[0]);
         $this->assertArrayHasKey('published_at', $payload[0]);
+        $this->assertArrayHasKey('url', $payload[0]);
+        $this->assertSame('video', $payload[0]['kind']);
     }
 }
