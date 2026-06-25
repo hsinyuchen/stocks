@@ -16,8 +16,10 @@ class StockAnalysisService
         private readonly SignalEngine $signals,
     ) {}
 
-    public function analyze(string $symbol, string $model): array
+    public function analyze(string $symbol, string $model, ?LlmProvider $llm = null): array
     {
+        $provider = $llm ?? $this->llm;
+
         $quote = $this->marketData->quote($symbol);
         $prices = $this->marketData->dailyPrices($symbol, 80);
         $news = $this->news->relatedNews($symbol, 5);
@@ -46,7 +48,26 @@ class StockAnalysisService
         $technicalSnapshot = $this->indicators->calculate($prices);
         $ruleSignal = $this->signals->evaluate($technicalSnapshot);
         $prompt = $this->buildPrompt($symbol, $quote, $technicalSnapshot, $ruleSignal, $news);
-        $llm = $this->llm->complete($model, $prompt);
+
+        try {
+            $response = $provider->complete($model, $prompt);
+            $llmBlock = [
+                'provider' => $response->provider,
+                'model' => $response->model,
+                'content' => $response->content,
+                'metadata' => $response->metadata,
+            ];
+        } catch (\Throwable $exception) {
+            if (app()->bound(\Illuminate\Contracts\Debug\ExceptionHandler::class)) {
+                report($exception);
+            }
+            $llmBlock = [
+                'provider' => 'error',
+                'model' => $model,
+                'content' => 'AI 分析暫時無法使用，已保留規則訊號供參考。請稍後再試或檢查模型設定。',
+                'metadata' => ['error' => true, 'exception' => $exception::class],
+            ];
+        }
 
         return [
             'symbol' => $symbol,
@@ -54,12 +75,7 @@ class StockAnalysisService
             'technical_snapshot' => $technicalSnapshot,
             'rule_signal' => $ruleSignal,
             'news' => $news,
-            'llm' => [
-                'provider' => $llm->provider,
-                'model' => $llm->model,
-                'content' => $llm->content,
-                'metadata' => $llm->metadata,
-            ],
+            'llm' => $llmBlock,
             'data_as_of' => $quote->asOf,
         ];
     }

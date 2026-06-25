@@ -152,6 +152,55 @@ class StockAnalysisServiceTest extends TestCase
         $this->assertSame('NVDA', $news->lastRelatedNewsSymbol);
         $this->assertSame(5, $news->lastRelatedNewsLimit);
     }
+
+    public function test_override_llm_provider_is_used_instead_of_constructor_provider(): void
+    {
+        $marketData = new TrackingMarketDataProvider(
+            quote: new MarketQuoteData('NVDA', 128.5, 1.2, 0.94, '2026-06-20T09:00:00+00:00'),
+            prices: [new DailyPriceData('NVDA', '2026-06-19', 120.0, 130.0, 119.0, 128.5, 1000)],
+        );
+        $constructorLlm = new TrackingLlmProvider();
+        $overrideLlm = new TrackingLlmProvider();
+
+        $service = new StockAnalysisService(
+            $marketData,
+            new TrackingNewsProvider([]),
+            $constructorLlm,
+            new StubTechnicalIndicatorService(['k' => 1, 'd' => 1, 'macd' => 0, 'macd_signal' => 0, 'macd_histogram' => 0, 'ma5' => 1, 'ma20' => 1]),
+            new StubSignalEngine(['stance' => 'watch', 'score' => 1, 'reasons' => ['r']]),
+        );
+
+        $analysis = $service->analyze('NVDA', 'override-model', $overrideLlm);
+
+        $this->assertSame('override-model', $overrideLlm->lastModel);
+        $this->assertNull($constructorLlm->lastModel);
+        $this->assertSame('tracking-llm', $analysis['llm']['provider']);
+    }
+
+    public function test_llm_failure_degrades_to_rule_based_block_without_throwing(): void
+    {
+        $marketData = new TrackingMarketDataProvider(
+            quote: new MarketQuoteData('NVDA', 128.5, 1.2, 0.94, '2026-06-20T09:00:00+00:00'),
+            prices: [new DailyPriceData('NVDA', '2026-06-19', 120.0, 130.0, 119.0, 128.5, 1000)],
+        );
+        $snapshot = ['k' => 1, 'd' => 1, 'macd' => 0, 'macd_signal' => 0, 'macd_histogram' => 0, 'ma5' => 1, 'ma20' => 1];
+
+        $service = new StockAnalysisService(
+            $marketData,
+            new TrackingNewsProvider([]),
+            new TrackingLlmProvider(),
+            new StubTechnicalIndicatorService($snapshot),
+            new StubSignalEngine(['stance' => 'watch', 'score' => 1, 'reasons' => ['r']]),
+        );
+
+        $analysis = $service->analyze('NVDA', 'm', new ThrowingStockAnalysisLlmProvider());
+
+        $this->assertSame('error', $analysis['llm']['provider']);
+        $this->assertStringContainsString('AI 分析暫時無法使用', $analysis['llm']['content']);
+        $this->assertTrue($analysis['llm']['metadata']['error']);
+        $this->assertSame($snapshot, $analysis['technical_snapshot']);
+        $this->assertSame('watch', $analysis['rule_signal']['stance']);
+    }
 }
 
 final class TrackingMarketDataProvider implements MarketDataProvider
@@ -238,5 +287,13 @@ final class StubSignalEngine extends SignalEngine
     public function evaluate(array $snapshot): array
     {
         return $this->signal;
+    }
+}
+
+final class ThrowingStockAnalysisLlmProvider implements LlmProvider
+{
+    public function complete(string $model, string $prompt): LlmResponseData
+    {
+        throw new \RuntimeException('upstream down');
     }
 }
