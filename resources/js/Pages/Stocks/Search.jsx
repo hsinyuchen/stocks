@@ -63,27 +63,55 @@ function SearchForm({ initialSymbol }) {
     );
 }
 
-function AnalyzeForm({ instrument }) {
-    const form = useForm({ model: 'reference-model' });
+function AnalyzeForm({ instrument, llmProviders }) {
+    const providers = llmProviders ?? [];
+    const defaultProvider = providers.find((provider) => provider.is_default) ?? providers[0] ?? null;
+    const form = useForm({
+        llm_provider_setting_id: defaultProvider ? defaultProvider.id : '',
+        model: defaultProvider ? defaultProvider.model : '',
+    });
 
     if (!instrument) {
         return null;
     }
 
+    const onProviderChange = (event) => {
+        const id = event.target.value;
+        form.setData('llm_provider_setting_id', id);
+        const selected = providers.find((provider) => String(provider.id) === String(id));
+        form.setData('model', selected ? selected.model : form.data.model);
+    };
+
     const submit = (event) => {
         event.preventDefault();
-        form.post(`/stocks/${instrument.id}/analyses`, {
-            preserveScroll: true,
-        });
+        form.post(`/stocks/${instrument.id}/analyses`, { preserveScroll: true });
     };
 
     return (
         <form className="analysis-action" onSubmit={submit}>
+            {providers.length === 0 ? (
+                <p className="field-hint">
+                    尚未設定 AI 模型，將以參考骨架回應。請到「設定」新增 OpenAI、Gemini 或本地 Ollama 模型。
+                </p>
+            ) : (
+                <label className="form-field">
+                    <span>AI 模型</span>
+                    <select value={form.data.llm_provider_setting_id} onChange={onProviderChange}>
+                        {providers.map((provider) => (
+                            <option key={provider.id} value={provider.id}>
+                                {provider.display_name}（{provider.provider_type} · {provider.model}）
+                            </option>
+                        ))}
+                    </select>
+                    <FieldError message={form.errors.llm_provider_setting_id} />
+                </label>
+            )}
             <label className="form-field">
-                <span>模型名稱</span>
+                <span>模型名稱（可覆寫）</span>
                 <input
                     maxLength="120"
                     onChange={(event) => form.setData('model', event.target.value)}
+                    placeholder="llama3.1"
                     type="text"
                     value={form.data.model}
                 />
@@ -269,6 +297,7 @@ export default function StockSearch({
     prices = [],
     news = [],
     analyses = [],
+    llmProviders = [],
 }) {
     return (
         <AppShell title="個股搜尋">
@@ -289,7 +318,7 @@ export default function StockSearch({
                         <NewsList news={news} />
                     </div>
                     <aside className="stock-workspace__side">
-                        <AnalyzeForm instrument={instrument} />
+                        <AnalyzeForm instrument={instrument} llmProviders={llmProviders} />
                         <AnalysisHistory analyses={analyses} />
                     </aside>
                 </div>
