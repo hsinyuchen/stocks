@@ -39,4 +39,13 @@ return [
         'driver' => env('NEWS_DRIVER', 'db'),
     ],
 
+    'finmind' => [
+        'token' => env('FINMIND_TOKEN'),
+    ],
+
+    'market_data' => [
+        'driver' => env('MARKET_DATA_DRIVER', 'live'),
+        'cache_ttl_minutes' => env('MARKET_DATA_CACHE_TTL_MINUTES', 720),
+    ],
+
 ];
