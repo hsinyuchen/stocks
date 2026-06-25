@@ -59,6 +59,11 @@ class User extends Authenticatable
         return $this->hasMany(StockAnalysis::class);
     }
 
+    public function newsAnalyses(): HasMany
+    {
+        return $this->hasMany(NewsAnalysis::class);
+    }
+
     public function llmProviderSettings(): HasMany
     {
         return $this->hasMany(LlmProviderSetting::class);
