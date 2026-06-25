@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'news' => [
+        'driver' => env('NEWS_DRIVER', 'db'),
+    ],
+
 ];
