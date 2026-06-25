@@ -35,7 +35,7 @@ class PageRenderTest extends TestCase
     {
         $user = User::factory()->create();
 
-        foreach (['/news', '/analyses'] as $path) {
+        foreach (['/analyses'] as $path) {
             $this->actingAs($user)
                 ->get($path)
                 ->assertOk()
@@ -44,6 +44,24 @@ class PageRenderTest extends TestCase
                     ->has('title')
                     ->where('auth.user.id', $user->id));
         }
+    }
+
+    public function test_guest_is_redirected_from_news_to_login(): void
+    {
+        $this->get('/news')
+            ->assertRedirect('/login');
+    }
+
+    public function test_authenticated_user_can_render_news_page(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/news')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('News/Index')
+                ->where('auth.user.id', $user->id));
     }
 
     public function test_authenticated_user_can_render_settings_page(): void

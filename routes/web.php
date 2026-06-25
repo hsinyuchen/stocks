@@ -3,6 +3,7 @@
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\LlmProviderSettingController;
+use App\Http\Controllers\NewsController;
 use App\Http\Controllers\StockSearchController;
 use App\Http\Controllers\WatchlistController;
 use Illuminate\Support\Facades\Route;
@@ -17,10 +18,7 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
-    Route::get('/news', fn () => Inertia::render('Placeholder', [
-        'title' => '即時新聞',
-        'status' => 'News workspace will be implemented in the news task.',
-    ]))->name('news.index');
+    Route::get('/news', [NewsController::class, 'index'])->name('news.index');
     Route::get('/watchlists', [WatchlistController::class, 'index'])->name('watchlists.index');
     Route::post('/watchlists', [WatchlistController::class, 'store'])->name('watchlists.store');
     Route::patch('/watchlists/{watchlist}', [WatchlistController::class, 'update'])->name('watchlists.update');
