@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Contracts\LlmProvider;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
+use App\Contracts\YoutubeWorkerRunner;
 use App\Services\Fake\FakeLlmProvider;
 use App\Services\Fake\FakeMarketDataProvider;
 use App\Services\Fake\FakeNewsProvider;
@@ -14,6 +15,7 @@ use App\Services\Market\RoutingMarketDataProvider;
 use App\Services\Market\StooqMarketDataProvider;
 use App\Services\Market\YahooChartMarketDataProvider;
 use App\Services\News\DbNewsProvider;
+use App\Services\News\ProcessYoutubeWorkerRunner;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -48,6 +50,16 @@ class AppServiceProvider extends ServiceProvider
                 $routing,
                 (int) config('services.market_data.cache_ttl_minutes', 720),
                 quoteCacheSeconds: (int) config('services.market_data.quote_cache_seconds', 60),
+            );
+        });
+
+        // YouTube captions worker (2C). The real runner shells out to the Python
+        // worker; tests bind a fake runner in the container instead, so this
+        // never touches Python/venv/network during tests.
+        $this->app->bind(YoutubeWorkerRunner::class, function (): YoutubeWorkerRunner {
+            return new ProcessYoutubeWorkerRunner(
+                (string) config('youtube.python'),
+                (string) config('youtube.worker'),
             );
         });
     }

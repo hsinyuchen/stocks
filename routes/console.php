@@ -13,3 +13,9 @@ foreach ((array) config('news.schedule.times') as $time) {
         ->dailyAt($time)
         ->timezone(config('news.schedule.timezone'));
 }
+
+foreach ((array) config('youtube.schedule.times') as $time) {
+    Schedule::command('youtube:ingest')
+        ->dailyAt($time)
+        ->timezone(config('youtube.schedule.timezone'));
+}
