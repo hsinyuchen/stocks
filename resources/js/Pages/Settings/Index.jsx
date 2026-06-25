@@ -5,20 +5,28 @@ import AppShell from '../../Layouts/AppShell';
 
 const providerOptions = [
     { value: 'openai', label: 'OpenAI' },
-    { value: 'gemini', label: 'Gemini' },
+    { value: 'anthropic', label: 'Claude (Anthropic)' },
+    { value: 'gemini', label: 'Gemini / Google AI Studio' },
     { value: 'openrouter', label: 'OpenRouter' },
-    { value: 'openai_compatible', label: 'Zeabur / OpenAI 相容服務' },
-    { value: 'ollama', label: 'Ollama' },
-    { value: 'llamacpp', label: 'llama.cpp' },
+    { value: 'deepseek', label: 'DeepSeek' },
+    { value: 'zeabur', label: 'Zeabur AI Hub' },
+    { value: 'openai_compatible', label: 'OpenAI 相容（自訂端點）' },
+    { value: 'ollama', label: 'Ollama（本地）' },
+    { value: 'llamacpp', label: 'llama.cpp（本地）' },
+    { value: 'lmstudio', label: 'LM Studio（本地）' },
 ];
 
 const providerHints = {
     openai: 'OpenAI 通常不需要自訂 Base URL。',
-    gemini: 'Gemini 通常不需要自訂 Base URL。',
+    anthropic: 'Claude：通常不需自訂 Base URL；模型例如 claude-sonnet-4-6。',
+    gemini: 'Gemini／Google AI Studio 是同一組 API，通常不需自訂 Base URL。',
     openrouter: 'OpenRouter Base URL: https://openrouter.ai/api/v1',
-    openai_compatible: 'Zeabur 或 OpenAI 相容服務：填入你部署服務的 /v1 endpoint。',
-    ollama: '遠端 Ollama 範例：http://192.168.1.10:11434/v1，或使用 Ollama 的 OpenAI 相容 endpoint。',
-    llamacpp: '遠端 llama.cpp 範例：http://192.168.1.20:8080/v1',
+    deepseek: 'DeepSeek Base URL: https://api.deepseek.com/v1',
+    zeabur: 'Zeabur AI Hub：填入你部署服務的 /v1 endpoint（必填）。',
+    openai_compatible: 'OpenAI 相容服務：填入該服務的 /v1 endpoint（必填）。',
+    ollama: '本地 Ollama 預設 http://localhost:11434/v1；遠端填區網位址。',
+    llamacpp: '本地 llama.cpp 預設 http://localhost:8080/v1。',
+    lmstudio: 'LM Studio 預設 http://localhost:1234/v1（需在 LM Studio 開啟 Local Server）。',
 };
 
 const emptyForm = {
