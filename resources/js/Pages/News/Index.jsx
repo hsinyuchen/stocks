@@ -1,5 +1,5 @@
-import { router } from '@inertiajs/react';
-import { Newspaper } from 'lucide-react';
+import { Link, router, useForm } from '@inertiajs/react';
+import { Bot, Newspaper, Settings, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import AppShell from '../../Layouts/AppShell';
 
@@ -8,6 +8,12 @@ const domainLabels = {
     defense: '國防',
     finance: '金融',
     other: '其他',
+};
+
+const sentimentLabels = {
+    bullish: '偏多',
+    bearish: '偏空',
+    neutral: '中性',
 };
 
 function formatDateTime(value) {
@@ -25,6 +31,53 @@ function formatDateTime(value) {
         dateStyle: 'medium',
         timeStyle: 'short',
     });
+}
+
+function FieldError({ message }) {
+    if (!message) {
+        return null;
+    }
+
+    return <p className="field-error">{message}</p>;
+}
+
+function defaultProvider(providers) {
+    if (!providers || providers.length === 0) {
+        return null;
+    }
+
+    return providers.find((provider) => provider.is_default) ?? providers[0];
+}
+
+function SettingsPrompt() {
+    return (
+        <p className="news-settings-prompt">
+            尚未設定 AI 模型。請先到
+            {' '}
+            <Link href="/settings">系統設定</Link>
+            {' '}
+            新增一個模型，才能使用 AI 分析。
+        </p>
+    );
+}
+
+function ModelPicker({ providers, value, onChange }) {
+    if (!providers || providers.length === 0) {
+        return null;
+    }
+
+    return (
+        <label className="form-field">
+            <span>使用的模型</span>
+            <select onChange={(event) => onChange(event.target.value)} value={value ?? ''}>
+                {providers.map((provider) => (
+                    <option key={provider.id} value={String(provider.id)}>
+                        {provider.display_name}（{provider.provider_type} · {provider.model}）
+                    </option>
+                ))}
+            </select>
+        </label>
+    );
 }
 
 function FilterBar({ filters, facets }) {
@@ -110,7 +163,131 @@ function FilterBar({ filters, facets }) {
     );
 }
 
-function NewsCard({ item }) {
+function DailySummaryPanel({ providers, summary }) {
+    const fallback = defaultProvider(providers);
+    const form = useForm({
+        llm_provider_setting_id: fallback ? String(fallback.id) : '',
+        model: '',
+    });
+
+    const submit = (event) => {
+        event.preventDefault();
+        form.post('/news/daily-summary', { preserveScroll: true });
+    };
+
+    const points = summary?.points ?? [];
+
+    return (
+        <section className="stock-panel news-daily-summary">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">今日總經摘要</p>
+                    <h2>用我的模型整理今日重點</h2>
+                </div>
+                <Bot aria-hidden="true" size={22} />
+            </div>
+
+            {providers.length === 0 ? (
+                <SettingsPrompt />
+            ) : (
+                <form className="analysis-action" onSubmit={submit}>
+                    <ModelPicker
+                        onChange={(value) => form.setData('llm_provider_setting_id', value)}
+                        providers={providers}
+                        value={form.data.llm_provider_setting_id}
+                    />
+                    <button className="button-secondary" disabled={form.processing} type="submit">
+                        <Sparkles aria-hidden="true" size={18} />
+                        <span>產生今日摘要</span>
+                    </button>
+                </form>
+            )}
+
+            {summary ? (
+                <article className="analysis-item news-daily-summary__result">
+                    <div className="analysis-item__head">
+                        <span className="status-pill status-pill--neutral">今日總經</span>
+                        <small>{summary.provider_type} · {summary.model} · {formatDateTime(summary.created_at)}</small>
+                    </div>
+                    {summary.summary ? <p>{summary.summary}</p> : null}
+                    {points.length > 0 ? (
+                        <ul>
+                            {points.map((point, index) => (
+                                <li key={index}>{point}</li>
+                            ))}
+                        </ul>
+                    ) : null}
+                    {(summary.related_symbols ?? []).length > 0 ? (
+                        <div className="news-symbols">
+                            {summary.related_symbols.map((symbol) => (
+                                <a
+                                    className="news-symbol-chip"
+                                    href={`/stocks/search?symbol=${encodeURIComponent(symbol)}`}
+                                    key={symbol}
+                                >
+                                    {symbol}
+                                </a>
+                            ))}
+                        </div>
+                    ) : null}
+                </article>
+            ) : null}
+        </section>
+    );
+}
+
+function AnalysisResult({ analysis }) {
+    if (!analysis) {
+        return null;
+    }
+
+    const sentiment = analysis.sentiment ?? 'neutral';
+    const label = sentimentLabels[sentiment] ?? sentimentLabels.neutral;
+
+    return (
+        <article className="analysis-item news-analysis-result">
+            <div className="analysis-item__head">
+                <span className={`status-pill status-pill--${sentiment}`}>{label}</span>
+                {analysis.impact_score ? (
+                    <span className="news-impact">影響 {analysis.impact_score}/5</span>
+                ) : null}
+                <small>{analysis.model} · {formatDateTime(analysis.created_at)}</small>
+            </div>
+            {analysis.summary ? <p>{analysis.summary}</p> : null}
+            {analysis.reasoning ? <p className="news-analysis-reasoning">{analysis.reasoning}</p> : null}
+        </article>
+    );
+}
+
+function ItemAnalyzeForm({ item, providers }) {
+    const fallback = defaultProvider(providers);
+    const form = useForm({
+        llm_provider_setting_id: fallback ? String(fallback.id) : '',
+        model: '',
+    });
+
+    const submit = (event) => {
+        event.preventDefault();
+        form.post(`/news/${item.id}/analyses`, { preserveScroll: true });
+    };
+
+    return (
+        <form className="analysis-action news-analyze-form" onSubmit={submit}>
+            <ModelPicker
+                onChange={(value) => form.setData('llm_provider_setting_id', value)}
+                providers={providers}
+                value={form.data.llm_provider_setting_id}
+            />
+            <button className="button-secondary" disabled={form.processing} type="submit">
+                <Sparkles aria-hidden="true" size={18} />
+                <span>用我的模型分析</span>
+            </button>
+            <FieldError message={form.errors.llm_provider_setting_id} />
+        </form>
+    );
+}
+
+function NewsCard({ item, providers }) {
     return (
         <article className="news-card">
             <div className="news-card-meta">
@@ -140,6 +317,21 @@ function NewsCard({ item }) {
                     ))}
                 </div>
             ) : null}
+
+            <div className="news-card-ai">
+                {providers.length === 0 ? (
+                    <p className="news-settings-prompt">
+                        想要 AI 解讀？請先到
+                        {' '}
+                        <Link href="/settings">系統設定</Link>
+                        {' '}
+                        新增模型。
+                    </p>
+                ) : (
+                    <ItemAnalyzeForm item={item} providers={providers} />
+                )}
+                <AnalysisResult analysis={item.latest_analysis} />
+            </div>
         </article>
     );
 }
@@ -171,8 +363,11 @@ export default function NewsIndex({
     facets = { markets: [], domains: [], sources: [] },
     lastUpdatedAt = null,
     nextUpdateTimes = [],
+    llmProviders = [],
+    latestDailySummary = null,
 }) {
     const data = items.data ?? [];
+    const providers = llmProviders ?? [];
 
     return (
         <AppShell title="即時新聞">
@@ -187,6 +382,8 @@ export default function NewsIndex({
                     </p>
                 </header>
 
+                <DailySummaryPanel providers={providers} summary={latestDailySummary} />
+
                 <FilterBar facets={facets} filters={filters} />
 
                 {data.length === 0 ? (
@@ -194,7 +391,7 @@ export default function NewsIndex({
                 ) : (
                     <div className="news-list">
                         {data.map((item) => (
-                            <NewsCard item={item} key={item.id} />
+                            <NewsCard item={item} key={item.id} providers={providers} />
                         ))}
                     </div>
                 )}
