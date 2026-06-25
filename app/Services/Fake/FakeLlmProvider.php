@@ -12,7 +12,7 @@ class FakeLlmProvider implements LlmProvider
         return new LlmResponseData(
             provider: 'fake',
             model: 'fake-model',
-            content: 'This is reference analysis only: hold/watch, confirm with risk controls and latest data.',
+            content: '此內容僅供研究參考：目前建議維持持有或觀察，並搭配風險控管與最新資料再次確認。',
             metadata: ['prompt_length' => strlen($prompt)],
         );
     }

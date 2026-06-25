@@ -61,7 +61,7 @@ class StockSearchTest extends TestCase
                 ->where('quote.symbol', '2330.TW')
                 ->where('quote.price', 128.5)
                 ->has('prices', 20)
-                ->where('news.0.title', '2330.TW related news 1')
+                ->where('news.0.title', '2330.TW 相關新聞 1')
                 ->has('analyses', 0));
 
         $this->assertDatabaseHas('instruments', [
@@ -120,7 +120,7 @@ class StockSearchTest extends TestCase
         $this->assertSame('fake', $analysis->provider_type);
         $this->assertSame('fake-model', $analysis->model);
         $this->assertSame('v1', $analysis->prompt_version);
-        $this->assertSame('This is reference analysis only: hold/watch, confirm with risk controls and latest data.', $analysis->llm_output['content']);
+        $this->assertSame('此內容僅供研究參考：目前建議維持持有或觀察，並搭配風險控管與最新資料再次確認。', $analysis->llm_output['content']);
         $this->assertArrayHasKey('stance', $analysis->rule_signal);
         $this->assertNull($analysis->technical_snapshot_id);
 
@@ -131,7 +131,7 @@ class StockSearchTest extends TestCase
                 ->component('Stocks/Search')
                 ->has('analyses', 1)
                 ->where('analyses.0.id', $analysis->id)
-                ->where('analyses.0.llm_output.content', 'This is reference analysis only: hold/watch, confirm with risk controls and latest data.'));
+                ->where('analyses.0.llm_output.content', '此內容僅供研究參考：目前建議維持持有或觀察，並搭配風險控管與最新資料再次確認。'));
 
         $this->actingAs($otherUser)
             ->get('/stocks/search?symbol=NVDA')

@@ -7,18 +7,18 @@ const providerOptions = [
     { value: 'openai', label: 'OpenAI' },
     { value: 'gemini', label: 'Gemini' },
     { value: 'openrouter', label: 'OpenRouter' },
-    { value: 'openai_compatible', label: 'Zeabur / OpenAI-compatible' },
+    { value: 'openai_compatible', label: 'Zeabur / OpenAI 相容服務' },
     { value: 'ollama', label: 'Ollama' },
     { value: 'llamacpp', label: 'llama.cpp' },
 ];
 
 const providerHints = {
-    openai: 'OpenAI usually works without a custom base URL.',
-    gemini: 'Gemini usually works without a custom base URL.',
-    openrouter: 'OpenRouter base_url: https://openrouter.ai/api/v1',
-    openai_compatible: 'Zeabur/OpenAI-compatible: use your deployed service /v1 endpoint.',
-    ollama: 'Ollama remote: http://192.168.1.10:11434/v1 or the Ollama OpenAI-compatible endpoint.',
-    llamacpp: 'llama.cpp remote: http://192.168.1.20:8080/v1',
+    openai: 'OpenAI 通常不需要自訂 Base URL。',
+    gemini: 'Gemini 通常不需要自訂 Base URL。',
+    openrouter: 'OpenRouter Base URL: https://openrouter.ai/api/v1',
+    openai_compatible: 'Zeabur 或 OpenAI 相容服務：填入你部署服務的 /v1 endpoint。',
+    ollama: '遠端 Ollama 範例：http://192.168.1.10:11434/v1，或使用 Ollama 的 OpenAI 相容 endpoint。',
+    llamacpp: '遠端 llama.cpp 範例：http://192.168.1.20:8080/v1',
 };
 
 const emptyForm = {
@@ -78,7 +78,7 @@ function DefaultToggle({ checked, disabled, onChange }) {
                 onChange={(event) => onChange(event.target.checked)}
                 type="checkbox"
             />
-            <span>Default provider</span>
+            <span>設為預設供應器</span>
         </label>
     );
 }
@@ -92,32 +92,32 @@ function ProviderFormFields({ form, setting = null }) {
                 <SelectField
                     error={form.errors.provider_type}
                     help={providerHints[selectedProvider]}
-                    label="Provider"
+                    label="供應器"
                     onChange={(event) => form.setData('provider_type', event.target.value)}
                     options={providerOptions}
                     value={selectedProvider}
                 />
                 <TextField
                     error={form.errors.display_name}
-                    label="Display name"
+                    label="顯示名稱"
                     maxLength="80"
                     onChange={(event) => form.setData('display_name', event.target.value)}
-                    placeholder="Primary research model"
+                    placeholder="例如：主要研究模型"
                     type="text"
                     value={form.data.display_name}
                 />
                 <TextField
                     error={form.errors.model}
-                    label="Model"
+                    label="模型名稱"
                     maxLength="120"
                     onChange={(event) => form.setData('model', event.target.value)}
-                    placeholder="gpt-5, gemini-2.5-pro, llama3.1"
+                    placeholder="gpt-5、gemini-2.5-pro、llama3.1"
                     type="text"
                     value={form.data.model}
                 />
                 <TextField
                     error={form.errors.base_url}
-                    help="Optional for OpenAI/Gemini. Usually required for OpenAI-compatible and local providers."
+                    help="OpenAI/Gemini 通常可留空；OpenAI 相容服務與本地模型通常需要填寫。"
                     label="Base URL"
                     maxLength="255"
                     onChange={(event) => form.setData('base_url', event.target.value)}
@@ -128,17 +128,17 @@ function ProviderFormFields({ form, setting = null }) {
                 <TextField
                     autoComplete="new-password"
                     error={form.errors.api_key}
-                    help={setting?.has_api_key ? 'Stored key exists. Leave blank to keep it.' : 'Stored encrypted at rest. Leave blank if not needed.'}
-                    label="API key"
+                    help={setting?.has_api_key ? '已儲存金鑰。留空即可保留原金鑰。' : '會以加密方式儲存。若不需要金鑰可留空。'}
+                    label="API Key"
                     maxLength="2048"
                     onChange={(event) => form.setData('api_key', event.target.value)}
-                    placeholder={setting?.has_api_key ? 'Existing key preserved' : 'sk-...'}
+                    placeholder={setting?.has_api_key ? '保留既有金鑰' : 'sk-...'}
                     type="password"
                     value={form.data.api_key}
                 />
                 <TextField
                     error={form.errors.timeout_seconds}
-                    label="Timeout seconds"
+                    label="逾時秒數"
                     max="300"
                     min="5"
                     onChange={(event) => form.setData('timeout_seconds', event.target.value)}
@@ -157,7 +157,7 @@ function ProviderFormFields({ form, setting = null }) {
                 />
                 <TextField
                     error={form.errors.max_tokens}
-                    label="Max tokens"
+                    label="最大 tokens"
                     max="32000"
                     min="128"
                     onChange={(event) => form.setData('max_tokens', event.target.value)}
@@ -189,13 +189,13 @@ function CreateProviderForm() {
         <form className="settings-panel" onSubmit={submit}>
             <div className="settings-panel__head">
                 <div>
-                    <p className="section-kicker">LLM providers</p>
-                    <h2>Add provider settings</h2>
-                    <p>Configure cloud, hosted OpenAI-compatible, or local model endpoints for analysis workflows.</p>
+                    <p className="section-kicker">LLM 供應器</p>
+                    <h2>新增模型連線設定</h2>
+                    <p>設定雲端、Zeabur / OpenAI 相容服務，或本地模型 endpoint，供個股分析流程使用。</p>
                 </div>
                 <button className="button-primary" disabled={form.processing} type="submit">
                     <Plus aria-hidden="true" size={18} />
-                    <span>Create</span>
+                    <span>新增</span>
                 </button>
             </div>
             <ProviderFormFields form={form} />
@@ -250,47 +250,47 @@ function EditProviderForm({ setting }) {
                 <div className="settings-provider__actions">
                     <span className={`key-status ${setting.has_api_key ? 'key-status--active' : ''}`}>
                         <KeyRound aria-hidden="true" size={15} />
-                        {setting.has_api_key ? 'Key stored' : 'No key'}
+                        {setting.has_api_key ? '已儲存金鑰' : '尚無金鑰'}
                     </span>
                     {setting.is_default ? (
                         <span className="default-badge">
                             <Star aria-hidden="true" size={15} />
-                            Default
+                            預設
                         </span>
                     ) : (
                         <button className="button-secondary" disabled={form.processing} onClick={makeDefault} type="button">
                             <Star aria-hidden="true" size={18} />
-                            <span>Set default</span>
+                            <span>設為預設</span>
                         </button>
                     )}
-                    <button className="icon-button" disabled={form.processing} title="Save provider" type="submit">
+                    <button className="icon-button" disabled={form.processing} title="儲存供應器" type="submit">
                         <Save aria-hidden="true" size={18} />
                     </button>
-                    <button className="icon-button icon-button--danger" onClick={destroy} title="Delete provider" type="button">
+                    <button className="icon-button icon-button--danger" onClick={destroy} title="刪除供應器" type="button">
                         <Trash2 aria-hidden="true" size={18} />
                     </button>
                 </div>
             </div>
-                        <ProviderFormFields form={form} setting={setting} />
+            <ProviderFormFields form={form} setting={setting} />
         </form>
     );
 }
 
 export default function SettingsIndex({ settings = [] }) {
     return (
-        <AppShell title="Settings">
+        <AppShell title="系統設定">
             <div className="settings-page">
                 <CreateProviderForm />
 
-                <section className="settings-stack" aria-label="Saved LLM provider settings">
+                <section className="settings-stack" aria-label="已儲存的 LLM 供應器設定">
                     {settings.length > 0 ? (
                         settings.map((setting) => (
                             <EditProviderForm key={setting.id} setting={setting} />
                         ))
                     ) : (
                         <div className="settings-provider empty-state">
-                            <strong>No LLM providers configured</strong>
-                            <span>Add OpenAI, Gemini, OpenRouter, Zeabur/OpenAI-compatible, Ollama, or llama.cpp settings.</span>
+                            <strong>尚未設定 LLM 供應器</strong>
+                            <span>新增 OpenAI、Gemini、OpenRouter、Zeabur / OpenAI 相容服務、Ollama 或 llama.cpp 設定。</span>
                         </div>
                     )}
                 </section>

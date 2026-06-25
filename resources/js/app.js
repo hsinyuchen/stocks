@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
 createInertiaApp({
-    title: (title) => (title ? `${title} - Stock Platform` : 'Stock Platform'),
+    title: (title) => (title ? `${title} - 股票分析平台` : '股票分析平台'),
     resolve: (name) => {
         const pages = import.meta.glob('./Pages/**/*.jsx', { eager: true });
 

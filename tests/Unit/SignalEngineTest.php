@@ -114,7 +114,7 @@ class SignalEngineTest extends TestCase
         $this->assertSame([
             'stance' => 'insufficient_data',
             'score' => 0,
-            'reasons' => ['Signal cannot be evaluated because required indicator data is missing or invalid.'],
+            'reasons' => ['缺少必要技術指標或指標格式無效，暫時無法評估訊號。'],
         ], $signal);
     }
 
@@ -131,7 +131,8 @@ class SignalEngineTest extends TestCase
         $this->assertSame([
             'stance' => 'insufficient_data',
             'score' => 0,
-            'reasons' => ['Signal cannot be evaluated because required indicator data is missing or invalid.'],
+            'reasons' => ['缺少必要技術指標或指標格式無效，暫時無法評估訊號。'],
         ], $signal);
     }
 }
+

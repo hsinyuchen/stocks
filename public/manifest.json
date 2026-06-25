@@ -1,7 +1,7 @@
 {
-    "name": "Stock Analysis Platform",
-    "short_name": "Stocks",
-    "description": "Market radar and AI stock analysis workspace.",
+    "name": "股票分析平台",
+    "short_name": "股票分析",
+    "description": "整合市場雷達、新聞與 AI 個股參考分析的工作區。",
     "start_url": "/dashboard",
     "scope": "/",
     "display": "standalone",

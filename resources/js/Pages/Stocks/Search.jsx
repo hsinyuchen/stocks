@@ -2,12 +2,20 @@ import { router, useForm, usePage } from '@inertiajs/react';
 import { Bot, LineChart, Newspaper, Search, Sparkles } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 
+const stanceLabels = {
+    bullish: '偏多',
+    bearish: '偏空',
+    neutral: '中性',
+    watch: '觀察',
+    insufficient_data: '資料不足',
+};
+
 function formatNumber(value, digits = 2) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
         return '-';
     }
 
-    return Number(value).toLocaleString(undefined, {
+    return Number(value).toLocaleString('zh-TW', {
         maximumFractionDigits: digits,
         minimumFractionDigits: digits,
     });
@@ -37,11 +45,11 @@ function SearchForm({ initialSymbol }) {
     return (
         <form className="stock-search-form" onSubmit={submit}>
             <label className="form-field">
-                <span>Symbol</span>
+                <span>股票代號</span>
                 <input
                     maxLength="32"
                     onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
-                    placeholder="AAPL or 2330.TW"
+                    placeholder="AAPL 或 2330.TW"
                     type="search"
                     value={form.data.symbol}
                 />
@@ -49,7 +57,7 @@ function SearchForm({ initialSymbol }) {
             </label>
             <button className="button-primary" type="submit">
                 <Search aria-hidden="true" size={18} />
-                <span>Search</span>
+                <span>搜尋</span>
             </button>
         </form>
     );
@@ -72,7 +80,7 @@ function AnalyzeForm({ instrument }) {
     return (
         <form className="analysis-action" onSubmit={submit}>
             <label className="form-field">
-                <span>Model</span>
+                <span>模型名稱</span>
                 <input
                     maxLength="120"
                     onChange={(event) => form.setData('model', event.target.value)}
@@ -83,7 +91,7 @@ function AnalyzeForm({ instrument }) {
             </label>
             <button className="button-secondary" disabled={form.processing} type="submit">
                 <Sparkles aria-hidden="true" size={18} />
-                <span>Analyze</span>
+                <span>產生分析</span>
             </button>
         </form>
     );
@@ -93,8 +101,8 @@ function QuotePanel({ quote, instrument }) {
     if (!quote || !instrument) {
         return (
             <section className="stock-panel empty-state">
-                <strong>No symbol selected</strong>
-                <span>Search a symbol to load provider quote, recent prices, and related news.</span>
+                <strong>尚未選擇股票</strong>
+                <span>搜尋股票代號後，會載入報價、近期價格與相關新聞。</span>
             </section>
         );
     }
@@ -104,7 +112,7 @@ function QuotePanel({ quote, instrument }) {
     return (
         <section className="stock-panel stock-quote">
             <div>
-                <p className="section-kicker">Quote</p>
+                <p className="section-kicker">即時報價</p>
                 <h2>{instrument.symbol}</h2>
                 <p>{instrument.name}</p>
             </div>
@@ -138,12 +146,12 @@ function PriceHistory({ prices }) {
         <section className="stock-panel">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">Recent prices</p>
-                    <h2>20-day close history</h2>
+                    <p className="section-kicker">近期價格</p>
+                    <h2>20 日收盤價走勢</h2>
                 </div>
                 <LineChart aria-hidden="true" size={22} />
             </div>
-            <div className="price-bars" aria-label="Recent close prices">
+            <div className="price-bars" aria-label="近期收盤價">
                 {prices.map((price) => (
                     <span
                         key={price.date}
@@ -156,11 +164,11 @@ function PriceHistory({ prices }) {
                 <table className="stock-table">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Open</th>
-                            <th>High</th>
-                            <th>Low</th>
-                            <th>Close</th>
+                            <th>日期</th>
+                            <th>開盤</th>
+                            <th>最高</th>
+                            <th>最低</th>
+                            <th>收盤</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -189,8 +197,8 @@ function NewsList({ news }) {
         <section className="stock-panel">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">Related news</p>
-                    <h2>Provider headlines</h2>
+                    <p className="section-kicker">相關新聞</p>
+                    <h2>資料供應器新聞標題</h2>
                 </div>
                 <Newspaper aria-hidden="true" size={22} />
             </div>
@@ -211,8 +219,8 @@ function AnalysisHistory({ analyses }) {
     if (analyses.length === 0) {
         return (
             <section className="stock-panel empty-state">
-                <strong>No saved analysis yet</strong>
-                <span>Run an analysis to save a reference summary for this symbol.</span>
+                <strong>尚無分析紀錄</strong>
+                <span>執行分析後，會為這檔股票保存一份參考摘要。</span>
             </section>
         );
     }
@@ -221,30 +229,34 @@ function AnalysisHistory({ analyses }) {
         <section className="stock-panel">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">Reference analysis</p>
-                    <h2>Latest saved summaries</h2>
+                    <p className="section-kicker">參考分析</p>
+                    <h2>最新保存摘要</h2>
                 </div>
                 <Bot aria-hidden="true" size={22} />
             </div>
             <div className="analysis-list">
-                {analyses.map((analysis) => (
-                    <article className="analysis-item" key={analysis.id}>
-                        <div className="analysis-item__head">
-                            <span className={`status-pill status-pill--${analysis.rule_signal?.stance ?? 'watch'}`}>
-                                {analysis.rule_signal?.stance ?? 'watch'}
-                            </span>
-                            <small>{analysis.provider_type} · {analysis.model}</small>
-                        </div>
-                        <p>{analysis.llm_output?.content ?? 'No LLM reference text saved.'}</p>
-                        {analysis.rule_signal?.reasons?.length ? (
-                            <ul>
-                                {analysis.rule_signal.reasons.map((reason) => (
-                                    <li key={reason}>{reason}</li>
-                                ))}
-                            </ul>
-                        ) : null}
-                    </article>
-                ))}
+                {analyses.map((analysis) => {
+                    const stance = analysis.rule_signal?.stance ?? 'watch';
+
+                    return (
+                        <article className="analysis-item" key={analysis.id}>
+                            <div className="analysis-item__head">
+                                <span className={`status-pill status-pill--${stance}`}>
+                                    {stanceLabels[stance] ?? stance}
+                                </span>
+                                <small>{analysis.provider_type} · {analysis.model}</small>
+                            </div>
+                            <p>{analysis.llm_output?.content ?? '尚未保存 LLM 參考文字。'}</p>
+                            {analysis.rule_signal?.reasons?.length ? (
+                                <ul>
+                                    {analysis.rule_signal.reasons.map((reason) => (
+                                        <li key={reason}>{reason}</li>
+                                    ))}
+                                </ul>
+                            ) : null}
+                        </article>
+                    );
+                })}
             </div>
         </section>
     );
@@ -259,13 +271,13 @@ export default function StockSearch({
     analyses = [],
 }) {
     return (
-        <AppShell title="Stock Search">
+        <AppShell title="個股搜尋">
             <div className="stock-search-page">
                 <section className="stock-search-header">
                     <div>
-                        <p className="section-kicker">Stock search</p>
-                        <h2>Search, review, and save reference analysis</h2>
-                        <p>Provider data is shown for research context. AI output is reference analysis, not guaranteed investment advice.</p>
+                        <p className="section-kicker">個股搜尋</p>
+                        <h2>搜尋、檢視並保存參考分析</h2>
+                        <p>資料供應器內容僅作研究脈絡。AI 輸出屬參考分析，不保證為投資建議。</p>
                     </div>
                     <SearchForm initialSymbol={symbol} />
                 </section>

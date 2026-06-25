@@ -10,7 +10,7 @@ class SignalEngine
             return [
                 'stance' => 'insufficient_data',
                 'score' => 0,
-                'reasons' => ['Signal cannot be evaluated because required indicator data is missing or invalid.'],
+                'reasons' => ['缺少必要技術指標或指標格式無效，暫時無法評估訊號。'],
             ];
         }
 
@@ -25,32 +25,32 @@ class SignalEngine
 
         if ($k > $d) {
             $score++;
-            $reasons[] = 'KD is positive because K is above D.';
+            $reasons[] = 'KD 偏多，因為 K 值高於 D 值。';
         } elseif ($k < $d) {
             $score--;
-            $reasons[] = 'KD is cautious because K is below D.';
+            $reasons[] = 'KD 偏謹慎，因為 K 值低於 D 值。';
         } else {
-            $reasons[] = 'KD is neutral because K equals D.';
+            $reasons[] = 'KD 中性，因為 K 值等於 D 值。';
         }
 
         if ($macdHistogram > 0) {
             $score++;
-            $reasons[] = 'MACD histogram is positive.';
+            $reasons[] = 'MACD 柱狀體為正，動能偏多。';
         } elseif ($macdHistogram < 0) {
             $score--;
-            $reasons[] = 'MACD histogram is negative.';
+            $reasons[] = 'MACD 柱狀體為負，動能偏弱。';
         } else {
-            $reasons[] = 'MACD histogram is neutral.';
+            $reasons[] = 'MACD 柱狀體接近中性。';
         }
 
         if ($ma5 > $ma20) {
             $score++;
-            $reasons[] = 'Short-term moving average is above medium-term moving average.';
+            $reasons[] = '短期均線高於中期均線，趨勢結構偏多。';
         } elseif ($ma5 < $ma20) {
             $score--;
-            $reasons[] = 'Short-term moving average is below medium-term moving average.';
+            $reasons[] = '短期均線低於中期均線，趨勢結構偏弱。';
         } else {
-            $reasons[] = 'Short-term moving average is neutral because it equals the medium-term moving average.';
+            $reasons[] = '短期均線與中期均線相同，趨勢結構暫時中性。';
         }
 
         $stance = match (true) {
