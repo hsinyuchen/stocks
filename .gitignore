@@ -16,6 +16,8 @@
 /public/build
 /public/hot
 /public/storage
+/scripts/.venv
+__pycache__
 /storage/*.key
 /storage/pail
 /vendor
