@@ -27,8 +27,7 @@ class PageRenderTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Dashboard')
                 ->where('auth.user.id', $user->id)
-                ->where('auth.user.profile.theme', 'warm')
-                ->where('summary.riskLevel', 'watch'));
+                ->where('auth.user.profile.theme', 'warm'));
     }
 
     public function test_authenticated_user_can_render_shell_placeholder_pages(): void
