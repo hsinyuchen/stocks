@@ -20,6 +20,7 @@ class NewsController extends Controller
         $filters = $request->validate([
             'market' => ['nullable', 'string', 'max:16'],
             'domain' => ['nullable', 'string', 'max:32'],
+            'kind' => ['nullable', 'string', 'in:article,video'],
             'source' => ['nullable', 'string', 'max:120'],
             'symbol' => ['nullable', 'string', 'max:32'],
             'q' => ['nullable', 'string', 'max:120'],
@@ -34,6 +35,7 @@ class NewsController extends Controller
             ->orderByDesc('id')
             ->when(($filters['market'] ?? '') !== '', fn (Builder $query) => $query->where('market', $filters['market']))
             ->when(($filters['domain'] ?? '') !== '', fn (Builder $query) => $query->where('domain', $filters['domain']))
+            ->when(($filters['kind'] ?? '') !== '', fn (Builder $query) => $query->where('kind', $filters['kind']))
             ->when(($filters['source'] ?? '') !== '', fn (Builder $query) => $query->where('source', $filters['source']))
             ->when(($filters['symbol'] ?? '') !== '', fn (Builder $query) => $query->whereJsonContains('related_symbols', $filters['symbol']))
             ->when(($filters['q'] ?? '') !== '', function (Builder $query) use ($filters): void {
@@ -58,6 +60,7 @@ class NewsController extends Controller
             'filters' => [
                 'market' => $filters['market'] ?? null,
                 'domain' => $filters['domain'] ?? null,
+                'kind' => $filters['kind'] ?? null,
                 'source' => $filters['source'] ?? null,
                 'symbol' => $filters['symbol'] ?? null,
                 'q' => $filters['q'] ?? null,
@@ -67,6 +70,7 @@ class NewsController extends Controller
             'facets' => [
                 'markets' => $this->distinctValues('market'),
                 'domains' => $this->distinctValues('domain'),
+                'kinds' => $this->distinctValues('kind'),
                 'sources' => $this->distinctValues('source'),
             ],
             'lastUpdatedAt' => NewsItem::max('created_at'),
@@ -82,6 +86,7 @@ class NewsController extends Controller
             'title' => $item->title,
             'summary' => $item->summary,
             'url' => $item->url,
+            'kind' => $item->kind,
             'market' => $item->market,
             'domain' => $item->domain,
             'language' => $item->language,

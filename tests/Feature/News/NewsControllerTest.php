@@ -155,6 +155,43 @@ class NewsControllerTest extends TestCase
                 ->where('items.data.0.title', 'semiconductor surge'));
     }
 
+    public function test_news_index_filters_by_kind(): void
+    {
+        $user = User::factory()->create();
+        $this->makeItem(['title' => 'an article', 'kind' => 'article']);
+        $this->makeItem(['title' => 'a video', 'kind' => 'video']);
+
+        $this->actingAs($user)
+            ->get('/news?kind=video')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('items.data', 1)
+                ->where('items.data.0.title', 'a video')
+                ->where('items.data.0.kind', 'video')
+                ->where('filters.kind', 'video'));
+    }
+
+    public function test_news_index_exposes_kind_in_item_payload(): void
+    {
+        $user = User::factory()->create();
+        $this->makeItem(['kind' => 'video']);
+
+        $this->actingAs($user)
+            ->get('/news')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('items.data.0.kind', 'video'));
+    }
+
+    public function test_news_index_rejects_invalid_kind(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/news?kind=podcast')
+            ->assertSessionHasErrors('kind');
+    }
+
     public function test_news_index_filters_by_date_range(): void
     {
         $user = User::factory()->create();

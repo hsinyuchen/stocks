@@ -1,5 +1,5 @@
 import { Link, router, useForm } from '@inertiajs/react';
-import { Bot, Newspaper, Settings, Sparkles } from 'lucide-react';
+import { Bot, Newspaper, Settings, Sparkles, Video } from 'lucide-react';
 import { useState } from 'react';
 import AppShell from '../../Layouts/AppShell';
 
@@ -14,6 +14,11 @@ const sentimentLabels = {
     bullish: '偏多',
     bearish: '偏空',
     neutral: '中性',
+};
+
+const kindLabels = {
+    article: '文章',
+    video: '影片',
 };
 
 function formatDateTime(value) {
@@ -84,6 +89,7 @@ function FilterBar({ filters, facets }) {
     const [form, setForm] = useState({
         market: filters.market ?? '',
         domain: filters.domain ?? '',
+        kind: filters.kind ?? '',
         source: filters.source ?? '',
         symbol: filters.symbol ?? '',
         q: filters.q ?? '',
@@ -119,6 +125,14 @@ function FilterBar({ filters, facets }) {
                     {facets.domains.map((domain) => (
                         <option key={domain} value={domain}>{domainLabels[domain] ?? domain}</option>
                     ))}
+                </select>
+            </label>
+            <label className="form-field">
+                <span>類型</span>
+                <select onChange={(event) => update('kind', event.target.value)} value={form.kind}>
+                    <option value="">全部</option>
+                    <option value="article">文章</option>
+                    <option value="video">影片</option>
                 </select>
             </label>
             <label className="form-field">
@@ -291,6 +305,11 @@ function NewsCard({ item, providers }) {
     return (
         <article className="news-card">
             <div className="news-card-meta">
+                {item.kind === 'video' ? (
+                    <span className="news-chip news-chip--video">
+                        <Video aria-hidden="true" size={14} /> {kindLabels.video}
+                    </span>
+                ) : null}
                 <span className="news-chip">{domainLabels[item.domain] ?? item.domain}</span>
                 {item.market ? <span className="news-chip">{item.market}</span> : null}
                 <span className="news-source">{item.source}</span>
@@ -360,7 +379,7 @@ function Pagination({ links }) {
 export default function NewsIndex({
     items = { data: [], links: [] },
     filters = {},
-    facets = { markets: [], domains: [], sources: [] },
+    facets = { markets: [], domains: [], kinds: [], sources: [] },
     lastUpdatedAt = null,
     nextUpdateTimes = [],
     llmProviders = [],
