@@ -146,6 +146,39 @@ class TechnicalIndicatorServiceTest extends TestCase
         $this->assertSame(20.0, $snapshot['ma20']);
     }
 
+    public function test_macd_signal_is_ema_of_macd_series_not_a_fixed_ratio(): void
+    {
+        $prices = [];
+        for ($i = 0; $i < 35; $i++) {
+            $close = 100.0 + $i;
+            $prices[] = $this->price(
+                close: $close,
+                high: $close + 0.5,
+                low: $close - 0.5,
+                open: $close - 0.2,
+                date: sprintf('2026-05-%02d', ($i % 28) + 1),
+            );
+        }
+
+        $snapshot = (new TechnicalIndicatorService())->calculate($prices);
+
+        // On a steadily rising series the MACD line is positive and its EMA-9
+        // signal line lags below it, so the histogram is positive...
+        $this->assertGreaterThan(0, $snapshot['macd']);
+        $this->assertGreaterThan(0, $snapshot['macd_signal']);
+        $this->assertGreaterThan($snapshot['macd_signal'], $snapshot['macd']);
+        $this->assertGreaterThan(0, $snapshot['macd_histogram']);
+
+        // ...and the signal must NOT equal the old `macd * 0.8` approximation.
+        $this->assertNotSame(round($snapshot['macd'] * 0.8, 4), $snapshot['macd_signal']);
+
+        // Histogram is exactly macd - signal.
+        $this->assertSame(
+            round($snapshot['macd'] - $snapshot['macd_signal'], 4),
+            $snapshot['macd_histogram'],
+        );
+    }
+
     private function price(
         float $close,
         float $high = 102.0,

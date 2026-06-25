@@ -25,14 +25,17 @@ class TechnicalIndicatorService
         $ma5 = $this->average(array_slice($closes, -5));
         $ma20 = $this->average(array_slice($closes, -20));
         [$k, $d] = $this->kd($highs, $lows, $closes);
-        [$macd, $signal, $histogram] = $this->macd($closes);
+        [$macd, $signal] = $this->macd($closes);
+
+        $macd = round($macd, 4);
+        $signal = round($signal, 4);
 
         return [
             'k' => round($k, 4),
             'd' => round($d, 4),
-            'macd' => round($macd, 4),
-            'macd_signal' => round($signal, 4),
-            'macd_histogram' => round($histogram, 4),
+            'macd' => $macd,
+            'macd_signal' => $signal,
+            'macd_histogram' => round($macd - $signal, 4),
             'ma5' => round($ma5, 4),
             'ma20' => round($ma20, 4),
         ];
@@ -60,25 +63,42 @@ class TechnicalIndicatorService
 
     private function macd(array $closes): array
     {
-        // Foundation MVP approximation, not a canonical MACD signal-line series calculation.
-        $ema12 = $this->ema($closes, 12);
-        $ema26 = $this->ema($closes, 26);
-        $macd = $ema12 - $ema26;
-        $signal = $macd * 0.8;
+        $ema12 = $this->emaSeries($closes, 12);
+        $ema26 = $this->emaSeries($closes, 26);
+
+        $macdSeries = [];
+        foreach ($closes as $index => $_) {
+            $macdSeries[$index] = $ema12[$index] - $ema26[$index];
+        }
+
+        $signalSeries = $this->emaSeries(array_values($macdSeries), 9);
+
+        $macd = end($macdSeries);
+        $signal = end($signalSeries);
 
         return [$macd, $signal, $macd - $signal];
     }
 
-    private function ema(array $values, int $period): float
+    /**
+     * @param list<float> $values
+     * @return list<float>
+     */
+    private function emaSeries(array $values, int $period): array
     {
-        $multiplier = 2 / ($period + 1);
-        $ema = $values[0] ?? 0.0;
-
-        foreach ($values as $value) {
-            $ema = (($value - $ema) * $multiplier) + $ema;
+        if ($values === []) {
+            return [];
         }
 
-        return $ema;
+        $multiplier = 2 / ($period + 1);
+        $series = [];
+        $ema = $values[0];
+
+        foreach ($values as $index => $value) {
+            $ema = $index === 0 ? $value : (($value - $ema) * $multiplier) + $ema;
+            $series[$index] = $ema;
+        }
+
+        return $series;
     }
 
     private function normalizePrice(mixed $price, int|string $index): array
