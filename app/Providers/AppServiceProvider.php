@@ -35,9 +35,12 @@ class AppServiceProvider extends ServiceProvider
                 return new FakeMarketDataProvider();
             }
 
+            // Yahoo is the primary US source: Stooq's free CSV endpoint proved
+            // unreliable in live testing (returns no rows / rate-limits). Stooq
+            // remains available as a class and can be re-wired if it stabilizes.
             $routing = new RoutingMarketDataProvider(
                 taiwan: new FinMindMarketDataProvider(config('services.finmind.token')),
-                unitedStates: new StooqMarketDataProvider(),
+                unitedStates: new YahooChartMarketDataProvider(),
                 fallback: new YahooChartMarketDataProvider(),
             );
 

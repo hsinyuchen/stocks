@@ -42,7 +42,9 @@ class StooqMarketDataProvider implements MarketDataProvider
         }
 
         $url = 'https://stooq.com/q/d/l/?s='.MarketResolver::stooqSymbol($symbol).'&i=d';
-        $response = Http::timeout($this->timeoutSeconds)->get($url);
+        $response = Http::timeout($this->timeoutSeconds)
+            ->withHeaders(['User-Agent' => 'Mozilla/5.0 (compatible; StockRadar/1.0)'])
+            ->get($url);
 
         if ($response->failed()) {
             throw new RuntimeException("Stooq request for {$symbol} failed with status {$response->status()}.");
@@ -58,7 +60,7 @@ class StooqMarketDataProvider implements MarketDataProvider
 
         $prices = [];
         foreach ($rows as $row) {
-            $cols = str_getcsv($row);
+            $cols = str_getcsv($row, ',', '"', '\\');
             if (count($cols) < 6 || ! is_numeric($cols[4])) {
                 continue;
             }
