@@ -15,23 +15,80 @@ class YahooChartMarketDataProvider implements MarketDataProvider
 
     public function quote(string $symbol): MarketQuoteData
     {
-        $prices = $this->dailyPrices($symbol, 2);
+        $url = 'https://query2.finance.yahoo.com/v8/finance/chart/'.rawurlencode($symbol).'?range=5d&interval=1d';
+        $response = Http::timeout($this->timeoutSeconds)
+            ->withHeaders(['User-Agent' => 'Mozilla/5.0 (compatible; StockRadar/1.0)'])
+            ->acceptJson()
+            ->get($url);
 
-        if ($prices === []) {
+        if ($response->failed()) {
+            throw new RuntimeException("Yahoo chart request for {$symbol} failed with status {$response->status()}.");
+        }
+
+        $meta = $response->json('chart.result.0.meta');
+        $closes = $response->json('chart.result.0.indicators.quote.0.close');
+        $validCloses = is_array($closes)
+            ? array_values(array_filter($closes, static fn ($close) => $close !== null))
+            : [];
+
+        $price = is_array($meta) ? ($meta['regularMarketPrice'] ?? null) : null;
+
+        if ($price === null) {
+            return $this->quoteFromCloses($symbol, $validCloses);
+        }
+
+        $price = (float) $price;
+        $previousClose = $meta['previousClose']
+            ?? $meta['chartPreviousClose']
+            ?? (count($validCloses) >= 2 ? $validCloses[count($validCloses) - 2] : null);
+
+        if ($previousClose === null) {
+            $previousClose = $price;
+        }
+
+        $previousClose = (float) $previousClose;
+        $change = $price - $previousClose;
+        $changePercent = $previousClose != 0.0 ? ($change / $previousClose) * 100 : 0.0;
+
+        $regularMarketTime = $meta['regularMarketTime'] ?? null;
+        $asOf = $regularMarketTime !== null
+            ? CarbonImmutable::createFromTimestampUTC((int) $regularMarketTime)->toIso8601String()
+            : CarbonImmutable::now()->toIso8601String();
+
+        return new MarketQuoteData(
+            symbol: strtoupper($symbol),
+            price: round($price, 4),
+            change: round($change, 4),
+            changePercent: round($changePercent, 4),
+            asOf: $asOf,
+        );
+    }
+
+    /**
+     * Fallback quote derived from the daily close series when the chart meta
+     * carries no intraday `regularMarketPrice`.
+     *
+     * @param  list<float|int>  $validCloses
+     */
+    private function quoteFromCloses(string $symbol, array $validCloses): MarketQuoteData
+    {
+        if ($validCloses === []) {
             throw new RuntimeException("Yahoo chart returned no rows for {$symbol}.");
         }
 
-        $last = $prices[count($prices) - 1];
-        $previousClose = count($prices) >= 2 ? $prices[count($prices) - 2]->close : $last->close;
-        $change = $last->close - $previousClose;
+        $last = (float) $validCloses[count($validCloses) - 1];
+        $previousClose = count($validCloses) >= 2
+            ? (float) $validCloses[count($validCloses) - 2]
+            : $last;
+        $change = $last - $previousClose;
         $changePercent = $previousClose != 0.0 ? ($change / $previousClose) * 100 : 0.0;
 
         return new MarketQuoteData(
             symbol: strtoupper($symbol),
-            price: round($last->close, 4),
+            price: round($last, 4),
             change: round($change, 4),
             changePercent: round($changePercent, 4),
-            asOf: $last->date.'T00:00:00+00:00',
+            asOf: CarbonImmutable::now()->toIso8601String(),
         );
     }
 

@@ -56,4 +56,54 @@ class YahooChartMarketDataProviderTest extends TestCase
 
         $this->assertCount(2, $prices);
     }
+
+    public function test_quote_uses_intraday_regular_market_price_from_meta(): void
+    {
+        $marketTime = (int) strtotime('2026-06-19 17:30:00 UTC');
+        $payload = $this->payload();
+        $payload['chart']['result'][0]['meta'] = [
+            'regularMarketPrice' => 112.5,
+            'previousClose' => 110.0,
+            'regularMarketTime' => $marketTime,
+        ];
+
+        Http::fake(['*query2.finance.yahoo.com*' => Http::response($payload, 200)]);
+
+        $quote = (new YahooChartMarketDataProvider())->quote('AAPL');
+
+        $this->assertSame('AAPL', $quote->symbol);
+        $this->assertSame(112.5, $quote->price);
+        $this->assertSame(2.5, $quote->change);
+        $this->assertSame(2.2727, $quote->changePercent);
+        $this->assertSame('2026-06-19T17:30:00+00:00', $quote->asOf);
+    }
+
+    public function test_quote_falls_back_to_chart_previous_close_when_previous_close_missing(): void
+    {
+        $payload = $this->payload();
+        $payload['chart']['result'][0]['meta'] = [
+            'regularMarketPrice' => 112.0,
+            'chartPreviousClose' => 100.0,
+        ];
+
+        Http::fake(['*query2.finance.yahoo.com*' => Http::response($payload, 200)]);
+
+        $quote = (new YahooChartMarketDataProvider())->quote('AAPL');
+
+        $this->assertSame(112.0, $quote->price);
+        $this->assertSame(12.0, $quote->change);
+    }
+
+    public function test_quote_falls_back_to_last_close_when_regular_market_price_absent(): void
+    {
+        $payload = $this->payload();
+        $payload['chart']['result'][0]['meta'] = [];
+
+        Http::fake(['*query2.finance.yahoo.com*' => Http::response($payload, 200)]);
+
+        $quote = (new YahooChartMarketDataProvider())->quote('AAPL');
+
+        $this->assertSame(110.0, $quote->price);
+        $this->assertSame(3.0, $quote->change);
+    }
 }
