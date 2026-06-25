@@ -14,5 +14,9 @@ final readonly class NewsItemData
         public string $topic,
         public array $relatedSymbols,
         public string $publishedAt,
+        public string $url = '',
+        public string $language = 'zh-TW',
+        public ?string $market = null,
+        public string $domain = 'other',
     ) {}
 }
