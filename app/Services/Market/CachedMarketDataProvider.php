@@ -10,6 +10,7 @@ use App\Models\DailyPrice;
 use App\Models\Instrument;
 use App\Support\MarketResolver;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 use RuntimeException;
 
 class CachedMarketDataProvider implements MarketDataProvider
@@ -17,28 +18,15 @@ class CachedMarketDataProvider implements MarketDataProvider
     public function __construct(
         private readonly MarketDataProvider $upstream,
         private readonly int $ttlMinutes = 720,
+        private readonly int $quoteCacheSeconds = 60,
     ) {}
 
     public function quote(string $symbol): MarketQuoteData
     {
-        $prices = $this->dailyPrices($symbol, 60);
-
-        if (count($prices) < 2) {
-            return $this->upstream->quote($symbol);
-        }
-
-        $last = $prices[count($prices) - 1];
-        $previous = $prices[count($prices) - 2];
-        $change = $last->close - $previous->close;
-        $changePercent = $previous->close != 0.0 ? ($change / $previous->close) * 100 : 0.0;
-        $tz = MarketResolver::isTaiwan($symbol) ? '+08:00' : '+00:00';
-
-        return new MarketQuoteData(
-            symbol: strtoupper($symbol),
-            price: round($last->close, 4),
-            change: round($change, 4),
-            changePercent: round($changePercent, 4),
-            asOf: $last->date.'T00:00:00'.$tz,
+        return Cache::remember(
+            'market:quote:'.strtoupper($symbol),
+            $this->quoteCacheSeconds,
+            fn (): MarketQuoteData => $this->upstream->quote($symbol),
         );
     }
 

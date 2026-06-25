@@ -47,6 +47,7 @@ class AppServiceProvider extends ServiceProvider
             return new CachedMarketDataProvider(
                 $routing,
                 (int) config('services.market_data.cache_ttl_minutes', 720),
+                quoteCacheSeconds: (int) config('services.market_data.quote_cache_seconds', 60),
             );
         });
     }

@@ -41,16 +41,18 @@ class CachedMarketDataProviderTest extends TestCase
         $this->assertSame(1, $upstream->dailyCalls); // still one
     }
 
-    public function test_quote_is_derived_from_cached_rows(): void
+    public function test_quote_is_served_from_short_shared_cache(): void
     {
         $upstream = new CountingMarketProvider();
         $cache = new CachedMarketDataProvider($upstream, 720);
 
-        $quote = $cache->quote('2330.TW');
+        $first = $cache->quote('NVDA');
+        $second = $cache->quote('NVDA');
 
-        $this->assertSame('2330.TW', $quote->symbol);
-        $this->assertGreaterThan(0, $quote->price);
-        $this->assertSame(0, $upstream->quoteCalls); // derived from prices, not upstream->quote
+        $this->assertSame(1, $upstream->quoteCalls); // second call served from cache
+        $this->assertEquals($first, $second);
+        $this->assertSame('NVDA', $first->symbol);
+        $this->assertSame(100.0, $first->price); // matches the stub
     }
 }
 

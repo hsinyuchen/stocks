@@ -46,6 +46,7 @@ return [
     'market_data' => [
         'driver' => env('MARKET_DATA_DRIVER', 'live'),
         'cache_ttl_minutes' => env('MARKET_DATA_CACHE_TTL_MINUTES', 720),
+        'quote_cache_seconds' => env('MARKET_DATA_QUOTE_CACHE_SECONDS', 60),
     ],
 
 ];
