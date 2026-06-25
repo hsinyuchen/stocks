@@ -18,5 +18,6 @@ final readonly class NewsItemData
         public string $language = 'zh-TW',
         public ?string $market = null,
         public string $domain = 'other',
+        public string $kind = 'article',
     ) {}
 }

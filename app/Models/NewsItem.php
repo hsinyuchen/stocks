@@ -17,6 +17,7 @@ class NewsItem extends Model
         'market',
         'topic',
         'domain',
+        'kind',
         'related_symbols',
     ];
 
