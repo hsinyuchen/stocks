@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AnalysesController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\LlmProviderSettingController;
@@ -8,7 +9,6 @@ use App\Http\Controllers\NewsController;
 use App\Http\Controllers\StockSearchController;
 use App\Http\Controllers\WatchlistController;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 
 Route::get('/', fn () => redirect()->route('dashboard'));
 
@@ -30,10 +30,7 @@ Route::middleware('auth')->group(function (): void {
     Route::delete('/watchlists/{watchlist}/items/{watchlistItem}', [WatchlistController::class, 'removeItem'])->name('watchlists.items.destroy');
     Route::get('/stocks/search', [StockSearchController::class, 'index'])->name('stocks.search');
     Route::post('/stocks/{instrument}/analyses', [StockSearchController::class, 'analyze'])->name('stocks.analyses.store');
-    Route::get('/analyses', fn () => Inertia::render('Placeholder', [
-        'title' => 'AI 分析紀錄',
-        'status' => 'Analysis history will be implemented after stock analysis actions are wired to the UI.',
-    ]))->name('analyses.index');
+    Route::get('/analyses', [AnalysesController::class, 'index'])->name('analyses.index');
     Route::get('/settings', [LlmProviderSettingController::class, 'index'])->name('settings.index');
     Route::post('/settings', [LlmProviderSettingController::class, 'store'])->name('settings.store');
     Route::patch('/settings/{llmProviderSetting}', [LlmProviderSettingController::class, 'update'])->name('settings.update');
