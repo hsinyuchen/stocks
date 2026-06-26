@@ -54,6 +54,27 @@ class CachedMarketDataProviderTest extends TestCase
         $this->assertSame('NVDA', $first->symbol);
         $this->assertSame(100.0, $first->price); // matches the stub
     }
+
+    public function test_quote_survives_a_serializing_cache_store(): void
+    {
+        // The array cache store keeps objects in memory; a serializing store
+        // (database/file/redis) round-trips them. Force a serializing store so
+        // a cached DTO would surface as __PHP_Incomplete_Class if mishandled.
+        config(['cache.default' => 'database']);
+        \Illuminate\Support\Facades\Cache::flush();
+
+        $upstream = new CountingMarketProvider();
+        $cache = new CachedMarketDataProvider($upstream, 720);
+
+        $first = $cache->quote('AAPL');   // miss -> writes to the serializing store
+        $second = $cache->quote('AAPL');  // hit  -> reads back through unserialize
+
+        $this->assertInstanceOf(MarketQuoteData::class, $second);
+        $this->assertSame('AAPL', $second->symbol);
+        $this->assertSame(100.0, $second->price);
+        $this->assertSame(1, $upstream->quoteCalls); // second served from cache
+        $this->assertEquals($first, $second);
+    }
 }
 
 final class CountingMarketProvider implements MarketDataProvider

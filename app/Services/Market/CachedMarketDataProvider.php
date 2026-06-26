@@ -23,10 +23,31 @@ class CachedMarketDataProvider implements MarketDataProvider
 
     public function quote(string $symbol): MarketQuoteData
     {
-        return Cache::remember(
+        // Cache a plain array, not the DTO object: serializing cache stores
+        // (database/file/redis) can otherwise deserialize an object back as a
+        // __PHP_Incomplete_Class. Rebuild the DTO from primitives on read.
+        $data = Cache::remember(
             'market:quote:'.strtoupper($symbol),
             $this->quoteCacheSeconds,
-            fn (): MarketQuoteData => $this->upstream->quote($symbol),
+            function () use ($symbol): array {
+                $quote = $this->upstream->quote($symbol);
+
+                return [
+                    'symbol' => $quote->symbol,
+                    'price' => $quote->price,
+                    'change' => $quote->change,
+                    'changePercent' => $quote->changePercent,
+                    'asOf' => $quote->asOf,
+                ];
+            },
+        );
+
+        return new MarketQuoteData(
+            symbol: (string) $data['symbol'],
+            price: (float) $data['price'],
+            change: (float) $data['change'],
+            changePercent: (float) $data['changePercent'],
+            asOf: (string) $data['asOf'],
         );
     }
 
