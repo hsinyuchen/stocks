@@ -179,6 +179,72 @@ class TechnicalIndicatorServiceTest extends TestCase
         );
     }
 
+    public function test_series_returns_aligned_arrays_for_charting(): void
+    {
+        $prices = (new FakeMarketDataProvider())->dailyPrices('AAPL', 60);
+        $service = new TechnicalIndicatorService();
+        $series = $service->series($prices);
+
+        $keys = ['dates', 'close', 'volume', 'ma5', 'ma20', 'k', 'd', 'macd', 'signal', 'histogram'];
+        foreach ($keys as $key) {
+            $this->assertArrayHasKey($key, $series);
+            $this->assertCount(60, $series[$key], "$key should have one entry per input price");
+        }
+
+        foreach ($series['dates'] as $date) {
+            $this->assertIsString($date);
+        }
+    }
+
+    public function test_series_last_values_match_calculate(): void
+    {
+        $prices = (new FakeMarketDataProvider())->dailyPrices('AAPL', 60);
+        $service = new TechnicalIndicatorService();
+
+        $snapshot = $service->calculate($prices);
+        $series = $service->series($prices);
+
+        $this->assertSame($snapshot['k'], end($series['k']));
+        $this->assertSame($snapshot['d'], end($series['d']));
+        $this->assertSame($snapshot['macd'], end($series['macd']));
+        $this->assertSame($snapshot['macd_signal'], end($series['signal']));
+        $this->assertSame($snapshot['ma5'], end($series['ma5']));
+        $this->assertSame($snapshot['ma20'], end($series['ma20']));
+    }
+
+    public function test_series_moving_averages_are_null_until_enough_points(): void
+    {
+        $prices = (new FakeMarketDataProvider())->dailyPrices('AAPL', 60);
+        $series = (new TechnicalIndicatorService())->series($prices);
+
+        // MA5 needs 5 points: indices 0..3 are null, index 4 onward is a float.
+        $this->assertNull($series['ma5'][0]);
+        $this->assertNull($series['ma5'][3]);
+        $this->assertIsFloat($series['ma5'][4]);
+
+        // MA20 needs 20 points: index 18 null, index 19 onward is a float.
+        $this->assertNull($series['ma20'][18]);
+        $this->assertIsFloat($series['ma20'][19]);
+    }
+
+    public function test_series_throws_for_empty_prices(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('At least one price is required to calculate indicators.');
+
+        (new TechnicalIndicatorService())->series([]);
+    }
+
+    public function test_series_throws_for_invalid_price_item(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Price item at index 0 must contain numeric open, high, low, close, and volume values.');
+
+        (new TechnicalIndicatorService())->series([
+            new stdClass(),
+        ]);
+    }
+
     private function price(
         float $close,
         float $high = 102.0,
