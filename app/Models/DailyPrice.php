@@ -20,7 +20,7 @@ class DailyPrice extends Model
     protected function casts(): array
     {
         return [
-            'priced_at' => 'date',
+            'priced_at' => 'date:Y-m-d',
             'open' => 'decimal:4',
             'high' => 'decimal:4',
             'low' => 'decimal:4',

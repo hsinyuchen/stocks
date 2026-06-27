@@ -55,6 +55,20 @@ class CachedMarketDataProviderTest extends TestCase
         $this->assertSame(100.0, $first->price); // matches the stub
     }
 
+    public function test_restore_over_existing_rows_updates_in_place_without_unique_violation(): void
+    {
+        // ttl 0 => every call is stale => re-fetch + re-store over the same dates.
+        $upstream = new CountingMarketProvider();
+        $cache = new CachedMarketDataProvider($upstream, 0);
+
+        $cache->dailyPrices('2330.TW', 3);
+        $second = $cache->dailyPrices('2330.TW', 3); // must update, not duplicate or 23000
+
+        $this->assertCount(3, $second);
+        $this->assertSame(3, DailyPrice::query()->count()); // updated in place, not doubled
+        $this->assertSame(2, $upstream->dailyCalls);
+    }
+
     public function test_quote_survives_a_serializing_cache_store(): void
     {
         // The array cache store keeps objects in memory; a serializing store
