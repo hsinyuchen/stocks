@@ -1516,3 +1516,18 @@ select:focus-visible {
     padding: 4px 9px;
     white-space: nowrap;
 }
+
+.signal-row--link {
+    cursor: pointer;
+    transition:
+        border-color 160ms ease,
+        box-shadow 160ms ease,
+        transform 160ms ease;
+}
+
+.signal-row--link:hover,
+.signal-row--link:focus-visible {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
+}

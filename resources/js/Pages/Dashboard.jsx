@@ -110,7 +110,12 @@ function WatchlistMovers({ items }) {
                         const stance = mover.stance ?? 'neutral';
 
                         return (
-                            <article className="signal-row" key={mover.symbol}>
+                            <Link
+                                className="signal-row signal-row--link"
+                                href={`/stocks/search?symbol=${encodeURIComponent(mover.symbol)}`}
+                                key={mover.symbol}
+                                aria-label={`查看 ${mover.symbol} 個股分析`}
+                            >
                                 <div>
                                     <strong>{mover.symbol}</strong>
                                     <span>{mover.name}</span>
@@ -132,7 +137,7 @@ function WatchlistMovers({ items }) {
                                         ({formatPercent(mover.change_percent)})
                                     </span>
                                 </p>
-                            </article>
+                            </Link>
                         );
                     })}
                 </div>
