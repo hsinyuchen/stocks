@@ -131,6 +131,12 @@ class WatchlistController extends Controller
             ],
         );
 
+        // Backfill the real company name when the instrument was previously
+        // auto-created with name == symbol (e.g. by the price cache).
+        if (! empty($data['name']) && ($instrument->name === '' || $instrument->name === $instrument->symbol)) {
+            $instrument->update(['name' => $data['name'], 'market' => $market]);
+        }
+
         if ($watchlist->items()->where('instrument_id', $instrument->id)->exists()) {
             throw ValidationException::withMessages([
                 'symbol' => 'This symbol is already on this watchlist.',
