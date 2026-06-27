@@ -21,9 +21,13 @@ class LlmProviderFactory
         }
 
         $apiKey = $setting->api_key_encrypted; // decrypted by the model cast
-        $timeout = (int) $setting->timeout_seconds;
         $temperature = (float) $setting->temperature;
-        $maxTokens = (int) $setting->max_tokens;
+        // Floors so thinking models (e.g. local Ollama) don't truncate: they
+        // spend most of the budget on `reasoning` before the answer, so a low
+        // max_tokens cuts off the structured JSON/analysis. The model still
+        // stops early when finished, so fast cloud models are unaffected.
+        $timeout = max((int) $setting->timeout_seconds, 120);
+        $maxTokens = max((int) $setting->max_tokens, 4096);
 
         if ($type->isGemini()) {
             return new GeminiLlmProvider($baseUrl, $apiKey, $timeout, $temperature, $maxTokens);
