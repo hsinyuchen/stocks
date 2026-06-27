@@ -10,9 +10,11 @@ use App\Models\Instrument;
 use App\Models\LlmProviderSetting;
 use App\Models\StockAnalysis;
 use App\Services\Llm\LlmProviderFactory;
+use App\Services\Search\StockSearchService;
 use App\Services\StockAnalysisService;
 use App\Services\TechnicalIndicatorService;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -60,6 +62,21 @@ class StockSearchController extends Controller
             'analyses' => $this->analysisPayload($request, $instrument),
             'llmProviders' => $this->llmProvidersPayload($request),
         ]);
+    }
+
+    public function lookup(Request $request, StockSearchService $service): JsonResponse
+    {
+        $request->validate([
+            'q' => ['nullable', 'string', 'max:64'],
+            'market' => ['required', 'in:tw,us'],
+        ]);
+
+        $results = $service->search(
+            (string) $request->query('q', ''),
+            (string) $request->query('market'),
+        );
+
+        return response()->json(['results' => $results]);
     }
 
     public function analyze(Request $request, Instrument $instrument): RedirectResponse

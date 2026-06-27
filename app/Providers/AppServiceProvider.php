@@ -16,6 +16,7 @@ use App\Services\Market\StooqMarketDataProvider;
 use App\Services\Market\YahooChartMarketDataProvider;
 use App\Services\News\DbNewsProvider;
 use App\Services\News\ProcessYoutubeWorkerRunner;
+use App\Services\Search\FinMindStockSearchProvider;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -51,6 +52,12 @@ class AppServiceProvider extends ServiceProvider
                 (int) config('services.market_data.cache_ttl_minutes', 720),
                 quoteCacheSeconds: (int) config('services.market_data.quote_cache_seconds', 60),
             );
+        });
+
+        // FinMind Taiwan stock search needs the configured (optional) API token.
+        // Yahoo's provider has no required dependencies and auto-resolves.
+        $this->app->bind(FinMindStockSearchProvider::class, function (): FinMindStockSearchProvider {
+            return new FinMindStockSearchProvider(config('services.finmind.token'));
         });
 
         // YouTube captions worker (2C). The real runner shells out to the Python

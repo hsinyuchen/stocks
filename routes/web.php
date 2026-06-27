@@ -29,6 +29,7 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/watchlists/{watchlist}/items', [WatchlistController::class, 'addItem'])->name('watchlists.items.store');
     Route::delete('/watchlists/{watchlist}/items/{watchlistItem}', [WatchlistController::class, 'removeItem'])->name('watchlists.items.destroy');
     Route::get('/stocks/search', [StockSearchController::class, 'index'])->name('stocks.search');
+    Route::get('/stocks/lookup', [StockSearchController::class, 'lookup'])->name('stocks.lookup');
     Route::post('/stocks/{instrument}/analyses', [StockSearchController::class, 'analyze'])->name('stocks.analyses.store');
     Route::get('/analyses', [AnalysesController::class, 'index'])->name('analyses.index');
     Route::get('/settings', [LlmProviderSettingController::class, 'index'])->name('settings.index');
