@@ -2,6 +2,7 @@ import { Link, router, useForm } from '@inertiajs/react';
 import { Bot, Newspaper, Settings, Sparkles, Video } from 'lucide-react';
 import { useState } from 'react';
 import AppShell from '../../Layouts/AppShell';
+import Markdown from '../../Components/Markdown';
 
 const domainLabels = {
     tech: '科技',
@@ -223,7 +224,7 @@ function DailySummaryPanel({ providers, summary }) {
                         <span className="status-pill status-pill--neutral">今日總經</span>
                         <small>{summary.provider_type} · {summary.model} · {formatDateTime(summary.created_at)}</small>
                     </div>
-                    {summary.summary ? <p>{summary.summary}</p> : null}
+                    <Markdown>{summary.summary}</Markdown>
                     {points.length > 0 ? (
                         <ul>
                             {points.map((point, index) => (
@@ -267,8 +268,8 @@ function AnalysisResult({ analysis }) {
                 ) : null}
                 <small>{analysis.model} · {formatDateTime(analysis.created_at)}</small>
             </div>
-            {analysis.summary ? <p>{analysis.summary}</p> : null}
-            {analysis.reasoning ? <p className="news-analysis-reasoning">{analysis.reasoning}</p> : null}
+            <Markdown>{analysis.summary}</Markdown>
+            {analysis.reasoning ? <Markdown className="news-analysis-reasoning">{analysis.reasoning}</Markdown> : null}
         </article>
     );
 }

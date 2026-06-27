@@ -1,6 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import { Bot } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
+import Markdown from '../../Components/Markdown';
 
 const typeFilters = [
     { value: 'all', label: '全部' },
@@ -79,7 +80,7 @@ function AnalysisRow({ item }) {
                 <StanceChip value={stance} />
                 {item.impact ? <span className="news-impact">影響 {item.impact}/5</span> : null}
             </div>
-            {item.summary ? <p className="analysis-history-row__summary">{item.summary}</p> : null}
+            {item.summary ? <Markdown className="analysis-history-row__summary">{item.summary}</Markdown> : null}
             <small className="analysis-history-row__meta">
                 {item.provider_type ? `${item.provider_type} · ` : ''}
                 {item.model}

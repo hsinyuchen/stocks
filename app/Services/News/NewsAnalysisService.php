@@ -43,7 +43,7 @@ class NewsAnalysisService
             $sentiment = 'neutral';
             $impact = null;
             $symbols = [];
-            $summary = trim($response->content);
+            $summary = $this->cleanText($response->content);
             $reasoning = '';
         } else {
             $sentiment = $this->normalizeSentiment($parsed['sentiment'] ?? null);
@@ -96,7 +96,7 @@ class NewsAnalysisService
         $parsed = $this->extractJson($response->content);
 
         if ($parsed === null) {
-            $summary = trim($response->content);
+            $summary = $this->cleanText($response->content);
             $points = [];
             $symbols = [];
         } else {
@@ -250,6 +250,19 @@ PROMPT;
         }
 
         return array_values($list);
+    }
+
+    /**
+     * Strip a wrapping Markdown code fence (```json … ```), used when the model
+     * returned an unparseable/truncated JSON blob so the raw text reads cleaner.
+     */
+    private function cleanText(string $content): string
+    {
+        $text = trim($content);
+        $text = (string) preg_replace('/^```[a-zA-Z]*\s*/', '', $text);
+        $text = (string) preg_replace('/\s*```$/', '', $text);
+
+        return trim($text);
     }
 
     private function stringField(mixed $value): string

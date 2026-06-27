@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react';
 import { Activity, Bot, LineChart, Newspaper, Sparkles } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 import StockSearchBox from '../../Components/StockSearchBox';
+import Markdown from '../../Components/Markdown';
 
 // Charts pull in recharts — load them on demand so non-chart pages stay light.
 const PriceChart = lazy(() => import('../../Components/charts/PriceChart'));
@@ -304,7 +305,7 @@ function AnalysisHistory({ analyses }) {
                                 </span>
                                 <small>{analysis.provider_type} · {analysis.model}</small>
                             </div>
-                            <p>{analysis.llm_output?.content ?? '尚未保存 LLM 參考文字。'}</p>
+                            <Markdown>{analysis.llm_output?.content ?? '尚未保存 LLM 參考文字。'}</Markdown>
                             {analysis.rule_signal?.reasons?.length ? (
                                 <ul>
                                     {analysis.rule_signal.reasons.map((reason) => (
