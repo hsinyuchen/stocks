@@ -77,6 +77,50 @@ class StockSearchTest extends TestCase
         ]);
     }
 
+    public function test_query_name_param_is_stored_as_the_created_instrument_name(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/stocks/search?symbol=2330.TW&name=' . urlencode('台積電'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Stocks/Search')
+                ->where('symbol', '2330.TW')
+                ->where('instrument.symbol', '2330.TW')
+                ->where('instrument.name', '台積電'));
+
+        $this->assertDatabaseHas('instruments', [
+            'symbol' => '2330.TW',
+            'name' => '台積電',
+            'market' => 'TW',
+            'currency' => 'TWD',
+        ]);
+    }
+
+    public function test_query_name_does_not_overwrite_existing_instrument_name(): void
+    {
+        $user = User::factory()->create();
+        $instrument = Instrument::factory()->create([
+            'symbol' => 'AAPL',
+            'name' => 'Apple Inc.',
+            'market' => 'US',
+            'asset_type' => 'stock',
+            'currency' => 'USD',
+            'exchange' => 'NASDAQ',
+        ]);
+
+        $this->actingAs($user)
+            ->get('/stocks/search?symbol=AAPL&name=Different Name')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Stocks/Search')
+                ->where('instrument.id', $instrument->id)
+                ->where('instrument.name', 'Apple Inc.'));
+
+        $this->assertSame(1, Instrument::query()->where('symbol', 'AAPL')->count());
+    }
+
     public function test_search_reuses_existing_instrument_without_user_metadata_overwrite(): void
     {
         $user = User::factory()->create();

@@ -43,14 +43,16 @@ class StockSearchController extends Controller
 
         $data = $request->validate([
             'symbol' => ['required', 'string', 'max:32', 'regex:/^[A-Z0-9.\-]+$/'],
+            'name' => ['nullable', 'string', 'max:120'],
         ]);
 
         $symbol = $data['symbol'];
+        $name = isset($data['name']) ? trim((string) $data['name']) : '';
         $quote = $this->marketData->quote($symbol);
         $history = $this->marketData->dailyPrices($symbol, 120);
         $prices = array_slice($history, -20);
         $news = $this->news->relatedNews($symbol, 5);
-        $instrument = $this->findOrCreateInstrumentFromQuote($quote);
+        $instrument = $this->findOrCreateInstrumentFromQuote($quote, $name !== '' ? $name : null);
 
         return Inertia::render('Stocks/Search', [
             'symbol' => $instrument->symbol,
@@ -179,15 +181,17 @@ class StockSearchController extends Controller
         ]);
     }
 
-    private function findOrCreateInstrumentFromQuote(object $quote): Instrument
+    private function findOrCreateInstrumentFromQuote(object $quote, ?string $name = null): Instrument
     {
         $symbol = strtoupper(trim((string) $quote->symbol));
-        $market = str_ends_with($symbol, '.TW') ? MarketRegion::Taiwan : MarketRegion::UnitedStates;
+        $market = str_ends_with($symbol, '.TW') || str_ends_with($symbol, '.TWO')
+            ? MarketRegion::Taiwan
+            : MarketRegion::UnitedStates;
 
         return Instrument::query()->createOrFirst(
             ['symbol' => $symbol],
             [
-                'name' => $symbol,
+                'name' => $name ?? $symbol,
                 'market' => $market,
                 'asset_type' => AssetType::Stock,
                 'currency' => $market === MarketRegion::Taiwan ? 'TWD' : 'USD',

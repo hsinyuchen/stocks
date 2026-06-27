@@ -108,15 +108,28 @@ class WatchlistController extends Controller
         $this->normalizeInstrumentInput($request);
 
         $data = $request->validate([
-            'symbol' => ['required', 'string', 'max:32', Rule::exists('instruments', 'symbol')],
+            'symbol' => ['required', 'string', 'max:32', 'regex:/^[A-Z0-9.\-]+$/'],
+            'name' => ['nullable', 'string', 'max:120'],
+            'market' => ['nullable', 'in:TW,US'],
             'note' => ['nullable', 'string', 'max:255'],
-        ], [
-            'symbol.exists' => 'Search and create this instrument before adding it to a watchlist.',
         ]);
 
-        $instrument = Instrument::query()
-            ->where('symbol', $data['symbol'])
-            ->firstOrFail();
+        $market = $data['market'] ?? (
+            str_ends_with($data['symbol'], '.TW') || str_ends_with($data['symbol'], '.TWO')
+                ? 'TW'
+                : 'US'
+        );
+
+        $instrument = Instrument::query()->firstOrCreate(
+            ['symbol' => $data['symbol']],
+            [
+                'name' => $data['name'] ?? $data['symbol'],
+                'market' => $market,
+                'asset_type' => 'stock',
+                'currency' => $market === 'TW' ? 'TWD' : 'USD',
+                'exchange' => null,
+            ],
+        );
 
         if ($watchlist->items()->where('instrument_id', $instrument->id)->exists()) {
             throw ValidationException::withMessages([
@@ -162,8 +175,13 @@ class WatchlistController extends Controller
 
     private function normalizeInstrumentInput(Request $request): void
     {
+        $name = $request->input('name');
+        $market = $request->input('market');
+
         $request->merge([
             'symbol' => strtoupper(trim((string) $request->input('symbol', ''))),
+            'name' => $name === null ? null : trim((string) $name),
+            'market' => $market === null ? null : strtoupper(trim((string) $market)),
             'note' => $request->input('note') === null ? null : trim((string) $request->input('note')),
         ]);
     }

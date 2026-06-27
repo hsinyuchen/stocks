@@ -174,7 +174,7 @@ class WatchlistCrudTest extends TestCase
             ->assertInvalid(['symbol']);
     }
 
-    public function test_missing_instrument_symbol_fails_validation_instead_of_creating_global_instrument(): void
+    public function test_adding_a_new_symbol_creates_the_instrument_with_name_and_market_then_links_it(): void
     {
         $user = User::factory()->create();
         $watchlist = Watchlist::factory()->for($user)->create(['name' => 'Core']);
@@ -183,19 +183,76 @@ class WatchlistCrudTest extends TestCase
             ->from('/watchlists')
             ->post("/watchlists/{$watchlist->id}/items", [
                 'symbol' => 'msft',
-                'name' => 'User Supplied Microsoft',
+                'name' => 'Microsoft Corporation',
                 'market' => 'US',
-                'asset_type' => 'stock',
-                'currency' => 'USD',
-                'exchange' => 'NASDAQ',
+                'note' => 'Cloud + AI',
             ])
             ->assertRedirect('/watchlists')
-            ->assertInvalid(['symbol']);
+            ->assertValid();
 
-        $this->assertDatabaseMissing('instruments', [
+        $this->assertDatabaseHas('instruments', [
             'symbol' => 'MSFT',
+            'name' => 'Microsoft Corporation',
+            'market' => 'US',
+            'asset_type' => 'stock',
+            'currency' => 'USD',
+            'exchange' => null,
         ]);
-        $this->assertSame(0, $watchlist->items()->count());
+
+        $instrument = Instrument::query()->where('symbol', 'MSFT')->firstOrFail();
+        $this->assertDatabaseHas('watchlist_items', [
+            'watchlist_id' => $watchlist->id,
+            'instrument_id' => $instrument->id,
+            'note' => 'Cloud + AI',
+        ]);
+        $this->assertSame(1, $watchlist->items()->count());
+    }
+
+    public function test_adding_a_new_taiwan_symbol_infers_tw_market_and_currency_from_suffix(): void
+    {
+        $user = User::factory()->create();
+        $watchlist = Watchlist::factory()->for($user)->create(['name' => 'Core']);
+
+        $this->actingAs($user)
+            ->from('/watchlists')
+            ->post("/watchlists/{$watchlist->id}/items", [
+                'symbol' => '2330.tw',
+                'name' => '台積電',
+            ])
+            ->assertRedirect('/watchlists')
+            ->assertValid();
+
+        $this->assertDatabaseHas('instruments', [
+            'symbol' => '2330.TW',
+            'name' => '台積電',
+            'market' => 'TW',
+            'asset_type' => 'stock',
+            'currency' => 'TWD',
+            'exchange' => null,
+        ]);
+
+        $instrument = Instrument::query()->where('symbol', '2330.TW')->firstOrFail();
+        $this->assertSame('TW', $instrument->market->value);
+    }
+
+    public function test_adding_a_new_symbol_without_a_name_falls_back_to_the_symbol(): void
+    {
+        $user = User::factory()->create();
+        $watchlist = Watchlist::factory()->for($user)->create(['name' => 'Core']);
+
+        $this->actingAs($user)
+            ->from('/watchlists')
+            ->post("/watchlists/{$watchlist->id}/items", [
+                'symbol' => 'tsla',
+            ])
+            ->assertRedirect('/watchlists')
+            ->assertValid();
+
+        $this->assertDatabaseHas('instruments', [
+            'symbol' => 'TSLA',
+            'name' => 'TSLA',
+            'market' => 'US',
+        ]);
     }
 
     public function test_user_cannot_update_delete_another_users_watchlist_or_add_or_remove_another_users_item(): void
