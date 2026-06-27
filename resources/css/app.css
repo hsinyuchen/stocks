@@ -325,6 +325,18 @@ button {
     min-width: 0;
 }
 
+.user-chip__logout {
+    flex: none;
+    height: 34px;
+    margin-left: auto;
+    width: 34px;
+}
+
+.user-chip__logout:hover {
+    border-color: var(--negative);
+    color: var(--negative);
+}
+
 .shell-main {
     min-width: 0;
     padding: 20px;

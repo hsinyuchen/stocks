@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     BarChart3,
     Bell,
     Bot,
+    LogOut,
     Newspaper,
     Search,
     Settings,
@@ -71,6 +72,8 @@ export default function AppShell({ children, title = '市場儀表板' }) {
 
     const toggleTheme = () => setTheme((current) => (current === 'dark' ? 'warm' : 'dark'));
 
+    const logout = () => router.post('/logout');
+
     return (
         <>
             <Head title={title} />
@@ -112,6 +115,15 @@ export default function AppShell({ children, title = '市場儀表板' }) {
                                 <strong>{user?.name ?? '使用者'}</strong>
                                 <small>{user?.profile?.preferred_market ?? 'TW_US'}</small>
                             </div>
+                            <button
+                                type="button"
+                                className="icon-button user-chip__logout"
+                                onClick={logout}
+                                aria-label="登出"
+                                title="登出"
+                            >
+                                <LogOut aria-hidden="true" size={18} />
+                            </button>
                         </div>
                     </div>
                 </aside>
