@@ -43,7 +43,19 @@ class OpenAiCompatibleLlmProvider implements LlmProvider
 
         $content = $response->json('choices.0.message.content');
 
-        if (! is_string($content) || $content === '') {
+        // Some local/thinking models (e.g. via Ollama) put the answer in
+        // `reasoning` and leave `content` empty — especially when the token
+        // budget is spent reasoning. Fall back to reasoning so these models
+        // still return usable text instead of failing.
+        if (! is_string($content) || trim($content) === '') {
+            $reasoning = $response->json('choices.0.message.reasoning');
+
+            if (is_string($reasoning) && trim($reasoning) !== '') {
+                $content = $reasoning;
+            }
+        }
+
+        if (! is_string($content) || trim($content) === '') {
             throw new RuntimeException("LLM response from {$this->providerType} did not contain message content.");
         }
 

@@ -75,4 +75,24 @@ class OpenAiCompatibleLlmProviderTest extends TestCase
         $this->expectException(RuntimeException::class);
         $provider->complete('llama3.1', 'hello');
     }
+
+    public function test_falls_back_to_reasoning_when_content_is_empty(): void
+    {
+        // Thinking models (Ollama) often leave content empty and put the answer
+        // in `reasoning`, especially when the token budget is spent reasoning.
+        Http::fake([
+            'http://localhost:11434/v1/chat/completions' => Http::response([
+                'model' => 'gemma4:12b',
+                'choices' => [['message' => [
+                    'content' => '',
+                    'reasoning' => '參考分析：台積電為晶圓代工龍頭，留意先進製程需求。',
+                ]]],
+            ], 200),
+        ]);
+
+        $provider = new OpenAiCompatibleLlmProvider('ollama', 'http://localhost:11434/v1', null);
+        $response = $provider->complete('gemma4:12b', 'hello');
+
+        $this->assertStringContainsString('參考分析', $response->content);
+    }
 }
