@@ -1,6 +1,7 @@
 import { router, useForm } from '@inertiajs/react';
 import { Plus, Save, Trash2, X } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
+import StockSearchBox from '../../Components/StockSearchBox';
 
 function FieldError({ message }) {
     if (!message) {
@@ -80,33 +81,34 @@ function RenameWatchlistForm({ watchlist }) {
 function AddInstrumentForm({ watchlist }) {
     const form = useForm({
         symbol: '',
+        name: '',
+        market: '',
         note: '',
     });
 
-    const submit = (event) => {
-        event.preventDefault();
+    const onSelect = (result) => {
+        // Carry the current note alongside the chosen stock and submit immediately.
+        form.transform((data) => ({
+            symbol: result.symbol,
+            name: result.name,
+            market: result.market,
+            note: data.note,
+        }));
+
         form.post(`/watchlists/${watchlist.id}/items`, {
             preserveScroll: true,
-            onSuccess: () => form.reset('symbol', 'note'),
+            onSuccess: () => form.reset('symbol', 'name', 'market', 'note'),
+            onFinish: () => form.transform((data) => data),
         });
     };
 
     return (
-        <form className="instrument-form" onSubmit={submit}>
-            <div className="instrument-form__grid instrument-form__grid--compact">
-                <TextField
-                    error={form.errors.symbol}
-                    label="股票代號"
-                    maxLength="32"
-                    onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
-                    placeholder="例如：AAPL 或 2330.TW"
-                    type="text"
-                    value={form.data.symbol}
-                />
-                <button className="button-secondary" disabled={form.processing} type="submit">
-                    <Plus aria-hidden="true" size={18} />
-                    <span>加入股票</span>
-                </button>
+        <form className="instrument-form" onSubmit={(event) => event.preventDefault()}>
+            <div className="form-field">
+                <span>股票名稱或代號</span>
+                <StockSearchBox market="tw" onSelect={onSelect} />
+                <FieldError message={form.errors.symbol} />
+                {form.errors.market ? <FieldError message={form.errors.market} /> : null}
             </div>
             <TextField
                 error={form.errors.note}

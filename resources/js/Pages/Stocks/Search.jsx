@@ -1,7 +1,8 @@
-import { router, useForm, usePage } from '@inertiajs/react';
+import { router, useForm } from '@inertiajs/react';
 import { lazy, Suspense } from 'react';
-import { Activity, Bot, LineChart, Newspaper, Search, Sparkles } from 'lucide-react';
+import { Activity, Bot, LineChart, Newspaper, Sparkles } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
+import StockSearchBox from '../../Components/StockSearchBox';
 
 // Charts pull in recharts — load them on demand so non-chart pages stay light.
 const PriceChart = lazy(() => import('../../Components/charts/PriceChart'));
@@ -36,36 +37,21 @@ function FieldError({ message }) {
 }
 
 function SearchForm({ initialSymbol }) {
-    const { errors } = usePage().props;
-    const form = useForm({
-        symbol: initialSymbol ?? '',
-    });
-
-    const submit = (event) => {
-        event.preventDefault();
-        router.get('/stocks/search', { symbol: form.data.symbol }, {
-            preserveScroll: true,
-        });
+    const onSelect = (result) => {
+        router.get(
+            '/stocks/search',
+            { symbol: result.symbol, name: result.name },
+            { preserveScroll: true },
+        );
     };
 
     return (
-        <form className="stock-search-form" onSubmit={submit}>
-            <label className="form-field">
-                <span>股票代號</span>
-                <input
-                    maxLength="32"
-                    onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
-                    placeholder="AAPL 或 2330.TW"
-                    type="search"
-                    value={form.data.symbol}
-                />
-                <FieldError message={errors.symbol} />
-            </label>
-            <button className="button-primary" type="submit">
-                <Search aria-hidden="true" size={18} />
-                <span>搜尋</span>
-            </button>
-        </form>
+        <div className="stock-search-form">
+            <StockSearchBox onSelect={onSelect} />
+            {initialSymbol ? (
+                <p className="field-hint">目前股票：{initialSymbol}</p>
+            ) : null}
+        </div>
     );
 }
 
