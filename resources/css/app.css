@@ -489,14 +489,24 @@ button {
     border-radius: var(--radius-sm);
     display: grid;
     gap: 12px;
-    grid-template-columns: 140px 96px minmax(0, 1fr);
+    grid-template-columns: 140px minmax(0, 1fr) 96px minmax(0, 1fr);
     min-height: 70px;
     padding: 12px 14px;
 }
 
 .signal-row strong,
-.signal-row span {
+.signal-row > div > span {
     display: block;
+}
+
+.signal-row__spark {
+    height: 28px;
+    min-width: 60px;
+}
+
+.metric-card__spark {
+    height: 28px;
+    margin-top: 2px;
 }
 
 .signal-row p {
@@ -889,19 +899,21 @@ button {
     padding: 5px 8px;
 }
 
-.price-bars {
-    align-items: end;
-    display: grid;
-    gap: 4px;
-    grid-template-columns: repeat(20, minmax(4px, 1fr));
-    height: 130px;
+.chart-wrap {
     margin: 6px 0 18px;
+    min-height: 150px;
+    width: 100%;
 }
 
-.price-bars span {
-    background: linear-gradient(180deg, var(--positive), var(--accent));
-    border-radius: 999px 999px 2px 2px;
-    min-height: 22px;
+.chart-wrap--empty {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+}
+
+.chart-empty {
+    color: var(--muted);
+    font-size: 0.85rem;
 }
 
 .price-table-wrap {

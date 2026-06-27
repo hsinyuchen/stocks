@@ -1,6 +1,7 @@
 import { Link } from '@inertiajs/react';
 import { Bot, LineChart, Newspaper, Star } from 'lucide-react';
 import AppShell from '../Layouts/AppShell';
+import Sparkline from '../Components/charts/Sparkline';
 
 const stanceLabels = {
     bullish: '偏多',
@@ -72,6 +73,11 @@ function MarketSnapshot({ items }) {
                         <small className={changeClass(index.change_percent)}>
                             {formatPercent(index.change_percent)} · {index.symbol}
                         </small>
+                        {index.spark?.length >= 2 ? (
+                            <div className="metric-card__spark">
+                                <Sparkline data={index.spark} />
+                            </div>
+                        ) : null}
                     </article>
                 ))
             )}
@@ -109,6 +115,13 @@ function WatchlistMovers({ items }) {
                                     <strong>{mover.symbol}</strong>
                                     <span>{mover.name}</span>
                                 </div>
+                                {mover.spark?.length >= 2 ? (
+                                    <div className="signal-row__spark">
+                                        <Sparkline data={mover.spark} />
+                                    </div>
+                                ) : (
+                                    <div className="signal-row__spark" />
+                                )}
                                 <span className={`status-pill status-pill--${stance}`}>
                                     {stanceLabels[stance] ?? stance}
                                 </span>

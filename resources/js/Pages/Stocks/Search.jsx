@@ -1,6 +1,8 @@
 import { router, useForm, usePage } from '@inertiajs/react';
-import { Bot, LineChart, Newspaper, Search, Sparkles } from 'lucide-react';
+import { Activity, Bot, LineChart, Newspaper, Search, Sparkles } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
+import PriceChart from '../../Components/charts/PriceChart';
+import { KdChart, MacdChart } from '../../Components/charts/IndicatorChart';
 
 const stanceLabels = {
     bullish: '偏多',
@@ -160,34 +162,31 @@ function QuotePanel({ quote, instrument }) {
     );
 }
 
-function PriceHistory({ prices }) {
+function PriceHistory({ prices, indicators }) {
     if (prices.length === 0) {
         return null;
     }
 
-    const closes = prices.map((price) => Number(price.close));
-    const min = Math.min(...closes);
-    const max = Math.max(...closes);
-    const range = Math.max(max - min, 1);
+    const hasChart = Boolean(indicators?.close?.length);
 
     return (
         <section className="stock-panel">
             <div className="panel-heading">
                 <div>
                     <p className="section-kicker">近期價格</p>
-                    <h2>20 日收盤價走勢</h2>
+                    <h2>價格走勢與均線</h2>
                 </div>
                 <LineChart aria-hidden="true" size={22} />
             </div>
-            <div className="price-bars" aria-label="近期收盤價">
-                {prices.map((price) => (
-                    <span
-                        key={price.date}
-                        style={{ height: `${28 + ((Number(price.close) - min) / range) * 72}%` }}
-                        title={`${price.date}: ${formatNumber(price.close)}`}
-                    />
-                ))}
-            </div>
+            {hasChart ? (
+                <div className="chart-wrap" aria-label="價格走勢圖">
+                    <PriceChart indicators={indicators} />
+                </div>
+            ) : (
+                <div className="chart-wrap chart-wrap--empty" aria-label="價格走勢圖">
+                    <span className="chart-empty">尚無足夠價格資料繪製走勢圖。</span>
+                </div>
+            )}
             <div className="price-table-wrap">
                 <table className="stock-table">
                     <thead>
@@ -213,6 +212,41 @@ function PriceHistory({ prices }) {
                 </table>
             </div>
         </section>
+    );
+}
+
+function IndicatorPanels({ indicators }) {
+    if (!indicators?.close?.length) {
+        return null;
+    }
+
+    return (
+        <>
+            <section className="stock-panel">
+                <div className="panel-heading">
+                    <div>
+                        <p className="section-kicker">技術指標</p>
+                        <h2>KD 指標</h2>
+                    </div>
+                    <Activity aria-hidden="true" size={22} />
+                </div>
+                <div className="chart-wrap" aria-label="KD 指標圖">
+                    <KdChart indicators={indicators} />
+                </div>
+            </section>
+            <section className="stock-panel">
+                <div className="panel-heading">
+                    <div>
+                        <p className="section-kicker">技術指標</p>
+                        <h2>MACD</h2>
+                    </div>
+                    <Activity aria-hidden="true" size={22} />
+                </div>
+                <div className="chart-wrap" aria-label="MACD 圖">
+                    <MacdChart indicators={indicators} />
+                </div>
+            </section>
+        </>
     );
 }
 
@@ -295,6 +329,7 @@ export default function StockSearch({
     instrument = null,
     quote = null,
     prices = [],
+    indicators = null,
     news = [],
     analyses = [],
     llmProviders = [],
@@ -314,7 +349,8 @@ export default function StockSearch({
                 <div className="stock-workspace">
                     <div className="stock-workspace__main">
                         <QuotePanel instrument={instrument} quote={quote} />
-                        <PriceHistory prices={prices} />
+                        <PriceHistory indicators={indicators} prices={prices} />
+                        <IndicatorPanels indicators={indicators} />
                         <NewsList news={news} />
                     </div>
                     <aside className="stock-workspace__side">
