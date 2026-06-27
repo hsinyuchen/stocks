@@ -6,6 +6,7 @@ use App\Models\Instrument;
 use App\Models\StockAnalysis;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -61,7 +62,9 @@ class StockSearchTest extends TestCase
                 ->where('quote.symbol', '2330.TW')
                 ->where('quote.price', 128.5)
                 ->has('prices', 20)
-                ->where('news.0.title', '2330.TW related news 1')
+                ->has('indicators.close', 60)
+                ->has('indicators.k', 60)
+                ->where('news.0.title', '2330.TW 相關新聞 1')
                 ->has('analyses', 0));
 
         $this->assertDatabaseHas('instruments', [
@@ -120,7 +123,7 @@ class StockSearchTest extends TestCase
         $this->assertSame('fake', $analysis->provider_type);
         $this->assertSame('fake-model', $analysis->model);
         $this->assertSame('v1', $analysis->prompt_version);
-        $this->assertSame('This is reference analysis only: hold/watch, confirm with risk controls and latest data.', $analysis->llm_output['content']);
+        $this->assertSame('此內容僅供研究參考：目前建議維持持有或觀察，並搭配風險控管與最新資料再次確認。', $analysis->llm_output['content']);
         $this->assertArrayHasKey('stance', $analysis->rule_signal);
         $this->assertNull($analysis->technical_snapshot_id);
 
@@ -131,7 +134,7 @@ class StockSearchTest extends TestCase
                 ->component('Stocks/Search')
                 ->has('analyses', 1)
                 ->where('analyses.0.id', $analysis->id)
-                ->where('analyses.0.llm_output.content', 'This is reference analysis only: hold/watch, confirm with risk controls and latest data.'));
+                ->where('analyses.0.llm_output.content', '此內容僅供研究參考：目前建議維持持有或觀察，並搭配風險控管與最新資料再次確認。'));
 
         $this->actingAs($otherUser)
             ->get('/stocks/search?symbol=NVDA')
@@ -139,6 +142,125 @@ class StockSearchTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Stocks/Search')
                 ->has('analyses', 0));
+    }
+
+    public function test_analyze_uses_selected_provider_and_stores_real_output(): void
+    {
+        Http::fake([
+            'http://localhost:11434/v1/chat/completions' => Http::response([
+                'model' => 'llama3.1',
+                'choices' => [['message' => ['content' => '參考分析：留意均線糾結。']]],
+            ], 200),
+        ]);
+
+        $user = User::factory()->create();
+        $setting = $user->llmProviderSettings()->create([
+            'provider_type' => 'ollama',
+            'display_name' => 'Local Ollama',
+            'base_url' => null,
+            'api_key_encrypted' => null,
+            'model' => 'llama3.1',
+            'timeout_seconds' => 30,
+            'temperature' => 0.20,
+            'max_tokens' => 800,
+            'is_default' => true,
+            'default_marker' => true,
+        ]);
+        $instrument = Instrument::factory()->create(['symbol' => 'NVDA']);
+
+        $this->actingAs($user)
+            ->from('/stocks/search?symbol=NVDA')
+            ->post("/stocks/{$instrument->id}/analyses", [
+                'llm_provider_setting_id' => $setting->id,
+            ])
+            ->assertRedirect('/stocks/search?symbol=NVDA');
+
+        $analysis = StockAnalysis::query()->whereBelongsTo($user)->firstOrFail();
+        $this->assertSame('ollama', $analysis->provider_type);
+        $this->assertSame('llama3.1', $analysis->model);
+        $this->assertStringContainsString('參考分析', $analysis->llm_output['content']);
+
+        Http::assertSent(fn ($request) => $request->url() === 'http://localhost:11434/v1/chat/completions');
+    }
+
+    public function test_analyze_degrades_when_selected_provider_errors(): void
+    {
+        Http::fake([
+            'http://localhost:11434/v1/chat/completions' => Http::response(['error' => 'down'], 500),
+        ]);
+
+        $user = User::factory()->create();
+        $setting = $user->llmProviderSettings()->create([
+            'provider_type' => 'ollama',
+            'display_name' => 'Local Ollama',
+            'base_url' => null,
+            'api_key_encrypted' => null,
+            'model' => 'llama3.1',
+            'timeout_seconds' => 30,
+            'temperature' => 0.20,
+            'max_tokens' => 800,
+            'is_default' => true,
+            'default_marker' => true,
+        ]);
+        $instrument = Instrument::factory()->create(['symbol' => 'NVDA']);
+
+        $this->actingAs($user)
+            ->from('/stocks/search?symbol=NVDA')
+            ->post("/stocks/{$instrument->id}/analyses", ['llm_provider_setting_id' => $setting->id])
+            ->assertRedirect('/stocks/search?symbol=NVDA');
+
+        $analysis = StockAnalysis::query()->whereBelongsTo($user)->firstOrFail();
+        $this->assertSame('error', $analysis->provider_type);
+        $this->assertStringContainsString('AI 分析暫時無法使用', $analysis->llm_output['content']);
+    }
+
+    public function test_cannot_analyze_with_another_users_provider_setting(): void
+    {
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+        $otherSetting = $other->llmProviderSettings()->create([
+            'provider_type' => 'ollama',
+            'display_name' => 'Other Ollama',
+            'base_url' => null,
+            'api_key_encrypted' => null,
+            'model' => 'llama3.1',
+            'timeout_seconds' => 30,
+            'temperature' => 0.20,
+            'max_tokens' => 800,
+            'is_default' => true,
+            'default_marker' => true,
+        ]);
+        $instrument = Instrument::factory()->create(['symbol' => 'NVDA']);
+
+        $this->actingAs($user)
+            ->post("/stocks/{$instrument->id}/analyses", ['llm_provider_setting_id' => $otherSetting->id])
+            ->assertForbidden();
+    }
+
+    public function test_search_page_exposes_user_llm_providers(): void
+    {
+        $user = User::factory()->create();
+        $user->llmProviderSettings()->create([
+            'provider_type' => 'ollama',
+            'display_name' => 'Local Ollama',
+            'base_url' => null,
+            'api_key_encrypted' => null,
+            'model' => 'llama3.1',
+            'timeout_seconds' => 30,
+            'temperature' => 0.20,
+            'max_tokens' => 800,
+            'is_default' => true,
+            'default_marker' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->get('/stocks/search')
+            ->assertOk()
+            ->assertInertia(fn (\Inertia\Testing\AssertableInertia $page) => $page
+                ->component('Stocks/Search')
+                ->has('llmProviders', 1)
+                ->where('llmProviders.0.display_name', 'Local Ollama')
+                ->where('llmProviders.0.model', 'llama3.1'));
     }
 
     public function test_blank_or_invalid_symbol_does_not_create_instrument(): void

@@ -7,8 +7,11 @@ use App\Contracts\NewsProvider;
 use App\Enums\AssetType;
 use App\Enums\MarketRegion;
 use App\Models\Instrument;
+use App\Models\LlmProviderSetting;
 use App\Models\StockAnalysis;
+use App\Services\Llm\LlmProviderFactory;
 use App\Services\StockAnalysisService;
+use App\Services\TechnicalIndicatorService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,12 +24,17 @@ class StockSearchController extends Controller
         private readonly MarketDataProvider $marketData,
         private readonly NewsProvider $news,
         private readonly StockAnalysisService $stockAnalysis,
+        private readonly LlmProviderFactory $llmFactory,
+        private readonly TechnicalIndicatorService $indicators,
     ) {}
 
     public function index(Request $request): Response|RedirectResponse
     {
         if (! $request->has('symbol')) {
-            return Inertia::render('Stocks/Search', $this->emptyPayload());
+            return Inertia::render('Stocks/Search', [
+                ...$this->emptyPayload(),
+                'llmProviders' => $this->llmProvidersPayload($request),
+            ]);
         }
 
         $this->normalizeSymbolInput($request);
@@ -37,7 +45,8 @@ class StockSearchController extends Controller
 
         $symbol = $data['symbol'];
         $quote = $this->marketData->quote($symbol);
-        $prices = $this->marketData->dailyPrices($symbol, 20);
+        $history = $this->marketData->dailyPrices($symbol, 120);
+        $prices = array_slice($history, -20);
         $news = $this->news->relatedNews($symbol, 5);
         $instrument = $this->findOrCreateInstrumentFromQuote($quote);
 
@@ -46,8 +55,10 @@ class StockSearchController extends Controller
             'instrument' => $this->instrumentPayload($instrument),
             'quote' => $this->quotePayload($quote),
             'prices' => array_map(fn (object $price): array => $this->pricePayload($price), $prices),
+            'indicators' => $this->indicatorsPayload($history),
             'news' => array_map(fn (object $item): array => $this->newsPayload($item), $news),
             'analyses' => $this->analysisPayload($request, $instrument),
+            'llmProviders' => $this->llmProvidersPayload($request),
         ]);
     }
 
@@ -55,12 +66,18 @@ class StockSearchController extends Controller
     {
         $data = $request->validate([
             'model' => ['nullable', 'string', 'max:120'],
+            'llm_provider_setting_id' => ['nullable', 'integer'],
         ]);
 
-        $model = trim((string) ($data['model'] ?? '')) ?: 'reference-model';
-        $result = $this->stockAnalysis->analyze($instrument->symbol, $model);
+        $user = $request->user();
+        $setting = $this->resolveSetting($user, $data['llm_provider_setting_id'] ?? null);
+        $model = trim((string) ($data['model'] ?? '')) ?: ($setting->model ?? 'reference-model');
 
-        $request->user()->stockAnalyses()->create([
+        $result = $setting !== null
+            ? $this->stockAnalysis->analyze($instrument->symbol, $model, $this->llmFactory->make($setting))
+            : $this->stockAnalysis->analyze($instrument->symbol, $model);
+
+        $user->stockAnalyses()->create([
             'instrument_id' => $instrument->id,
             'technical_snapshot_id' => null,
             'provider_type' => (string) ($result['llm']['provider'] ?? 'unknown'),
@@ -74,6 +91,18 @@ class StockSearchController extends Controller
         return redirect()->route('stocks.search', ['symbol' => $instrument->symbol]);
     }
 
+    private function resolveSetting(\App\Models\User $user, ?int $settingId): ?LlmProviderSetting
+    {
+        if ($settingId === null) {
+            return $user->defaultLlmSetting();
+        }
+
+        $setting = $user->llmProviderSettings()->whereKey($settingId)->first();
+        abort_if($setting === null, 403);
+
+        return $setting;
+    }
+
     private function emptyPayload(): array
     {
         return [
@@ -81,9 +110,49 @@ class StockSearchController extends Controller
             'instrument' => null,
             'quote' => null,
             'prices' => [],
+            'indicators' => null,
             'news' => [],
             'analyses' => [],
+            'llmProviders' => [],
         ];
+    }
+
+    /**
+     * Indicator series for charting, computed over the full warmup history and
+     * trimmed to the last 60 entries (each array sliced consistently).
+     *
+     * @param  list<object>  $history
+     */
+    private function indicatorsPayload(array $history): ?array
+    {
+        if ($history === []) {
+            return null;
+        }
+
+        $series = $this->indicators->series($history);
+
+        return array_map(
+            fn ($values) => is_array($values) ? array_values(array_slice($values, -60)) : $values,
+            $series,
+        );
+    }
+
+    private function llmProvidersPayload(Request $request): array
+    {
+        return $request->user()
+            ->llmProviderSettings()
+            ->orderByDesc('is_default')
+            ->orderBy('display_name')
+            ->get(['id', 'display_name', 'provider_type', 'model', 'is_default'])
+            ->map(fn (LlmProviderSetting $setting): array => [
+                'id' => $setting->id,
+                'display_name' => $setting->display_name,
+                'provider_type' => $setting->provider_type,
+                'model' => $setting->model,
+                'is_default' => $setting->is_default,
+            ])
+            ->values()
+            ->all();
     }
 
     private function normalizeSymbolInput(Request $request): void

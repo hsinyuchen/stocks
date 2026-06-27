@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Models\LlmProviderSetting;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -58,8 +59,19 @@ class User extends Authenticatable
         return $this->hasMany(StockAnalysis::class);
     }
 
+    public function newsAnalyses(): HasMany
+    {
+        return $this->hasMany(NewsAnalysis::class);
+    }
+
     public function llmProviderSettings(): HasMany
     {
         return $this->hasMany(LlmProviderSetting::class);
+    }
+
+    public function defaultLlmSetting(): ?LlmProviderSetting
+    {
+        return $this->llmProviderSettings()->where('is_default', true)->first()
+            ?? $this->llmProviderSettings()->orderBy('id')->first();
     }
 }

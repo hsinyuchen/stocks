@@ -35,16 +35,16 @@ function CreateWatchlistForm() {
         <form className="watchlist-create" onSubmit={submit}>
             <TextField
                 error={form.errors.name}
-                label="New watchlist"
+                label="新增清單"
                 maxLength="80"
                 onChange={(event) => form.setData('name', event.target.value)}
-                placeholder="Core holdings"
+                placeholder="例如：核心持股"
                 type="text"
                 value={form.data.name}
             />
             <button className="button-primary" disabled={form.processing} type="submit">
                 <Plus aria-hidden="true" size={18} />
-                <span>Create</span>
+                <span>建立</span>
             </button>
         </form>
     );
@@ -64,13 +64,13 @@ function RenameWatchlistForm({ watchlist }) {
         <form className="watchlist-title-form" onSubmit={submit}>
             <TextField
                 error={form.errors.name}
-                label="Watchlist name"
+                label="清單名稱"
                 maxLength="80"
                 onChange={(event) => form.setData('name', event.target.value)}
                 type="text"
                 value={form.data.name}
             />
-            <button className="icon-button" disabled={form.processing} title="Save name" type="submit">
+            <button className="icon-button" disabled={form.processing} title="儲存名稱" type="submit">
                 <Save aria-hidden="true" size={18} />
             </button>
         </form>
@@ -96,24 +96,24 @@ function AddInstrumentForm({ watchlist }) {
             <div className="instrument-form__grid instrument-form__grid--compact">
                 <TextField
                     error={form.errors.symbol}
-                    label="Existing symbol"
+                    label="股票代號"
                     maxLength="32"
                     onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
-                    placeholder="AAPL"
+                    placeholder="例如：AAPL 或 2330.TW"
                     type="text"
                     value={form.data.symbol}
                 />
                 <button className="button-secondary" disabled={form.processing} type="submit">
                     <Plus aria-hidden="true" size={18} />
-                    <span>Add stock</span>
+                    <span>加入股票</span>
                 </button>
             </div>
             <TextField
                 error={form.errors.note}
-                label="Note"
+                label="備註"
                 maxLength="255"
                 onChange={(event) => form.setData('note', event.target.value)}
-                placeholder="Earnings, valuation, or thesis note"
+                placeholder="財報、估值、追蹤理由或風險提醒"
                 type="text"
                 value={form.data.note}
             />
@@ -142,8 +142,8 @@ function InstrumentRow({ item, watchlist }) {
                 <span>{instrument.currency}</span>
                 {instrument.exchange ? <span>{instrument.exchange}</span> : null}
             </div>
-            {item.note ? <p>{item.note}</p> : <p className="muted-text">No note</p>}
-            <button className="icon-button" onClick={remove} title="Remove stock" type="button">
+            {item.note ? <p>{item.note}</p> : <p className="muted-text">尚無備註</p>}
+            <button className="icon-button" onClick={remove} title="移除股票" type="button">
                 <X aria-hidden="true" size={18} />
             </button>
         </article>
@@ -161,7 +161,7 @@ function WatchlistCard({ watchlist }) {
         <article className="watchlist-card">
             <header className="watchlist-card__header">
                 <RenameWatchlistForm watchlist={watchlist} />
-                <button className="icon-button icon-button--danger" onClick={destroy} title="Delete watchlist" type="button">
+                <button className="icon-button icon-button--danger" onClick={destroy} title="刪除清單" type="button">
                     <Trash2 aria-hidden="true" size={18} />
                 </button>
             </header>
@@ -173,8 +173,8 @@ function WatchlistCard({ watchlist }) {
                     ))
                 ) : (
                     <div className="empty-state">
-                        <strong>No stocks yet</strong>
-                        <span>Add the first symbol to start tracking this list.</span>
+                        <strong>尚未加入股票</strong>
+                        <span>加入第一個股票代號，開始追蹤這份清單。</span>
                     </div>
                 )}
             </div>
@@ -186,14 +186,14 @@ function WatchlistCard({ watchlist }) {
 
 export default function WatchlistsIndex({ watchlists = [] }) {
     return (
-        <AppShell title="Watchlists">
+        <AppShell title="自選清單">
             <div className="watchlists-page">
                 <section className="watchlists-header">
                     <div>
-                        <p className="section-kicker">Watchlists</p>
-                        <h2>Track symbols by strategy</h2>
+                        <p className="section-kicker">自選清單</p>
+                        <h2>依策略管理追蹤標的</h2>
                         <p>
-                            Manage personal lists, add known instruments, and keep short notes for follow-up analysis.
+                            建立個人化清單，加入已建立的股票標的，並用簡短備註記錄後續分析重點。
                         </p>
                     </div>
                     <CreateWatchlistForm />
@@ -209,8 +209,8 @@ export default function WatchlistsIndex({ watchlists = [] }) {
                         ))
                     ) : (
                         <div className="watchlist-card empty-state">
-                            <strong>No watchlists</strong>
-                            <span>Create a watchlist to group stocks by market, thesis, or review cadence.</span>
+                            <strong>尚無自選清單</strong>
+                            <span>建立清單後，可依市場、投資假設或檢查週期分組追蹤股票。</span>
                         </div>
                     )}
                 </section>

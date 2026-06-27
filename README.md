@@ -13,6 +13,33 @@ This foundation includes:
 
 The analysis output is reference material only. It is not guaranteed investment advice.
 
+## Data + LLM Providers
+
+Market data driver is controlled by `MARKET_DATA_DRIVER`:
+
+- `live` (default): Taiwan stocks via FinMind, US stocks via Stooq, Yahoo chart fallback, cached in the `daily_prices` table and shared across all users.
+- `fake`: deterministic fixtures (used by the test suite via `phpunit.xml`).
+
+Optional `FINMIND_TOKEN` raises Taiwan-data rate limits.
+
+LLM analysis is per-user. Each user adds one or more providers in Settings; API keys are stored encrypted. Supported types:
+
+| Brand | Transport | Notes |
+| --- | --- | --- |
+| `openai`, `openrouter`, `deepseek`, `ollama`, `llamacpp`, `lmstudio` | OpenAI-compatible `/chat/completions` | Leave base URL blank to use the brand default. |
+| `zeabur`, `openai_compatible` | OpenAI-compatible `/chat/completions` | Base URL is required (your own gateway `/v1` endpoint). |
+| `gemini` | Gemini `:generateContent` | Same API as Google AI Studio. |
+| `anthropic` | Anthropic Messages API | Claude; uses `x-api-key` + `anthropic-version`. |
+
+Local Ollama quick start:
+
+```powershell
+ollama pull llama3.1
+ollama serve
+```
+
+Then add an `ollama` provider in Settings with model `llama3.1` and a blank base URL.
+
 ## Local Setup
 
 ```powershell

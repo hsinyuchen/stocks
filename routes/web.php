@@ -1,12 +1,14 @@
 <?php
 
+use App\Http\Controllers\AnalysesController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\LlmProviderSettingController;
+use App\Http\Controllers\NewsAnalysisController;
+use App\Http\Controllers\NewsController;
 use App\Http\Controllers\StockSearchController;
 use App\Http\Controllers\WatchlistController;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 
 Route::get('/', fn () => redirect()->route('dashboard'));
 
@@ -17,10 +19,9 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
-    Route::get('/news', fn () => Inertia::render('Placeholder', [
-        'title' => '即時新聞',
-        'status' => 'News workspace will be implemented in the news task.',
-    ]))->name('news.index');
+    Route::get('/news', [NewsController::class, 'index'])->name('news.index');
+    Route::post('/news/daily-summary', [NewsAnalysisController::class, 'dailySummary'])->name('news.daily-summary');
+    Route::post('/news/{newsItem}/analyses', [NewsAnalysisController::class, 'store'])->name('news.analyses.store');
     Route::get('/watchlists', [WatchlistController::class, 'index'])->name('watchlists.index');
     Route::post('/watchlists', [WatchlistController::class, 'store'])->name('watchlists.store');
     Route::patch('/watchlists/{watchlist}', [WatchlistController::class, 'update'])->name('watchlists.update');
@@ -29,10 +30,7 @@ Route::middleware('auth')->group(function (): void {
     Route::delete('/watchlists/{watchlist}/items/{watchlistItem}', [WatchlistController::class, 'removeItem'])->name('watchlists.items.destroy');
     Route::get('/stocks/search', [StockSearchController::class, 'index'])->name('stocks.search');
     Route::post('/stocks/{instrument}/analyses', [StockSearchController::class, 'analyze'])->name('stocks.analyses.store');
-    Route::get('/analyses', fn () => Inertia::render('Placeholder', [
-        'title' => 'AI 分析紀錄',
-        'status' => 'Analysis history will be implemented after stock analysis actions are wired to the UI.',
-    ]))->name('analyses.index');
+    Route::get('/analyses', [AnalysesController::class, 'index'])->name('analyses.index');
     Route::get('/settings', [LlmProviderSettingController::class, 'index'])->name('settings.index');
     Route::post('/settings', [LlmProviderSettingController::class, 'store'])->name('settings.store');
     Route::patch('/settings/{llmProviderSetting}', [LlmProviderSettingController::class, 'update'])->name('settings.update');

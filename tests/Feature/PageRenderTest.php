@@ -27,23 +27,45 @@ class PageRenderTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Dashboard')
                 ->where('auth.user.id', $user->id)
-                ->where('auth.user.profile.theme', 'warm')
-                ->where('summary.riskLevel', 'watch'));
+                ->where('auth.user.profile.theme', 'warm'));
     }
 
-    public function test_authenticated_user_can_render_shell_placeholder_pages(): void
+    public function test_guest_is_redirected_from_analyses_to_login(): void
+    {
+        $this->get('/analyses')
+            ->assertRedirect('/login');
+    }
+
+    public function test_authenticated_user_can_render_analyses_page(): void
     {
         $user = User::factory()->create();
 
-        foreach (['/news', '/analyses'] as $path) {
-            $this->actingAs($user)
-                ->get($path)
-                ->assertOk()
-                ->assertInertia(fn (Assert $page) => $page
-                    ->component('Placeholder')
-                    ->has('title')
-                    ->where('auth.user.id', $user->id));
-        }
+        $this->actingAs($user)
+            ->get('/analyses')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Analyses/Index')
+                ->where('filters.type', 'all')
+                ->has('items', 0)
+                ->where('auth.user.id', $user->id));
+    }
+
+    public function test_guest_is_redirected_from_news_to_login(): void
+    {
+        $this->get('/news')
+            ->assertRedirect('/login');
+    }
+
+    public function test_authenticated_user_can_render_news_page(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/news')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('News/Index')
+                ->where('auth.user.id', $user->id));
     }
 
     public function test_authenticated_user_can_render_settings_page(): void

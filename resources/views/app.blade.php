@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#f5efe4">
 
-        <title inertia>{{ config('app.name', 'Stock Platform') }}</title>
+        <title inertia>{{ config('app.name', '股票分析平台') }}</title>
 
         <link rel="manifest" href="/manifest.json">
         <link rel="preconnect" href="https://fonts.bunny.net">

@@ -7,10 +7,10 @@ export default function HamburgerButton({ isOpen, onClick }) {
         <button
             type="button"
             className="icon-button"
-            aria-label={isOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-label={isOpen ? '關閉導覽選單' : '開啟導覽選單'}
             aria-expanded={isOpen}
             onClick={onClick}
-            title={isOpen ? 'Close menu' : 'Open menu'}
+            title={isOpen ? '關閉選單' : '開啟選單'}
         >
             <Icon aria-hidden="true" size={22} strokeWidth={2.2} />
         </button>

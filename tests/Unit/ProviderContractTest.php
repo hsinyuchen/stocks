@@ -92,7 +92,7 @@ class ProviderContractTest extends TestCase
         $response = (new FakeLlmProvider())->complete('gemini', 'Analyze AAPL');
 
         $this->assertSame('fake-model', $response->model);
-        $this->assertStringContainsString('reference', $response->content);
+        $this->assertStringContainsString('研究參考', $response->content);
     }
 
     public function test_llm_request_data_stores_constructor_values(): void

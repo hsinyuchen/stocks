@@ -218,7 +218,7 @@ class LlmSettingsTest extends TestCase
         $this->actingAs($user)
             ->from('/settings')
             ->post('/settings', [
-                'provider_type' => 'anthropic',
+                'provider_type' => 'not-a-real-provider',
                 'display_name' => '',
                 'base_url' => 'not-a-url',
                 'api_key' => str_repeat('x', 2049),

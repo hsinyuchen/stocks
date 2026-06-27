@@ -18,12 +18,22 @@
     --surface-strong: #ffffff;
     --text: #221d18;
     --muted: #75695e;
-    --border: #dcc9b4;
+    --border: #e7d9c5;
     --accent: #b85c38;
     --accent-strong: #833f2a;
     --positive: #246b4b;
     --warning: #9a6418;
-    --shadow: 0 20px 60px rgba(94, 65, 38, 0.14);
+    --radius: 14px;
+    --radius-sm: 10px;
+    --shadow: 0 1px 2px rgba(80, 55, 30, 0.05), 0 12px 34px rgba(80, 55, 30, 0.08);
+    --shadow-sm: 0 1px 2px rgba(80, 55, 30, 0.05);
+    --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+    --pos-soft: color-mix(in srgb, var(--positive) 14%, var(--surface));
+    --accent-soft: color-mix(in srgb, var(--accent) 14%, var(--surface));
+    --warning-soft: color-mix(in srgb, var(--warning) 16%, var(--surface));
+    --neg: #c0392b;
+    --neg-soft: color-mix(in srgb, #c0392b 12%, var(--surface));
+    --neutral-soft: color-mix(in srgb, var(--text) 8%, var(--surface));
 }
 
 :root[data-theme='dark'] {
@@ -39,7 +49,15 @@
     --accent-strong: #f0b183;
     --positive: #78c49c;
     --warning: #e3b160;
-    --shadow: 0 20px 70px rgba(0, 0, 0, 0.38);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.25), 0 14px 40px rgba(0, 0, 0, 0.40);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+    --pos-soft: color-mix(in srgb, var(--positive) 22%, var(--surface));
+    --accent-soft: color-mix(in srgb, var(--accent) 22%, var(--surface));
+    --warning-soft: color-mix(in srgb, var(--warning) 22%, var(--surface));
+    --neg: #e8897e;
+    --neg-soft: color-mix(in srgb, #e8897e 20%, var(--surface));
+    --neutral-soft: color-mix(in srgb, var(--text) 12%, var(--surface));
 }
 
 * {
@@ -54,9 +72,7 @@ body,
 
 body {
     margin: 0;
-    background:
-        linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 35%),
-        linear-gradient(180deg, var(--bg), var(--bg-alt));
+    background: linear-gradient(180deg, var(--bg), var(--bg-alt));
     color: var(--text);
     font-family: var(--font-sans);
 }
@@ -98,7 +114,7 @@ body {
 .auth-card {
     background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     box-shadow: var(--shadow);
     display: grid;
     gap: 14px;
@@ -204,7 +220,7 @@ button {
 
 .nav-menu__item {
     align-items: center;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     color: var(--muted);
     display: flex;
     gap: 12px;
@@ -242,7 +258,7 @@ button {
 }
 
 .theme-toggle {
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     gap: 10px;
     justify-content: center;
     min-height: 42px;
@@ -277,7 +293,7 @@ button {
 .user-chip {
     background: color-mix(in srgb, var(--surface-strong) 80%, var(--accent) 20%);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     gap: 10px;
     min-width: 0;
     padding: 10px;
@@ -338,7 +354,7 @@ button {
 
 .icon-button {
     align-items: center;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     display: inline-flex;
     height: 42px;
     justify-content: center;
@@ -360,7 +376,7 @@ button {
 .table-panel {
     background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     box-shadow: var(--shadow);
 }
 
@@ -394,7 +410,7 @@ button {
         linear-gradient(135deg, color-mix(in srgb, var(--positive) 18%, transparent), transparent),
         var(--surface-strong);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     display: grid;
     justify-items: center;
     padding: 20px;
@@ -437,7 +453,7 @@ button {
 .placeholder-panel {
     background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     box-shadow: var(--shadow);
     padding: 28px;
 }
@@ -470,17 +486,27 @@ button {
     align-items: center;
     background: var(--surface-strong);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     display: grid;
     gap: 12px;
-    grid-template-columns: 140px 96px minmax(0, 1fr);
+    grid-template-columns: 140px minmax(0, 1fr) 96px minmax(0, 1fr);
     min-height: 70px;
     padding: 12px 14px;
 }
 
 .signal-row strong,
-.signal-row span {
+.signal-row > div > span {
     display: block;
+}
+
+.signal-row__spark {
+    height: 28px;
+    min-width: 60px;
+}
+
+.metric-card__spark {
+    height: 28px;
+    margin-top: 2px;
 }
 
 .signal-row p {
@@ -496,17 +522,17 @@ button {
 }
 
 .status-pill--bullish {
-    background: color-mix(in srgb, var(--positive) 18%, transparent);
+    background: var(--pos-soft);
     color: var(--positive);
 }
 
 .status-pill--neutral {
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
-    color: var(--accent-strong);
+    background: var(--neutral-soft);
+    color: var(--muted);
 }
 
 .status-pill--watch {
-    background: color-mix(in srgb, var(--warning) 18%, transparent);
+    background: var(--warning-soft);
     color: var(--warning);
 }
 
@@ -523,7 +549,7 @@ button {
 .watchlist-card {
     background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     box-shadow: var(--shadow);
 }
 
@@ -607,7 +633,7 @@ button {
 .form-field select {
     background: var(--surface-strong);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     color: var(--text);
     min-height: 42px;
     outline: none;
@@ -635,7 +661,7 @@ button {
 .button-primary,
 .button-secondary {
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     font-weight: 800;
     gap: 8px;
@@ -672,7 +698,7 @@ button {
 .instrument-form {
     background: color-mix(in srgb, var(--surface-strong) 74%, var(--accent) 26%);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     padding: 14px;
 }
 
@@ -690,7 +716,7 @@ button {
 .instrument-row {
     background: var(--surface-strong);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     gap: 14px;
     min-height: 72px;
     padding: 12px 14px;
@@ -724,7 +750,7 @@ button {
 }
 
 .instrument-row__meta span {
-    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    background: var(--accent-soft);
     border: 1px solid var(--border);
     border-radius: 999px;
     color: var(--text);
@@ -736,7 +762,7 @@ button {
 .empty-state {
     background: color-mix(in srgb, var(--surface-strong) 82%, var(--accent) 18%);
     border: 1px dashed var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     display: grid;
     gap: 4px;
     padding: 16px;
@@ -759,7 +785,7 @@ button {
 .stock-panel {
     background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     box-shadow: var(--shadow);
 }
 
@@ -803,7 +829,7 @@ button {
 .analysis-action {
     background: color-mix(in srgb, var(--surface-strong) 76%, var(--positive) 24%);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     padding: 14px;
 }
 
@@ -844,17 +870,17 @@ button {
 }
 
 .stock-change--up {
-    background: color-mix(in srgb, var(--positive) 18%, transparent);
+    background: var(--pos-soft);
     color: var(--positive);
 }
 
 .stock-change--down {
-    background: color-mix(in srgb, #b42318 14%, transparent);
-    color: #b42318;
+    background: var(--neg-soft);
+    color: var(--neg);
 }
 
 :root[data-theme='dark'] .stock-change--down {
-    color: #ffb4a8;
+    color: var(--neg);
 }
 
 .stock-meta {
@@ -865,7 +891,7 @@ button {
 }
 
 .stock-meta span {
-    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    background: var(--accent-soft);
     border: 1px solid var(--border);
     border-radius: 999px;
     font-size: 0.72rem;
@@ -873,19 +899,21 @@ button {
     padding: 5px 8px;
 }
 
-.price-bars {
-    align-items: end;
-    display: grid;
-    gap: 4px;
-    grid-template-columns: repeat(20, minmax(4px, 1fr));
-    height: 130px;
+.chart-wrap {
     margin: 6px 0 18px;
+    min-height: 150px;
+    width: 100%;
 }
 
-.price-bars span {
-    background: linear-gradient(180deg, var(--positive), var(--accent));
-    border-radius: 999px 999px 2px 2px;
-    min-height: 22px;
+.chart-wrap--empty {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+}
+
+.chart-empty {
+    color: var(--muted);
+    font-size: 0.85rem;
 }
 
 .price-table-wrap {
@@ -921,7 +949,7 @@ button {
 .analysis-item {
     background: var(--surface-strong);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     display: grid;
     gap: 8px;
     padding: 14px;
@@ -958,7 +986,7 @@ button {
 .settings-provider {
     background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     box-shadow: var(--shadow);
     padding: 20px;
 }
@@ -1201,5 +1229,380 @@ button {
 
     .hero-panel__metric {
         justify-items: start;
+    }
+}
+
+/* Interaction polish */
+.hero-panel,
+.metric-card,
+.table-panel,
+.stock-panel,
+.watchlist-card,
+.settings-panel,
+.settings-provider,
+.news-item,
+.analysis-item {
+    transition:
+        box-shadow 160ms ease,
+        transform 160ms ease,
+        border-color 160ms ease;
+}
+
+.metric-card:hover,
+.news-item:hover,
+.analysis-item:hover,
+.watchlist-card:hover {
+    box-shadow: var(--shadow);
+    transform: translateY(-1px);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+    border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        transition: none !important;
+    }
+}
+
+/* Segmented control (day/week/month, market toggles) */
+.segmented {
+    display: inline-flex;
+    gap: 2px;
+    background: var(--surface2, var(--bg-alt));
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px;
+}
+
+.segmented button {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.segmented button[aria-pressed='true'],
+.segmented button.is-active {
+    background: var(--accent);
+    color: #fffaf2;
+}
+
+/* Loading skeleton */
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--neutral-soft),
+        color-mix(in srgb, var(--neutral-soft) 60%, var(--surface)),
+        var(--neutral-soft)
+    );
+    background-size: 200% 100%;
+    animation: skeleton 1.2s ease-in-out infinite;
+    border-radius: var(--radius-sm);
+    min-height: 14px;
+}
+
+@keyframes skeleton {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton {
+        animation: none;
+    }
+}
+
+/* Dashboard + analysis-history spaced lists */
+.section-kicker {
+    align-items: center;
+    display: inline-flex;
+    gap: 6px;
+}
+
+.panel-link {
+    color: var(--accent);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.panel-link:hover,
+.panel-link:focus-visible {
+    text-decoration: underline;
+}
+
+.is-up,
+.metric-card small.is-up,
+.signal-row .is-up {
+    color: var(--positive);
+    font-weight: 700;
+}
+
+.is-down,
+.metric-card small.is-down,
+.signal-row .is-down {
+    color: var(--neg);
+    font-weight: 700;
+}
+
+.dashboard-empty {
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 0;
+}
+
+.dashboard-disclaimer {
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    margin: 4px 2px 0;
+    text-align: center;
+}
+
+.dashboard-news-list,
+.dashboard-analysis-list,
+.analysis-history__list {
+    display: grid;
+    gap: 10px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.dashboard-news-item {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: grid;
+    gap: 6px;
+    padding: 12px 14px;
+}
+
+.dashboard-news-item__head {
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.78rem;
+    gap: 4px 10px;
+    justify-content: space-between;
+}
+
+.dashboard-news-item a,
+.dashboard-news-item > span {
+    font-weight: 600;
+    line-height: 1.45;
+}
+
+.dashboard-analysis-item {
+    align-items: center;
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 11px 14px;
+}
+
+.dashboard-analysis-item strong {
+    flex: 1;
+    min-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-analysis-item small {
+    color: var(--muted);
+    flex-basis: 100%;
+    font-size: 0.76rem;
+}
+
+.dashboard-analysis-item__type {
+    background: var(--neutral-soft);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    padding: 4px 9px;
+    white-space: nowrap;
+}
+
+.analysis-history__filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.filter-chip {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 7px 14px;
+    transition:
+        background 160ms ease,
+        color 160ms ease,
+        border-color 160ms ease;
+}
+
+.filter-chip:hover {
+    color: var(--text);
+}
+
+.filter-chip.is-active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fffaf2;
+}
+
+.analysis-history-row {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: grid;
+    gap: 8px;
+    padding: 14px 16px;
+}
+
+.analysis-history-row__head {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+}
+
+.analysis-history-row__label {
+    flex: 1;
+    font-weight: 700;
+    min-width: 120px;
+}
+
+.analysis-history-row__summary {
+    color: var(--muted);
+    line-height: 1.55;
+    margin: 0;
+}
+
+.analysis-history-row__meta {
+    color: var(--muted);
+    font-size: 0.76rem;
+}
+
+.news-impact {
+    background: var(--accent-soft);
+    border-radius: 999px;
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 800;
+    padding: 4px 9px;
+    white-space: nowrap;
+}
+
+.signal-row--link {
+    cursor: pointer;
+    transition:
+        border-color 160ms ease,
+        box-shadow 160ms ease,
+        transform 160ms ease;
+}
+
+.signal-row--link:hover,
+.signal-row--link:focus-visible {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
+}
+
+/* Slice C — responsive / touch polish.
+   Appended after all base rules so these max-width overrides win the cascade. */
+.filter-chip {
+    align-items: center;
+    display: inline-flex;
+    min-height: 38px;
+}
+
+.spark-fallback {
+    display: block;
+    height: 22px;
+}
+
+@media (max-width: 900px) {
+    .stock-panel,
+    .analysis-history-row {
+        padding: 16px;
+    }
+
+    .analysis-history__filters {
+        gap: 6px;
+    }
+}
+
+@media (max-width: 560px) {
+    .shell-main {
+        padding: 12px;
+    }
+
+    .hero-panel,
+    .table-panel,
+    .stock-panel,
+    .settings-panel,
+    .settings-provider,
+    .watchlist-card,
+    .stock-search-header,
+    .watchlists-header,
+    .auth-card {
+        padding: 16px;
+    }
+
+    .panel-heading {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    /* Declutter the focus list on phones — full chart is one tap away. */
+    .signal-row__spark {
+        display: none;
+    }
+
+    .topbar h1 {
+        font-size: 1.3rem;
+    }
+
+    .stock-quote__price strong {
+        font-size: 2rem;
+    }
+
+    .hero-panel__metric strong {
+        font-size: 2.4rem;
+    }
+
+    .segmented button {
+        min-height: 36px;
+    }
+
+    /* Stacked analysis/news rows: a touch more breathing room. */
+    .analysis-history-row,
+    .dashboard-analysis-item,
+    .dashboard-news-item {
+        padding: 12px 14px;
     }
 }

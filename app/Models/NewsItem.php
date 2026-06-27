@@ -11,9 +11,13 @@ class NewsItem extends Model
         'title',
         'summary',
         'url',
+        'url_hash',
         'published_at',
         'language',
+        'market',
         'topic',
+        'domain',
+        'kind',
         'related_symbols',
     ];
 
