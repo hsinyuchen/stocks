@@ -1,6 +1,6 @@
-import { Link } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import { lazy, Suspense } from 'react';
-import { Bot, LineChart, Newspaper, Star } from 'lucide-react';
+import { Bot, LineChart, Newspaper, RefreshCw, Star } from 'lucide-react';
 import AppShell from '../Layouts/AppShell';
 
 // Sparkline pulls in recharts — load it on demand so the bundle stays light.
@@ -233,7 +233,10 @@ export default function Dashboard({
     latestNews = [],
     recentAnalyses = [],
     disclaimer = '',
+    generatedAt = null,
 }) {
+    const refresh = () => router.get('/dashboard', { refresh: 1 }, { preserveScroll: true });
+
     return (
         <AppShell title="市場儀表板">
             <div className="dashboard-grid">
@@ -246,6 +249,15 @@ export default function Dashboard({
                         <p>
                             這裡彙整台灣與美國市場概況、自選清單訊號、相關新聞與 LLM 參考分析，方便快速掌握需要追蹤的投資議題。
                         </p>
+                    </div>
+                    <div className="dashboard-refresh">
+                        {generatedAt ? (
+                            <span className="dashboard-refresh__time">資料時間：{formatDateTime(generatedAt)}</span>
+                        ) : null}
+                        <button className="button-secondary" onClick={refresh} type="button">
+                            <RefreshCw aria-hidden="true" size={16} />
+                            <span>更新最新資料</span>
+                        </button>
                     </div>
                 </section>
 

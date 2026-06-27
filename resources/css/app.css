@@ -1675,6 +1675,20 @@ select:focus-visible {
     height: 22px;
 }
 
+/* Dashboard refresh control */
+.dashboard-refresh {
+    align-items: flex-start;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    justify-content: center;
+}
+
+.dashboard-refresh__time {
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
 /* Rendered LLM Markdown */
 .markdown-body {
     line-height: 1.65;

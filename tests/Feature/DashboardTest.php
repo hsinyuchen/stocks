@@ -140,4 +140,42 @@ class DashboardTest extends TestCase
                 ->has('watchlistMovers', 0)
                 ->has('recentAnalyses', 0));
     }
+
+    public function test_dashboard_is_cached_per_session_and_refresh_busts_it(): void
+    {
+        $user = User::factory()->create();
+        $this->makeNewsItem('第一則新聞');
+
+        // First load builds + caches (one news item) and exposes the build time.
+        $this->actingAs($user)->get('/dashboard')
+            ->assertInertia(fn (Assert $page) => $page->has('latestNews', 1)->has('generatedAt'));
+
+        // A second item arrives after the cache was built.
+        $this->makeNewsItem('第二則新聞');
+
+        // Re-entering serves the cached payload — still only the first item.
+        $this->actingAs($user)->get('/dashboard')
+            ->assertInertia(fn (Assert $page) => $page->has('latestNews', 1));
+
+        // The refresh button busts the cache and pulls the latest.
+        $this->actingAs($user)->get('/dashboard?refresh=1')
+            ->assertInertia(fn (Assert $page) => $page->has('latestNews', 2));
+    }
+
+    private function makeNewsItem(string $title): void
+    {
+        NewsItem::create([
+            'source' => '財經日報',
+            'title' => $title,
+            'summary' => 's',
+            'url' => 'https://example.com/'.urlencode($title),
+            'published_at' => CarbonImmutable::now(),
+            'language' => 'zh-TW',
+            'market' => 'TW',
+            'topic' => 'macro',
+            'domain' => 'tech',
+            'kind' => 'article',
+            'related_symbols' => [],
+        ]);
+    }
 }

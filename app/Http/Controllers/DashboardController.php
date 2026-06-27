@@ -10,8 +10,10 @@ use App\Models\StockAnalysis;
 use App\Models\User;
 use App\Services\SignalEngine;
 use App\Services\TechnicalIndicatorService;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -28,17 +30,40 @@ class DashboardController extends Controller
     public function __invoke(Request $request): Response
     {
         $user = $request->user();
+        $key = "dashboard:{$user->id}";
 
+        // Cache the assembled dashboard per user for the session lifetime so
+        // re-entering the page does not re-hit the data providers. The "refresh"
+        // button (?refresh=1) busts the cache to pull the latest.
+        if ($request->boolean('refresh')) {
+            Cache::forget($key);
+        }
+
+        $payload = Cache::remember(
+            $key,
+            now()->addMinutes((int) config('session.lifetime', 120)),
+            fn (): array => $this->buildPayload($user),
+        );
+
+        return Inertia::render('Dashboard', $payload);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildPayload(User $user): array
+    {
         $watchlistInstruments = $this->watchlistInstruments($user);
         $watchlistSymbols = $watchlistInstruments->pluck('symbol')->all();
 
-        return Inertia::render('Dashboard', [
+        return [
             'marketSnapshot' => $this->marketSnapshot(),
             'watchlistMovers' => $this->watchlistMovers($watchlistInstruments),
             'latestNews' => $this->latestNews($watchlistSymbols),
             'recentAnalyses' => $this->recentAnalyses($user),
             'disclaimer' => self::DISCLAIMER,
-        ]);
+            'generatedAt' => CarbonImmutable::now()->toIso8601String(),
+        ];
     }
 
     /**
