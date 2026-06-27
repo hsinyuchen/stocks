@@ -77,11 +77,14 @@ class DashboardTest extends TestCase
                 ->has('marketSnapshot', 3)
                 ->where('marketSnapshot.0.symbol', '^TWII')
                 ->where('marketSnapshot.0.price', 128.5)
+                // Each snapshot index carries a sparkline of recent closes.
+                ->has('marketSnapshot.0.spark')
                 // Watchlist mover for the single instrument with a rule-based stance.
                 ->has('watchlistMovers', 1)
                 ->where('watchlistMovers.0.symbol', '2330.TW')
                 ->where('watchlistMovers.0.name', '台積電')
                 ->has('watchlistMovers.0.stance')
+                ->has('watchlistMovers.0.spark')
                 // Latest news prefers the watchlist-related item.
                 ->has('latestNews', 1)
                 ->where('latestNews.0.title', '台積電法說會釋出展望')

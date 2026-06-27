@@ -51,12 +51,21 @@ class DashboardController extends Controller
         foreach ((array) config('dashboard.indices', []) as $idx) {
             try {
                 $quote = $this->marketData->quote($idx['symbol']);
+
+                try {
+                    $prices = $this->marketData->dailyPrices($idx['symbol'], 20);
+                    $spark = array_map(static fn (object $price): float => (float) $price->close, $prices);
+                } catch (\Throwable) {
+                    $spark = [];
+                }
+
                 $out[] = [
                     'symbol' => $idx['symbol'],
                     'name' => $idx['name'],
                     'price' => $quote->price,
                     'change' => $quote->change,
                     'change_percent' => $quote->changePercent,
+                    'spark' => $spark,
                 ];
             } catch (\Throwable) {
                 // Best-effort: drop this index, never the page.
@@ -105,6 +114,11 @@ class DashboardController extends Controller
                 $signal = $this->signals->evaluate($snapshot);
                 $quote = $this->marketData->quote($instrument->symbol);
 
+                $spark = array_map(
+                    static fn (object $price): float => (float) $price->close,
+                    array_slice($prices, -20),
+                );
+
                 $out[] = [
                     'symbol' => $instrument->symbol,
                     'name' => $instrument->name,
@@ -112,6 +126,7 @@ class DashboardController extends Controller
                     'price' => $quote->price,
                     'change_percent' => $quote->changePercent,
                     'stance' => $signal['stance'] ?? 'neutral',
+                    'spark' => $spark,
                 ];
             } catch (\Throwable) {
                 // Best-effort: drop this mover, never the page.

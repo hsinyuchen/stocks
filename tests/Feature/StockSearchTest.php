@@ -62,6 +62,8 @@ class StockSearchTest extends TestCase
                 ->where('quote.symbol', '2330.TW')
                 ->where('quote.price', 128.5)
                 ->has('prices', 20)
+                ->has('indicators.close', 60)
+                ->has('indicators.k', 60)
                 ->where('news.0.title', '2330.TW 相關新聞 1')
                 ->has('analyses', 0));
 
