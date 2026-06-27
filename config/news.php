@@ -41,6 +41,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Dashboard Freshness Window
+    |--------------------------------------------------------------------------
+    |
+    | When the dashboard is opened (first entry of a session) and the newest
+    | stored item is older than this many minutes, a live ingest runs before
+    | the page is assembled. The "更新最新資料" button always forces an ingest.
+    |
+    */
+
+    'dashboard_freshness_minutes' => (int) env('NEWS_DASHBOARD_FRESHNESS_MINUTES', 60),
+
+    /*
+    |--------------------------------------------------------------------------
     | Feeds
     |--------------------------------------------------------------------------
     |

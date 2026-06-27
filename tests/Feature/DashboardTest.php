@@ -7,6 +7,7 @@ use App\Models\NewsItem;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -160,6 +161,65 @@ class DashboardTest extends TestCase
         // The refresh button busts the cache and pulls the latest.
         $this->actingAs($user)->get('/dashboard?refresh=1')
             ->assertInertia(fn (Assert $page) => $page->has('latestNews', 2));
+    }
+
+    public function test_refresh_ingests_fresh_news_from_live_feeds(): void
+    {
+        // Switch the stream to "live" so the dashboard refresh runs an ingest.
+        config([
+            'services.news.driver' => 'db',
+            'news.feeds' => [
+                ['key' => 'us', 'name' => 'US Feed', 'url' => 'https://feed-us.test/rss', 'market' => 'US', 'language' => 'en'],
+            ],
+        ]);
+
+        Http::fake([
+            'feed-us.test/*' => Http::response(<<<'XML'
+            <?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0"><channel><title>US Feed</title>
+              <item>
+                <title>Nvidia hits record high on AI demand</title>
+                <link>https://feed-us.test/articles/1</link>
+                <description>Chip demand surges.</description>
+                <pubDate>Wed, 24 Jun 2026 12:00:00 +0000</pubDate>
+              </item>
+            </channel></rss>
+            XML, 200),
+        ]);
+
+        $user = User::factory()->create();
+
+        $this->assertSame(0, NewsItem::count());
+
+        $this->actingAs($user)->get('/dashboard?refresh=1')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('latestNews', 1)
+                ->where('latestNews.0.title', 'Nvidia hits record high on AI demand'));
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'feed-us.test'));
+        $this->assertSame(1, NewsItem::count());
+    }
+
+    public function test_first_load_skips_ingest_when_news_is_fresh(): void
+    {
+        config([
+            'services.news.driver' => 'db',
+            'news.feeds' => [
+                ['key' => 'us', 'name' => 'US Feed', 'url' => 'https://feed-us.test/rss', 'market' => 'US', 'language' => 'en'],
+            ],
+        ]);
+
+        Http::fake();
+
+        $user = User::factory()->create();
+        // A recently-published item means the stored news is still fresh.
+        $this->makeNewsItem('剛抓到的新聞');
+
+        $this->actingAs($user)->get('/dashboard')
+            ->assertInertia(fn (Assert $page) => $page->has('latestNews', 1));
+
+        // No live feed was hit because the stored news was within the window.
+        Http::assertNothingSent();
     }
 
     private function makeNewsItem(string $title): void

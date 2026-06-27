@@ -1,5 +1,5 @@
 import { Link, router } from '@inertiajs/react';
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Bot, LineChart, Newspaper, RefreshCw, Star } from 'lucide-react';
 import AppShell from '../Layouts/AppShell';
 
@@ -235,7 +235,18 @@ export default function Dashboard({
     disclaimer = '',
     generatedAt = null,
 }) {
-    const refresh = () => router.get('/dashboard', { refresh: 1 }, { preserveScroll: true });
+    const [refreshing, setRefreshing] = useState(false);
+
+    const refresh = () =>
+        router.get(
+            '/dashboard',
+            { refresh: 1 },
+            {
+                preserveScroll: true,
+                onStart: () => setRefreshing(true),
+                onFinish: () => setRefreshing(false),
+            },
+        );
 
     return (
         <AppShell title="市場儀表板">
@@ -254,9 +265,15 @@ export default function Dashboard({
                         {generatedAt ? (
                             <span className="dashboard-refresh__time">資料時間：{formatDateTime(generatedAt)}</span>
                         ) : null}
-                        <button className="button-secondary" onClick={refresh} type="button">
-                            <RefreshCw aria-hidden="true" size={16} />
-                            <span>更新最新資料</span>
+                        <button
+                            className="button-secondary"
+                            onClick={refresh}
+                            type="button"
+                            disabled={refreshing}
+                            aria-busy={refreshing}
+                        >
+                            <RefreshCw aria-hidden="true" size={16} className={refreshing ? 'is-spinning' : undefined} />
+                            <span>{refreshing ? '更新中…' : '更新最新資料'}</span>
                         </button>
                     </div>
                 </section>

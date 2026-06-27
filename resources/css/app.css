@@ -1689,6 +1689,16 @@ select:focus-visible {
     font-size: 0.78rem;
 }
 
+.dashboard-refresh .is-spinning {
+    animation: dashboard-spin 0.8s linear infinite;
+}
+
+@keyframes dashboard-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Rendered LLM Markdown */
 .markdown-body {
     line-height: 1.65;

@@ -8,12 +8,14 @@ use App\Models\NewsAnalysis;
 use App\Models\NewsItem;
 use App\Models\StockAnalysis;
 use App\Models\User;
+use App\Services\News\NewsIngestionService;
 use App\Services\SignalEngine;
 use App\Services\TechnicalIndicatorService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -25,27 +27,78 @@ class DashboardController extends Controller
         private readonly MarketDataProvider $marketData,
         private readonly TechnicalIndicatorService $indicators,
         private readonly SignalEngine $signals,
+        private readonly NewsIngestionService $newsIngestion,
     ) {}
 
     public function __invoke(Request $request): Response
     {
         $user = $request->user();
         $key = "dashboard:{$user->id}";
+        $forceRefresh = $request->boolean('refresh');
 
         // Cache the assembled dashboard per user for the session lifetime so
         // re-entering the page does not re-hit the data providers. The "refresh"
         // button (?refresh=1) busts the cache to pull the latest.
-        if ($request->boolean('refresh')) {
+        if ($forceRefresh) {
             Cache::forget($key);
         }
 
         $payload = Cache::remember(
             $key,
             now()->addMinutes((int) config('session.lifetime', 120)),
-            fn (): array => $this->buildPayload($user),
+            function () use ($user, $forceRefresh): array {
+                // On a cache miss — the first entry of the session, or a forced
+                // refresh — pull fresh news from the live feeds before assembling
+                // the page. Without this, "refresh" would only re-read the same
+                // stored rows and the news would never actually change.
+                $this->refreshNewsIfNeeded($forceRefresh);
+
+                return $this->buildPayload($user);
+            },
         );
 
         return Inertia::render('Dashboard', $payload);
+    }
+
+    /**
+     * Ingest the live RSS feeds when the news stream is live and either the
+     * user forced a refresh or the stored news has gone stale. Best-effort:
+     * a feed/network failure must never break the dashboard.
+     */
+    private function refreshNewsIfNeeded(bool $force): void
+    {
+        // The fake stream (tests, demos) is DB-only — never hit the network.
+        if (config('services.news.driver') === 'fake') {
+            return;
+        }
+
+        if (! $force && ! $this->newsIsStale()) {
+            return;
+        }
+
+        try {
+            $this->newsIngestion->ingest();
+        } catch (\Throwable $e) {
+            Log::warning('dashboard news refresh failed', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * The stored news is stale when there is none, or the newest item is older
+     * than the configured freshness window.
+     */
+    private function newsIsStale(): bool
+    {
+        $latest = NewsItem::max('published_at');
+
+        if ($latest === null) {
+            return true;
+        }
+
+        $window = (int) config('news.dashboard_freshness_minutes', 60);
+
+        return CarbonImmutable::parse($latest)
+            ->lt(CarbonImmutable::now()->subMinutes($window));
     }
 
     /**
