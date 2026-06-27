@@ -1531,3 +1531,73 @@ select:focus-visible {
     box-shadow: var(--shadow-sm);
     transform: translateY(-1px);
 }
+
+/* Slice C — responsive / touch polish.
+   Appended after all base rules so these max-width overrides win the cascade. */
+.filter-chip {
+    align-items: center;
+    display: inline-flex;
+    min-height: 38px;
+}
+
+@media (max-width: 900px) {
+    .stock-panel,
+    .analysis-history-row {
+        padding: 16px;
+    }
+
+    .analysis-history__filters {
+        gap: 6px;
+    }
+}
+
+@media (max-width: 560px) {
+    .shell-main {
+        padding: 12px;
+    }
+
+    .hero-panel,
+    .table-panel,
+    .stock-panel,
+    .settings-panel,
+    .settings-provider,
+    .watchlist-card,
+    .stock-search-header,
+    .watchlists-header,
+    .auth-card {
+        padding: 16px;
+    }
+
+    .panel-heading {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    /* Declutter the focus list on phones — full chart is one tap away. */
+    .signal-row__spark {
+        display: none;
+    }
+
+    .topbar h1 {
+        font-size: 1.3rem;
+    }
+
+    .stock-quote__price strong {
+        font-size: 2rem;
+    }
+
+    .hero-panel__metric strong {
+        font-size: 2.4rem;
+    }
+
+    .segmented button {
+        min-height: 36px;
+    }
+
+    /* Stacked analysis/news rows: a touch more breathing room. */
+    .analysis-history-row,
+    .dashboard-analysis-item,
+    .dashboard-news-item {
+        padding: 12px 14px;
+    }
+}
