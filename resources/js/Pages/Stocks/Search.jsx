@@ -1,8 +1,12 @@
 import { router, useForm, usePage } from '@inertiajs/react';
+import { lazy, Suspense } from 'react';
 import { Activity, Bot, LineChart, Newspaper, Search, Sparkles } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
-import PriceChart from '../../Components/charts/PriceChart';
-import { KdChart, MacdChart } from '../../Components/charts/IndicatorChart';
+
+// Charts pull in recharts — load them on demand so non-chart pages stay light.
+const PriceChart = lazy(() => import('../../Components/charts/PriceChart'));
+const KdChart = lazy(() => import('../../Components/charts/IndicatorChart').then((m) => ({ default: m.KdChart })));
+const MacdChart = lazy(() => import('../../Components/charts/IndicatorChart').then((m) => ({ default: m.MacdChart })));
 
 const stanceLabels = {
     bullish: '偏多',
@@ -180,7 +184,9 @@ function PriceHistory({ prices, indicators }) {
             </div>
             {hasChart ? (
                 <div className="chart-wrap" aria-label="價格走勢圖">
-                    <PriceChart indicators={indicators} />
+                    <Suspense fallback={<div className="skeleton" style={{ height: 240 }} />}>
+                        <PriceChart indicators={indicators} />
+                    </Suspense>
                 </div>
             ) : (
                 <div className="chart-wrap chart-wrap--empty" aria-label="價格走勢圖">
@@ -231,7 +237,9 @@ function IndicatorPanels({ indicators }) {
                     <Activity aria-hidden="true" size={22} />
                 </div>
                 <div className="chart-wrap" aria-label="KD 指標圖">
-                    <KdChart indicators={indicators} />
+                    <Suspense fallback={<div className="skeleton" style={{ height: 150 }} />}>
+                        <KdChart indicators={indicators} />
+                    </Suspense>
                 </div>
             </section>
             <section className="stock-panel">
@@ -243,7 +251,9 @@ function IndicatorPanels({ indicators }) {
                     <Activity aria-hidden="true" size={22} />
                 </div>
                 <div className="chart-wrap" aria-label="MACD 圖">
-                    <MacdChart indicators={indicators} />
+                    <Suspense fallback={<div className="skeleton" style={{ height: 150 }} />}>
+                        <MacdChart indicators={indicators} />
+                    </Suspense>
                 </div>
             </section>
         </>

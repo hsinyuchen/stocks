@@ -1,7 +1,10 @@
 import { Link } from '@inertiajs/react';
+import { lazy, Suspense } from 'react';
 import { Bot, LineChart, Newspaper, Star } from 'lucide-react';
 import AppShell from '../Layouts/AppShell';
-import Sparkline from '../Components/charts/Sparkline';
+
+// Sparkline pulls in recharts — load it on demand so the bundle stays light.
+const Sparkline = lazy(() => import('../Components/charts/Sparkline'));
 
 const stanceLabels = {
     bullish: '偏多',
@@ -75,7 +78,9 @@ function MarketSnapshot({ items }) {
                         </small>
                         {index.spark?.length >= 2 ? (
                             <div className="metric-card__spark">
-                                <Sparkline data={index.spark} />
+                                <Suspense fallback={<span className="spark-fallback" />}>
+                                    <Sparkline data={index.spark} />
+                                </Suspense>
                             </div>
                         ) : null}
                     </article>
@@ -122,7 +127,9 @@ function WatchlistMovers({ items }) {
                                 </div>
                                 {mover.spark?.length >= 2 ? (
                                     <div className="signal-row__spark">
-                                        <Sparkline data={mover.spark} />
+                                        <Suspense fallback={<span className="spark-fallback" />}>
+                                            <Sparkline data={mover.spark} />
+                                        </Suspense>
                                     </div>
                                 ) : (
                                     <div className="signal-row__spark" />

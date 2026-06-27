@@ -1540,6 +1540,11 @@ select:focus-visible {
     min-height: 38px;
 }
 
+.spark-fallback {
+    display: block;
+    height: 22px;
+}
+
 @media (max-width: 900px) {
     .stock-panel,
     .analysis-history-row {
