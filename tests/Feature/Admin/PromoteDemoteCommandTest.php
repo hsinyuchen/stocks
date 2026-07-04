@@ -26,6 +26,16 @@ class PromoteDemoteCommandTest extends TestCase
             ->assertExitCode(1);
     }
 
+    public function test_promote_trims_and_lowercases_email_argument(): void
+    {
+        $user = User::factory()->create(['email' => 'boss@example.com']);
+
+        $this->artisan('user:promote', ['email' => '  Boss@Example.com  '])
+            ->assertExitCode(0);
+
+        $this->assertTrue($user->refresh()->is_admin);
+    }
+
     public function test_demote_removes_admin(): void
     {
         $admin = User::factory()->create();

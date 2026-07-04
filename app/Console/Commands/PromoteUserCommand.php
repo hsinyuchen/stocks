@@ -13,7 +13,8 @@ class PromoteUserCommand extends Command
 
     public function handle(): int
     {
-        $user = User::query()->where('email', $this->argument('email'))->first();
+        $email = strtolower(trim((string) $this->argument('email')));
+        $user = User::query()->where('email', $email)->first();
 
         if ($user === null) {
             $this->error('找不到該 email 的使用者。');
