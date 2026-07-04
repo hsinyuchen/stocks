@@ -18,7 +18,9 @@ class AuthController extends Controller
             return redirect()->route('dashboard');
         }
 
-        return Inertia::render('Auth/Login');
+        return Inertia::render('Auth/Login', [
+            'registrationEnabled' => (bool) config('platform.registration_enabled', true),
+        ]);
     }
 
     public function login(Request $request): RedirectResponse
@@ -52,6 +54,8 @@ class AuthController extends Controller
 
     public function register(Request $request): RedirectResponse
     {
+        abort_unless((bool) config('platform.registration_enabled', true), 403);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
