@@ -55,12 +55,11 @@ class StockAnalysisServiceTest extends TestCase
         $service = new StockAnalysisService(
             $marketData,
             $news,
-            $llm,
             new StubTechnicalIndicatorService($technicalSnapshot),
             new StubSignalEngine($ruleSignal),
         );
 
-        $analysis = $service->analyze('NVDA', 'requested-model');
+        $analysis = $service->analyze('NVDA', 'requested-model', $llm);
 
         $this->assertSame('NVDA', $analysis['symbol']);
         $this->assertSame($technicalSnapshot, $analysis['technical_snapshot']);
@@ -123,12 +122,11 @@ class StockAnalysisServiceTest extends TestCase
         $service = new StockAnalysisService(
             $marketData,
             $news,
-            $llm,
             new TechnicalIndicatorService(),
             new SignalEngine(),
         );
 
-        $analysis = $service->analyze('NVDA', 'requested-model');
+        $analysis = $service->analyze('NVDA', 'requested-model', $llm);
 
         $this->assertSame('NVDA', $analysis['symbol']);
         $this->assertSame([], $analysis['technical_snapshot']);
@@ -153,28 +151,32 @@ class StockAnalysisServiceTest extends TestCase
         $this->assertSame(5, $news->lastRelatedNewsLimit);
     }
 
-    public function test_override_llm_provider_is_used_instead_of_constructor_provider(): void
+    public function test_missing_llm_provider_returns_explicit_unconfigured_block_with_real_signals(): void
     {
         $marketData = new TrackingMarketDataProvider(
             quote: new MarketQuoteData('NVDA', 128.5, 1.2, 0.94, '2026-06-20T09:00:00+00:00'),
             prices: [new DailyPriceData('NVDA', '2026-06-19', 120.0, 130.0, 119.0, 128.5, 1000)],
         );
-        $constructorLlm = new TrackingLlmProvider();
-        $overrideLlm = new TrackingLlmProvider();
+        $snapshot = ['k' => 1, 'd' => 1, 'macd' => 0, 'macd_signal' => 0, 'macd_histogram' => 0, 'ma5' => 1, 'ma20' => 1];
+        $ruleSignal = ['stance' => 'watch', 'score' => 1, 'reasons' => ['r']];
 
         $service = new StockAnalysisService(
             $marketData,
             new TrackingNewsProvider([]),
-            $constructorLlm,
-            new StubTechnicalIndicatorService(['k' => 1, 'd' => 1, 'macd' => 0, 'macd_signal' => 0, 'macd_histogram' => 0, 'ma5' => 1, 'ma20' => 1]),
-            new StubSignalEngine(['stance' => 'watch', 'score' => 1, 'reasons' => ['r']]),
+            new StubTechnicalIndicatorService($snapshot),
+            new StubSignalEngine($ruleSignal),
         );
 
-        $analysis = $service->analyze('NVDA', 'override-model', $overrideLlm);
+        $analysis = $service->analyze('NVDA', 'reference-model');
 
-        $this->assertSame('override-model', $overrideLlm->lastModel);
-        $this->assertNull($constructorLlm->lastModel);
-        $this->assertSame('tracking-llm', $analysis['llm']['provider']);
+        // 技術面與規則訊號照常產出（真資料算的），LLM 區塊必須誠實標示
+        // 未設定，不得出現任何假分析內容。
+        $this->assertSame($snapshot, $analysis['technical_snapshot']);
+        $this->assertSame($ruleSignal, $analysis['rule_signal']);
+        $this->assertSame('none', $analysis['llm']['provider']);
+        $this->assertSame('reference-model', $analysis['llm']['model']);
+        $this->assertStringContainsString('尚未設定 AI 模型', $analysis['llm']['content']);
+        $this->assertSame(['reason' => 'no_llm_setting'], $analysis['llm']['metadata']);
     }
 
     public function test_llm_failure_degrades_to_rule_based_block_without_throwing(): void
@@ -188,7 +190,6 @@ class StockAnalysisServiceTest extends TestCase
         $service = new StockAnalysisService(
             $marketData,
             new TrackingNewsProvider([]),
-            new TrackingLlmProvider(),
             new StubTechnicalIndicatorService($snapshot),
             new StubSignalEngine(['stance' => 'watch', 'score' => 1, 'reasons' => ['r']]),
         );

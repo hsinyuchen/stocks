@@ -1,4 +1,4 @@
-import { router, useForm } from '@inertiajs/react';
+import { Link, router, useForm } from '@inertiajs/react';
 import { lazy, Suspense } from 'react';
 import { Activity, Bot, LineChart, Newspaper, Sparkles } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
@@ -84,32 +84,38 @@ function AnalyzeForm({ instrument, llmProviders }) {
         <form className="analysis-action" onSubmit={submit}>
             {providers.length === 0 ? (
                 <p className="field-hint">
-                    尚未設定 AI 模型，將以參考骨架回應。請到「設定」新增 OpenAI、Gemini 或本地 Ollama 模型。
+                    尚未設定 AI 模型，本次分析僅包含技術指標與規則訊號。可至
+                    {' '}
+                    <Link href="/settings">系統設定</Link>
+                    {' '}
+                    新增 OpenAI、Gemini、Anthropic 或本地 Ollama 模型。
                 </p>
             ) : (
-                <label className="form-field">
-                    <span>AI 模型</span>
-                    <select value={form.data.llm_provider_setting_id} onChange={onProviderChange}>
-                        {providers.map((provider) => (
-                            <option key={provider.id} value={provider.id}>
-                                {provider.display_name}（{provider.provider_type} · {provider.model}）
-                            </option>
-                        ))}
-                    </select>
-                    <FieldError message={form.errors.llm_provider_setting_id} />
-                </label>
+                <>
+                    <label className="form-field">
+                        <span>AI 模型</span>
+                        <select value={form.data.llm_provider_setting_id} onChange={onProviderChange}>
+                            {providers.map((provider) => (
+                                <option key={provider.id} value={provider.id}>
+                                    {provider.display_name}（{provider.provider_type} · {provider.model}）
+                                </option>
+                            ))}
+                        </select>
+                        <FieldError message={form.errors.llm_provider_setting_id} />
+                    </label>
+                    <label className="form-field">
+                        <span>模型名稱（可覆寫）</span>
+                        <input
+                            maxLength="120"
+                            onChange={(event) => form.setData('model', event.target.value)}
+                            placeholder="llama3.1"
+                            type="text"
+                            value={form.data.model}
+                        />
+                        <FieldError message={form.errors.model} />
+                    </label>
+                </>
             )}
-            <label className="form-field">
-                <span>模型名稱（可覆寫）</span>
-                <input
-                    maxLength="120"
-                    onChange={(event) => form.setData('model', event.target.value)}
-                    placeholder="llama3.1"
-                    type="text"
-                    value={form.data.model}
-                />
-                <FieldError message={form.errors.model} />
-            </label>
             <button className="button-secondary" disabled={form.processing} type="submit">
                 <Sparkles aria-hidden="true" size={18} />
                 <span>產生分析</span>

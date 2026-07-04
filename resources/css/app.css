@@ -1515,6 +1515,23 @@ select:focus-visible {
     text-align: center;
 }
 
+.dashboard-llm-hint {
+    align-items: center;
+    background: var(--accent-soft);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex;
+    gap: 8px;
+    line-height: 1.5;
+    margin: 0;
+    padding: 10px 14px;
+}
+
+.dashboard-llm-hint a {
+    color: var(--accent-strong);
+    font-weight: 600;
+}
+
 .dashboard-news-list,
 .dashboard-analysis-list,
 .analysis-history__list {

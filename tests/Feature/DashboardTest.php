@@ -94,7 +94,33 @@ class DashboardTest extends TestCase
                 ->has('recentAnalyses', 1)
                 ->where('recentAnalyses.0.type', 'stock')
                 ->where('recentAnalyses.0.label', '2330.TW')
-                ->where('recentAnalyses.0.stance', 'bullish'));
+                ->where('recentAnalyses.0.stance', 'bullish')
+                // 未設定 AI 模型時，前端據此顯示設定引導提示。
+                ->where('hasLlmProvider', false));
+    }
+
+    public function test_dashboard_reports_llm_provider_presence(): void
+    {
+        $user = User::factory()->create();
+        $user->llmProviderSettings()->create([
+            'provider_type' => 'ollama',
+            'display_name' => 'Local Ollama',
+            'base_url' => null,
+            'api_key_encrypted' => null,
+            'model' => 'llama3.1',
+            'timeout_seconds' => 30,
+            'temperature' => 0.20,
+            'max_tokens' => 800,
+            'is_default' => true,
+            'default_marker' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->get('/dashboard')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Dashboard')
+                ->where('hasLlmProvider', true));
     }
 
     public function test_dashboard_renders_for_user_without_any_data(): void

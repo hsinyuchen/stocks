@@ -164,10 +164,12 @@ class StockSearchTest extends TestCase
             ->whereBelongsTo($instrument)
             ->firstOrFail();
 
-        $this->assertSame('fake', $analysis->provider_type);
-        $this->assertSame('fake-model', $analysis->model);
+        // 未設定 AI 模型：規則訊號照常保存，LLM 區塊必須誠實標示未設定，
+        // 不得以假內容冒充 AI 分析。
+        $this->assertSame('none', $analysis->provider_type);
+        $this->assertSame('reference-model', $analysis->model);
         $this->assertSame('v1', $analysis->prompt_version);
-        $this->assertSame('此內容僅供研究參考：目前建議維持持有或觀察，並搭配風險控管與最新資料再次確認。', $analysis->llm_output['content']);
+        $this->assertStringContainsString('尚未設定 AI 模型', $analysis->llm_output['content']);
         $this->assertArrayHasKey('stance', $analysis->rule_signal);
         $this->assertNull($analysis->technical_snapshot_id);
 
@@ -178,7 +180,7 @@ class StockSearchTest extends TestCase
                 ->component('Stocks/Search')
                 ->has('analyses', 1)
                 ->where('analyses.0.id', $analysis->id)
-                ->where('analyses.0.llm_output.content', '此內容僅供研究參考：目前建議維持持有或觀察，並搭配風險控管與最新資料再次確認。'));
+                ->where('analyses.0.llm_output.provider', 'none'));
 
         $this->actingAs($otherUser)
             ->get('/stocks/search?symbol=NVDA')

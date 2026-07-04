@@ -234,6 +234,7 @@ export default function Dashboard({
     recentAnalyses = [],
     disclaimer = '',
     generatedAt = null,
+    hasLlmProvider = true,
 }) {
     const [refreshing, setRefreshing] = useState(false);
 
@@ -277,6 +278,19 @@ export default function Dashboard({
                         </button>
                     </div>
                 </section>
+
+                {!hasLlmProvider ? (
+                    <p className="dashboard-llm-hint" role="note">
+                        <Bot aria-hidden="true" size={16} />
+                        <span>
+                            尚未設定 AI 模型，AI 分析功能停用中（行情、技術指標與規則訊號不受影響）。請至
+                            {' '}
+                            <Link href="/settings">系統設定</Link>
+                            {' '}
+                            新增模型。
+                        </span>
+                    </p>
+                ) : null}
 
                 <MarketSnapshot items={marketSnapshot} />
                 <WatchlistMovers items={watchlistMovers} />

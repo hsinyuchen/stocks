@@ -2,11 +2,9 @@
 
 namespace App\Providers;
 
-use App\Contracts\LlmProvider;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Contracts\YoutubeWorkerRunner;
-use App\Services\Fake\FakeLlmProvider;
 use App\Services\Fake\FakeMarketDataProvider;
 use App\Services\Fake\FakeNewsProvider;
 use App\Services\Market\CachedMarketDataProvider;
@@ -31,7 +29,8 @@ class AppServiceProvider extends ServiceProvider
                 ? $app->make(FakeNewsProvider::class)
                 : $app->make(DbNewsProvider::class);
         });
-        $this->app->bind(LlmProvider::class, FakeLlmProvider::class);
+        // LlmProvider 沒有全站綁定：真實 LLM 一律 per-user，由 LlmProviderFactory
+        // 依使用者設定建立；未設定時各功能走明確的降級路徑，不得回退到假內容。
 
         $this->app->bind(MarketDataProvider::class, function ($app): MarketDataProvider {
             if (config('services.market_data.driver') === 'fake') {

@@ -11,15 +11,18 @@ class StockAnalysisService
     public function __construct(
         private readonly MarketDataProvider $marketData,
         private readonly NewsProvider $news,
-        private readonly LlmProvider $llm,
         private readonly TechnicalIndicatorService $indicators,
         private readonly SignalEngine $signals,
     ) {}
 
+    /**
+     * 產生個股參考分析。
+     *
+     * $llm 為 null 代表使用者尚未設定 AI 模型：技術指標與規則訊號照常
+     * 產出，LLM 區塊回傳明確的「未設定」說明，絕不以假內容冒充 AI 分析。
+     */
     public function analyze(string $symbol, string $model, ?LlmProvider $llm = null): array
     {
-        $provider = $llm ?? $this->llm;
-
         $quote = $this->marketData->quote($symbol);
         $prices = $this->marketData->dailyPrices($symbol, 80);
         $news = $this->news->relatedNews($symbol, 5);
@@ -47,10 +50,28 @@ class StockAnalysisService
 
         $technicalSnapshot = $this->indicators->calculate($prices);
         $ruleSignal = $this->signals->evaluate($technicalSnapshot);
+
+        if ($llm === null) {
+            return [
+                'symbol' => $symbol,
+                'quote' => $quote,
+                'technical_snapshot' => $technicalSnapshot,
+                'rule_signal' => $ruleSignal,
+                'news' => $news,
+                'llm' => [
+                    'provider' => 'none',
+                    'model' => $model,
+                    'content' => '尚未設定 AI 模型，本次僅提供技術指標與規則訊號。請至「系統設定」新增 AI 模型後再產生 AI 分析。',
+                    'metadata' => ['reason' => 'no_llm_setting'],
+                ],
+                'data_as_of' => $quote->asOf,
+            ];
+        }
+
         $prompt = $this->buildPrompt($symbol, $quote, $technicalSnapshot, $ruleSignal, $news);
 
         try {
-            $response = $provider->complete($model, $prompt);
+            $response = $llm->complete($model, $prompt);
             $llmBlock = [
                 'provider' => $response->provider,
                 'model' => $response->model,

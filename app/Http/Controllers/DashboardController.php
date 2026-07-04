@@ -57,7 +57,11 @@ class DashboardController extends Controller
             },
         );
 
-        return Inertia::render('Dashboard', $payload);
+        return Inertia::render('Dashboard', [
+            ...$payload,
+            // 放在快取外：使用者新增 AI 模型後，提示要立即消失，不等快取過期。
+            'hasLlmProvider' => $user->llmProviderSettings()->exists(),
+        ]);
     }
 
     /**
