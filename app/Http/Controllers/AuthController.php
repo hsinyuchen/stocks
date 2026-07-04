@@ -34,6 +34,14 @@ class AuthController extends Controller
             ]);
         }
 
+        if ($request->user()->disabled_at !== null) {
+            Auth::logout();
+
+            throw ValidationException::withMessages([
+                'email' => '此帳號已停用。',
+            ]);
+        }
+
         $request->session()->regenerate();
 
         return redirect()->intended(route('dashboard', absolute: false));
