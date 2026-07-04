@@ -37,6 +37,9 @@ class AuthController extends Controller
         if ($request->user()->disabled_at !== null) {
             Auth::logout();
 
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
             throw ValidationException::withMessages([
                 'email' => '此帳號已停用。',
             ]);

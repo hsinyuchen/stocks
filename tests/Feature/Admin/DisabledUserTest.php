@@ -19,7 +19,7 @@ class DisabledUserTest extends TestCase
         $this->post('/login', [
             'email' => $user->email,
             'password' => 'secret-password',
-        ])->assertSessionHasErrors('email');
+        ])->assertSessionHasErrors(['email' => '此帳號已停用。']);
 
         $this->assertGuest();
     }
