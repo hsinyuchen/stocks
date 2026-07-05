@@ -6,6 +6,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -32,6 +33,9 @@ class PasswordResetController extends Controller
             $data,
             function ($user, string $password): void {
                 $user->password = Hash::make($password);
+                // 重設密碼須讓既有的 remember-me cookie 全部失效，
+                // 否則外洩的 cookie 在重設後仍可免密登入。
+                $user->setRememberToken(Str::random(60));
                 $user->save();
             },
         );

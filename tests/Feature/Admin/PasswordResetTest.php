@@ -51,6 +51,24 @@ class PasswordResetTest extends TestCase
         $this->assertTrue(Hash::check('brand-new-password-1', $user->refresh()->password));
     }
 
+    public function test_reset_rotates_remember_token(): void
+    {
+        $user = User::factory()->create();
+        $user->setRememberToken('old-remember-token');
+        $user->save();
+
+        $token = Password::createToken($user);
+
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'brand-new-password-1',
+            'password_confirmation' => 'brand-new-password-1',
+        ])->assertRedirect('/login');
+
+        $this->assertNotSame('old-remember-token', $user->refresh()->getRememberToken());
+    }
+
     public function test_invalid_token_is_rejected(): void
     {
         $user = User::factory()->create();
