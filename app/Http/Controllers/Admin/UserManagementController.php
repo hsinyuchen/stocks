@@ -10,6 +10,8 @@ use Inertia\Response;
 
 class UserManagementController extends Controller
 {
+    private const PER_PAGE = 25;
+
     public function index(Request $request): Response
     {
         $q = trim((string) $request->query('q', ''));
@@ -23,7 +25,7 @@ class UserManagementController extends Controller
                     ->orWhere('name', 'like', "%{$q}%"));
             })
             ->orderBy('id')
-            ->paginate(25)
+            ->paginate(self::PER_PAGE)
             ->withQueryString()
             ->through(fn (User $user): array => [
                 'id' => $user->id,
