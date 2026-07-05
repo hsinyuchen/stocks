@@ -115,16 +115,23 @@ function DeleteConfirm({ user, onCancel }) {
 
 function UserRow({ user, selfId, isLastActiveAdmin }) {
     const [deleting, setDeleting] = useState(false);
+    const [pendingAction, setPendingAction] = useState(null);
     const isSelf = user.id === selfId;
     const locked = isSelf || isLastActiveAdmin;
     const lockReason = isSelf ? '不能對自己操作' : '最後一位有效管理員';
 
-    const act = (method, path, confirmText) => {
-        if (confirmText && !window.confirm(confirmText)) {
+    const act = (method, path, confirmLabel) => {
+        if (confirmLabel) {
+            setPendingAction({ method, path, label: confirmLabel });
             return;
         }
 
         router[method](path, {}, { preserveScroll: true });
+    };
+
+    const confirmPendingAction = () => {
+        const { method, path } = pendingAction;
+        router[method](path, {}, { preserveScroll: true, onFinish: () => setPendingAction(null) });
     };
 
     return (
@@ -197,6 +204,27 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                 <tr>
                     <td colSpan={8}>
                         <DeleteConfirm onCancel={() => setDeleting(false)} user={user} />
+                    </td>
+                </tr>
+            ) : null}
+            {pendingAction ? (
+                <tr>
+                    <td colSpan={8}>
+                        <div className="admin-action-confirm">
+                            <span>{pendingAction.label}</span>
+                            <div className="admin-create-form__actions">
+                                <button className="button-danger" onClick={confirmPendingAction} type="button">
+                                    確認
+                                </button>
+                                <button
+                                    className="button-secondary"
+                                    onClick={() => setPendingAction(null)}
+                                    type="button"
+                                >
+                                    取消
+                                </button>
+                            </div>
+                        </div>
                     </td>
                 </tr>
             ) : null}

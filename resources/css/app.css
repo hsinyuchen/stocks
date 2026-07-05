@@ -1975,6 +1975,21 @@ select:focus-visible {
     opacity: 0.4;
 }
 
+/* dark 主題 --neg 是淺鮭紅色，白字對比度僅約 1.6:1，改深色字維持可讀性 */
+:root[data-theme='dark'] .button-danger {
+    color: #1f1e1c;
+}
+
+.admin-action-confirm {
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    padding: 10px 14px;
+}
+
 .admin-users__pagination {
     display: flex;
     flex-wrap: wrap;
