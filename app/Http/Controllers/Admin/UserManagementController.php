@@ -119,9 +119,17 @@ class UserManagementController extends Controller
         abort(501);
     }
 
-    public function destroy(Request $request, User $user)
+    public function destroy(Request $request, User $user): RedirectResponse
     {
-        abort(501);
+        if ($error = $this->guardTarget($request, $user)) {
+            return redirect()->back()->with('error', $error);
+        }
+
+        Log::info('admin action', ['actor' => $request->user()->id, 'target' => $user->id, 'action' => 'delete', 'email' => $user->email]);
+
+        $user->delete();
+
+        return redirect()->back();
     }
 
     /**
