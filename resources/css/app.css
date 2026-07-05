@@ -1974,3 +1974,29 @@ select:focus-visible {
     cursor: not-allowed;
     opacity: 0.4;
 }
+
+.admin-users__pagination {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 14px;
+}
+
+.admin-users__pagination a,
+.admin-users__pagination span {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    padding: 4px 10px;
+}
+
+.admin-users__pagination a.is-active {
+    background: var(--accent-soft);
+    color: var(--text);
+    font-weight: 700;
+}
+
+.admin-users__pagination span {
+    opacity: 0.5;
+}
