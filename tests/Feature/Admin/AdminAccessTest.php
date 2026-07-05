@@ -31,7 +31,18 @@ class AdminAccessTest extends TestCase
         $target = User::factory()->create();
 
         foreach ($this->adminEndpoints($target->id) as [$method, $uri]) {
-            $this->{$method}($uri)->assertRedirect('/login');
+            $response = $this->{$method}($uri);
+
+            $this->assertSame(
+                302,
+                $response->getStatusCode(),
+                "guest {$method} {$uri} 應轉向登入頁",
+            );
+            $this->assertSame(
+                route('login'),
+                $response->headers->get('Location'),
+                "guest {$method} {$uri} 應轉向登入頁",
+            );
         }
     }
 
@@ -41,7 +52,13 @@ class AdminAccessTest extends TestCase
         $target = User::factory()->create();
 
         foreach ($this->adminEndpoints($target->id) as [$method, $uri]) {
-            $this->actingAs($user)->{$method}($uri)->assertForbidden();
+            $response = $this->actingAs($user)->{$method}($uri);
+
+            $this->assertSame(
+                403,
+                $response->getStatusCode(),
+                "non-admin {$method} {$uri} 應回 403",
+            );
         }
     }
 
