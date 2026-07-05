@@ -65,4 +65,17 @@ class AdminCreateUserTest extends TestCase
             'password' => 'whatever-123',
         ])->assertSessionHasErrors('email');
     }
+
+    public function test_password_shorter_than_min_is_rejected(): void
+    {
+        $admin = $this->makeAdmin();
+
+        $this->actingAs($admin)->post('/admin/users', [
+            'name' => 'Short',
+            'email' => 'short@example.com',
+            'password' => 'a234567',
+        ])->assertSessionHasErrors('password');
+
+        $this->assertNull(User::query()->where('email', 'short@example.com')->first());
+    }
 }
