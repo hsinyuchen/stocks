@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -50,19 +52,43 @@ class UserManagementController extends Controller
         abort(501);
     }
 
-    public function disable(Request $request, User $user)
+    public function disable(Request $request, User $user): RedirectResponse
     {
-        abort(501);
+        if ($error = $this->guardTarget($request, $user)) {
+            return redirect()->back()->with('error', $error);
+        }
+
+        $user->disabled_at = now();
+        $user->save();
+
+        Log::info('admin action', ['actor' => $request->user()->id, 'target' => $user->id, 'action' => 'disable']);
+
+        return redirect()->back();
     }
 
-    public function enable(Request $request, User $user)
+    public function enable(Request $request, User $user): RedirectResponse
     {
-        abort(501);
+        $user->disabled_at = null;
+        $user->save();
+
+        Log::info('admin action', ['actor' => $request->user()->id, 'target' => $user->id, 'action' => 'enable']);
+
+        return redirect()->back();
     }
 
-    public function toggleRole(Request $request, User $user)
+    public function toggleRole(Request $request, User $user): RedirectResponse
     {
-        abort(501);
+        // 升級不需 guard；降級（目標目前是 admin）需要。
+        if ($user->is_admin && ($error = $this->guardTarget($request, $user))) {
+            return redirect()->back()->with('error', $error);
+        }
+
+        $user->is_admin = ! $user->is_admin;
+        $user->save();
+
+        Log::info('admin action', ['actor' => $request->user()->id, 'target' => $user->id, 'action' => $user->is_admin ? 'promote' : 'demote']);
+
+        return redirect()->back();
     }
 
     public function sendResetLink(Request $request, User $user)
@@ -73,5 +99,26 @@ class UserManagementController extends Controller
     public function destroy(Request $request, User $user)
     {
         abort(501);
+    }
+
+    /**
+     * 破壞性操作（停用/刪除/降級）的共用防線。
+     * 回傳錯誤訊息字串；null 表示放行。
+     */
+    private function guardTarget(Request $request, User $target): ?string
+    {
+        if ($target->id === $request->user()->id) {
+            return '不能對自己執行此操作。';
+        }
+
+        $isLastActiveAdmin = $target->is_admin
+            && $target->disabled_at === null
+            && User::query()->where('is_admin', true)->whereNull('disabled_at')->count() === 1;
+
+        if ($isLastActiveAdmin) {
+            return '這是最後一位有效管理員，不可停用、刪除或降級。';
+        }
+
+        return null;
     }
 }
