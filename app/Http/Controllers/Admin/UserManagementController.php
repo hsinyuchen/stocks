@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -114,9 +115,24 @@ class UserManagementController extends Controller
         return redirect()->back();
     }
 
-    public function sendResetLink(Request $request, User $user)
+    public function sendResetLink(Request $request, User $user): RedirectResponse
     {
-        abort(501);
+        try {
+            $status = Password::sendResetLink(['email' => $user->email]);
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            // SMTP 未配置或寄送失敗：回明確錯誤，不靜默失敗。
+            return redirect()->back()->with('error', '郵件服務未設定或寄送失敗，請檢查 MAIL_* 環境設定。');
+        }
+
+        if ($status !== Password::RESET_LINK_SENT) {
+            return redirect()->back()->with('error', __($status));
+        }
+
+        Log::info('admin action', ['actor' => $request->user()->id, 'target' => $user->id, 'action' => 'reset-link']);
+
+        return redirect()->back()->with('success', '重設信已寄出。');
     }
 
     public function destroy(Request $request, User $user): RedirectResponse

@@ -7,6 +7,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LlmProviderSettingController;
 use App\Http\Controllers\NewsAnalysisController;
 use App\Http\Controllers\NewsController;
+use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\StockSearchController;
 use App\Http\Controllers\WatchlistController;
 use Illuminate\Support\Facades\Route;
@@ -17,6 +18,9 @@ Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
 Route::post('/login', [AuthController::class, 'login'])->name('login.store');
 Route::post('/register', [AuthController::class, 'register'])->name('register.store');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+
+Route::get('/reset-password/{token}', [PasswordResetController::class, 'show'])->name('password.reset');
+Route::post('/reset-password', [PasswordResetController::class, 'store'])->name('password.update');
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
