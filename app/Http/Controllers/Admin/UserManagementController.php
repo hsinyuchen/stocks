@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -47,9 +48,31 @@ class UserManagementController extends Controller
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request): RedirectResponse
     {
-        abort(501);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'password' => ['nullable', 'string', 'min:8'],
+        ]);
+
+        // 未給密碼時系統代產，flash 回畫面顯示一次，由 admin 轉交使用者。
+        $generated = null;
+
+        if (empty($data['password'])) {
+            $generated = Str::password(16);
+            $data['password'] = $generated;
+        }
+
+        $user = User::query()->create($data);
+
+        Log::info('admin action', ['actor' => $request->user()->id, 'target' => $user->id, 'action' => 'create']);
+
+        $redirect = redirect()->back();
+
+        return $generated !== null
+            ? $redirect->with('generated_password', $generated)
+            : $redirect;
     }
 
     public function disable(Request $request, User $user): RedirectResponse
