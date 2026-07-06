@@ -47,15 +47,24 @@ class TechnicalIndicatorService
      *
      * @return array{
      *     dates: list<string>,
+     *     open: list<float>,
+     *     high: list<float>,
+     *     low: list<float>,
      *     close: list<float>,
      *     volume: list<int>,
      *     ma5: list<?float>,
      *     ma20: list<?float>,
+     *     ma60: list<?float>,
+     *     boll_upper: list<?float>,
+     *     boll_middle: list<?float>,
+     *     boll_lower: list<?float>,
      *     k: list<float>,
      *     d: list<float>,
      *     macd: list<float>,
      *     signal: list<float>,
-     *     histogram: list<float>
+     *     histogram: list<float>,
+     *     rsi: list<?float>,
+     *     obv: list<int>
      * }
      */
     public function series(array $prices): array
@@ -122,17 +131,81 @@ class TechnicalIndicatorService
             $histogram[$i] = round($macdSeries[$i] - $signalSeries[$i], 4);
         }
 
+        // MA60 與布林通道（period 20，2 倍母體標準差）。
+        // 布林中軌刻意重用 ma20 的相同算法，確保 boll_middle 與 ma20 逐點相等。
+        $ma60 = [];
+        $bollUpper = [];
+        $bollMiddle = [];
+        $bollLower = [];
+        for ($i = 0; $i < $count; $i++) {
+            $ma60[$i] = $i >= 59 ? round($this->average(array_slice($closes, $i - 59, 60)), 4) : null;
+
+            if ($i >= 19) {
+                $window = array_slice($closes, $i - 19, 20);
+                $mean = $this->average($window);
+                // 母體標準差（/20），非樣本標準差，與多數看盤軟體布林預設一致。
+                $variance = array_sum(array_map(fn ($v) => ($v - $mean) ** 2, $window)) / 20;
+                $std = sqrt($variance);
+                $bollMiddle[$i] = round($mean, 4);
+                $bollUpper[$i] = round($mean + 2 * $std, 4);
+                $bollLower[$i] = round($mean - 2 * $std, 4);
+            } else {
+                $bollMiddle[$i] = null;
+                $bollUpper[$i] = null;
+                $bollLower[$i] = null;
+            }
+        }
+
+        // RSI（Wilder 平滑，period 14）：前 14 根用簡單平均起算，之後遞迴平滑。
+        // 平均跌幅為 0（區間內只漲不跌）時 RSI 定義為 100。
+        $rsi = array_fill(0, $count, null);
+        if ($count > 14) {
+            $gains = 0.0;
+            $losses = 0.0;
+            for ($i = 1; $i <= 14; $i++) {
+                $delta = $closes[$i] - $closes[$i - 1];
+                $delta >= 0 ? $gains += $delta : $losses -= $delta;
+            }
+            $avgGain = $gains / 14;
+            $avgLoss = $losses / 14;
+            $rsi[14] = $avgLoss == 0.0 ? 100.0 : round(100 - 100 / (1 + $avgGain / $avgLoss), 4);
+            for ($i = 15; $i < $count; $i++) {
+                $delta = $closes[$i] - $closes[$i - 1];
+                $avgGain = ($avgGain * 13 + max($delta, 0)) / 14;
+                $avgLoss = ($avgLoss * 13 + max(-$delta, 0)) / 14;
+                $rsi[$i] = $avgLoss == 0.0 ? 100.0 : round(100 - 100 / (1 + $avgGain / $avgLoss), 4);
+            }
+        }
+
+        // OBV：漲加量、跌減量、平不變。首根基準 0。
+        $obv = [0];
+        for ($i = 1; $i < $count; $i++) {
+            $obv[$i] = $obv[$i - 1] + ($closes[$i] <=> $closes[$i - 1]) * $volumes[$i];
+        }
+
+        $opens = array_map(fn ($row) => $row['open'], $normalized);
+
         return [
             'dates' => array_values($dates),
+            // OHLC 序列供 Task 5 endpoint 組 candles；來源即 normalize 後的值。
+            'open' => array_values($opens),
+            'high' => array_values($highs),
+            'low' => array_values($lows),
             'close' => array_values($closes),
             'volume' => array_values($volumes),
             'ma5' => $ma5,
             'ma20' => $ma20,
+            'ma60' => $ma60,
+            'boll_upper' => $bollUpper,
+            'boll_middle' => $bollMiddle,
+            'boll_lower' => $bollLower,
             'k' => $k,
             'd' => $d,
             'macd' => $macd,
             'signal' => $signal,
             'histogram' => $histogram,
+            'rsi' => $rsi,
+            'obv' => $obv,
         ];
     }
 
@@ -175,7 +248,7 @@ class TechnicalIndicatorService
     }
 
     /**
-     * @param list<float> $values
+     * @param  list<float>  $values
      * @return list<float>
      */
     private function emaSeries(array $values, int $period): array
