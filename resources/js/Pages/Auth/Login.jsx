@@ -130,7 +130,7 @@ function RegisterForm() {
     );
 }
 
-export default function Login() {
+export default function Login({ registrationEnabled = true }) {
     return (
         <main className="auth-page">
             <section className="auth-hero">
@@ -140,7 +140,7 @@ export default function Login() {
             </section>
             <section className="auth-grid" aria-label="登入與註冊表單">
                 <LoginForm />
-                <RegisterForm />
+                {registrationEnabled ? <RegisterForm /> : null}
             </section>
         </main>
     );

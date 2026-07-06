@@ -3,7 +3,6 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
-use App\Models\LlmProviderSetting;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -19,6 +18,12 @@ class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+
+    // Eloquent create() 後不會從 DB 回填 column default，需在 model 層也設預設值，
+    // 否則剛建立的實例讀 is_admin 會拿到 null 而非 false（要重新查詢才會拿到 DB default）。
+    protected $attributes = [
+        'is_admin' => false,
+    ];
 
     protected static function booted(): void
     {
@@ -41,6 +46,8 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_admin' => 'boolean',
+            'disabled_at' => 'datetime',
         ];
     }
 

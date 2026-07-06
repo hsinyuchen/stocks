@@ -9,11 +9,12 @@ import {
     Search,
     Settings,
     Star,
+    Users,
 } from 'lucide-react';
 import HamburgerButton from '../Components/HamburgerButton';
 import ThemeToggle from '../Components/ThemeToggle';
 
-const menuItems = [
+const baseMenuItems = [
     { href: '/dashboard', label: '市場儀表板', icon: BarChart3 },
     { href: '/news', label: '即時新聞', icon: Newspaper },
     { href: '/watchlists', label: '自選清單', icon: Star },
@@ -45,6 +46,9 @@ function writeStoredTheme(theme) {
 export default function AppShell({ children, title = '市場儀表板' }) {
     const { props, url } = usePage();
     const user = props.auth?.user;
+    const menuItems = user?.is_admin
+        ? [...baseMenuItems, { href: '/admin/users', label: '使用者管理', icon: Users }]
+        : baseMenuItems;
     const currentPath = url.split(/[?#]/)[0];
     const initialTheme = useMemo(() => normalizeTheme(readStoredTheme() ?? user?.profile?.theme), [user?.profile?.theme]);
     const [theme, setTheme] = useState(() => initialTheme);

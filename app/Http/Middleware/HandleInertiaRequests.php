@@ -20,12 +20,18 @@ class HandleInertiaRequests extends Middleware
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
+                    'is_admin' => (bool) $user->is_admin,
                     'profile' => [
                         'theme' => $user->profile?->theme ?? 'warm',
                         'timezone' => $user->profile?->timezone ?? 'Asia/Taipei',
                         'preferred_market' => $user->profile?->preferred_market ?? 'TW_US',
                     ],
                 ] : null,
+            ],
+            'flash' => [
+                'error' => $request->session()->get('error'),
+                'success' => $request->session()->get('success'),
+                'generated_password' => $request->session()->get('generated_password'),
             ],
         ];
     }

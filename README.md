@@ -64,6 +64,18 @@ npm run build
 
 The app currently uses fake market, news, and LLM providers. Real data vendors and real LLM calls are intentionally deferred behind provider contracts.
 
+## Admin
+
+首個管理員（部署後執行一次）：
+
+```powershell
+php artisan user:promote your-email@example.com
+```
+
+管理頁：`/admin/users`（僅 admin 可見）。可停用/啟用、升降 admin、寄密碼重設信（需配 MAIL_*）、刪除使用者、建立帳號。
+
+關閉自助註冊：`.env` 設 `REGISTRATION_ENABLED=false`。
+
 ## LLM Provider Examples
 
 The settings page stores API keys encrypted at rest. These examples show the values to enter or mirror in environment configuration when real providers are wired.
