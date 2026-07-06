@@ -62,4 +62,21 @@ class PromoteDemoteCommandTest extends TestCase
 
         $this->assertTrue($admin->refresh()->is_admin);
     }
+
+    public function test_demote_disabled_admin_succeeds_even_when_one_active_admin_remains(): void
+    {
+        $disabledAdmin = User::factory()->create();
+        $disabledAdmin->is_admin = true;
+        $disabledAdmin->disabled_at = now();
+        $disabledAdmin->save();
+
+        $activeAdmin = User::factory()->create();
+        $activeAdmin->is_admin = true;
+        $activeAdmin->save();
+
+        $this->artisan('user:demote', ['email' => $disabledAdmin->email])
+            ->assertExitCode(0);
+
+        $this->assertFalse($disabledAdmin->refresh()->is_admin);
+    }
 }

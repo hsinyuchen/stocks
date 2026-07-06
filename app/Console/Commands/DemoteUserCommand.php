@@ -24,6 +24,7 @@ class DemoteUserCommand extends Command
 
         // 系統必須至少保留一位未停用的 admin，否則管理功能會被鎖死。
         $isLastActiveAdmin = $user->is_admin
+            && $user->disabled_at === null
             && User::query()->where('is_admin', true)->whereNull('disabled_at')->count() === 1;
 
         if ($isLastActiveAdmin) {
