@@ -1,14 +1,12 @@
 import { Link, router, useForm } from '@inertiajs/react';
-import { lazy, Suspense } from 'react';
-import { Activity, Bot, LineChart, Newspaper, Sparkles } from 'lucide-react';
+import axios from 'axios';
+import { useCallback, useEffect, useState } from 'react';
+import { Bot, LineChart, Newspaper, RotateCcw, Sparkles } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 import StockSearchBox from '../../Components/StockSearchBox';
 import Markdown from '../../Components/Markdown';
-
-// Charts pull in recharts — load them on demand so non-chart pages stay light.
-const PriceChart = lazy(() => import('../../Components/charts/PriceChart'));
-const KdChart = lazy(() => import('../../Components/charts/IndicatorChart').then((m) => ({ default: m.KdChart })));
-const MacdChart = lazy(() => import('../../Components/charts/IndicatorChart').then((m) => ({ default: m.MacdChart })));
+import CandlestickChart from '../../Components/charts/CandlestickChart';
+import TimeframeSwitcher from '../../Components/charts/TimeframeSwitcher';
 
 const stanceLabels = {
     bullish: '偏多',
@@ -17,6 +15,36 @@ const stanceLabels = {
     watch: '觀察',
     insufficient_data: '資料不足',
 };
+
+// 副圖開關：預設開 KD/MACD，RSI/OBV 預設關（spec 決策）。選擇存 localStorage。
+const PANE_OPTIONS = [
+    { key: 'kd', label: 'KD' },
+    { key: 'macd', label: 'MACD' },
+    { key: 'rsi', label: 'RSI' },
+    { key: 'obv', label: 'OBV' },
+];
+const DEFAULT_PANES = ['kd', 'macd'];
+const PANES_STORAGE_KEY = 'chart-panes';
+
+function loadPanes() {
+    if (typeof window === 'undefined') {
+        return DEFAULT_PANES;
+    }
+    try {
+        const raw = window.localStorage.getItem(PANES_STORAGE_KEY);
+        if (!raw) {
+            return DEFAULT_PANES;
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+            return DEFAULT_PANES;
+        }
+
+        return parsed.filter((key) => PANE_OPTIONS.some((option) => option.key === key));
+    } catch {
+        return DEFAULT_PANES;
+    }
+}
 
 function formatNumber(value, digits = 2) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -159,97 +187,99 @@ function QuotePanel({ quote, instrument }) {
     );
 }
 
-function PriceHistory({ prices, indicators }) {
-    if (prices.length === 0) {
-        return null;
-    }
+/**
+ * 圖表區塊：掛載與 timeframe 變更時非同步打 chart endpoint（首載已不帶 prices/indicators）。
+ * 副圖開關持久化於 localStorage；error 顯示重試按鈕不白屏。
+ */
+function ChartSection({ instrument }) {
+    const [tf, setTf] = useState('daily');
+    const [chartData, setChartData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(false);
+    const [panes, setPanes] = useState(() => loadPanes());
 
-    const hasChart = Boolean(indicators?.close?.length);
+    const fetchChart = useCallback((timeframe, signal) => {
+        setLoading(true);
+        setError(false);
+
+        return axios
+            .get(`/stocks/${instrument.id}/chart`, { params: { tf: timeframe }, signal })
+            .then((response) => {
+                setChartData(response.data);
+                setLoading(false);
+            })
+            .catch((err) => {
+                if (axios.isCancel?.(err) || err?.name === 'CanceledError') {
+                    return;
+                }
+                setError(true);
+                setLoading(false);
+            });
+    }, [instrument.id]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        fetchChart(tf, controller.signal);
+
+        return () => controller.abort();
+    }, [fetchChart, tf]);
+
+    const togglePane = (key) => {
+        setPanes((current) => {
+            const next = current.includes(key)
+                ? current.filter((item) => item !== key)
+                : [...current, key];
+
+            if (typeof window !== 'undefined') {
+                window.localStorage.setItem(PANES_STORAGE_KEY, JSON.stringify(next));
+            }
+
+            return next;
+        });
+    };
 
     return (
-        <section className="stock-panel">
+        <section className="stock-panel chart-section">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">近期價格</p>
-                    <h2>價格走勢與均線</h2>
+                    <p className="section-kicker">技術線圖</p>
+                    <h2>K 線與技術指標</h2>
                 </div>
                 <LineChart aria-hidden="true" size={22} />
             </div>
-            {hasChart ? (
-                <div className="chart-wrap" aria-label="價格走勢圖">
-                    <Suspense fallback={<div className="skeleton" style={{ height: 240 }} />}>
-                        <PriceChart indicators={indicators} />
-                    </Suspense>
+
+            <div className="chart-toolbar">
+                <TimeframeSwitcher loading={loading} onChange={setTf} value={tf} />
+                <div className="chart-panes" role="group" aria-label="副圖指標">
+                    {PANE_OPTIONS.map((option) => (
+                        <label className="chart-pane-toggle" key={option.key}>
+                            <input
+                                checked={panes.includes(option.key)}
+                                onChange={() => togglePane(option.key)}
+                                type="checkbox"
+                            />
+                            <span>{option.label}</span>
+                        </label>
+                    ))}
                 </div>
+            </div>
+
+            {error ? (
+                <div className="chart-container chart-container--empty">
+                    <span className="chart-empty">圖表資料載入失敗。</span>
+                    <button className="button-secondary" onClick={() => fetchChart(tf)} type="button">
+                        <RotateCcw aria-hidden="true" size={16} />
+                        <span>重試</span>
+                    </button>
+                </div>
+            ) : chartData ? (
+                <CandlestickChart chartData={chartData} visiblePanes={panes} />
             ) : (
-                <div className="chart-wrap chart-wrap--empty" aria-label="價格走勢圖">
-                    <span className="chart-empty">尚無足夠價格資料繪製走勢圖。</span>
+                <div className="chart-container chart-container--empty">
+                    <span className="chart-empty">載入圖表資料中…</span>
                 </div>
             )}
-            <div className="price-table-wrap">
-                <table className="stock-table">
-                    <thead>
-                        <tr>
-                            <th>日期</th>
-                            <th>開盤</th>
-                            <th>最高</th>
-                            <th>最低</th>
-                            <th>收盤</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {prices.slice(-6).reverse().map((price) => (
-                            <tr key={price.date}>
-                                <td>{price.date}</td>
-                                <td>{formatNumber(price.open)}</td>
-                                <td>{formatNumber(price.high)}</td>
-                                <td>{formatNumber(price.low)}</td>
-                                <td>{formatNumber(price.close)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
         </section>
-    );
-}
-
-function IndicatorPanels({ indicators }) {
-    if (!indicators?.close?.length) {
-        return null;
-    }
-
-    return (
-        <>
-            <section className="stock-panel">
-                <div className="panel-heading">
-                    <div>
-                        <p className="section-kicker">技術指標</p>
-                        <h2>KD 指標</h2>
-                    </div>
-                    <Activity aria-hidden="true" size={22} />
-                </div>
-                <div className="chart-wrap" aria-label="KD 指標圖">
-                    <Suspense fallback={<div className="skeleton" style={{ height: 150 }} />}>
-                        <KdChart indicators={indicators} />
-                    </Suspense>
-                </div>
-            </section>
-            <section className="stock-panel">
-                <div className="panel-heading">
-                    <div>
-                        <p className="section-kicker">技術指標</p>
-                        <h2>MACD</h2>
-                    </div>
-                    <Activity aria-hidden="true" size={22} />
-                </div>
-                <div className="chart-wrap" aria-label="MACD 圖">
-                    <Suspense fallback={<div className="skeleton" style={{ height: 150 }} />}>
-                        <MacdChart indicators={indicators} />
-                    </Suspense>
-                </div>
-            </section>
-        </>
     );
 }
 
@@ -331,8 +361,6 @@ export default function StockSearch({
     symbol = null,
     instrument = null,
     quote = null,
-    prices = [],
-    indicators = null,
     news = [],
     analyses = [],
     llmProviders = [],
@@ -352,8 +380,7 @@ export default function StockSearch({
                 <div className="stock-workspace">
                     <div className="stock-workspace__main">
                         <QuotePanel instrument={instrument} quote={quote} />
-                        <PriceHistory indicators={indicators} prices={prices} />
-                        <IndicatorPanels indicators={indicators} />
+                        {instrument ? <ChartSection instrument={instrument} /> : null}
                         <NewsList news={news} />
                     </div>
                     <aside className="stock-workspace__side">

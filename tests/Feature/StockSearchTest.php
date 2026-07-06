@@ -7,6 +7,7 @@ use App\Models\StockAnalysis;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Inertia\Testing\AssertableInertia;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -41,7 +42,8 @@ class StockSearchTest extends TestCase
                 ->where('symbol', null)
                 ->where('instrument', null)
                 ->where('quote', null)
-                ->has('prices', 0)
+                ->missing('prices')
+                ->missing('indicators')
                 ->has('news', 0)
                 ->has('analyses', 0));
     }
@@ -61,9 +63,9 @@ class StockSearchTest extends TestCase
                 ->where('instrument.currency', 'TWD')
                 ->where('quote.symbol', '2330.TW')
                 ->where('quote.price', 128.5)
-                ->has('prices', 20)
-                ->has('indicators.close', 60)
-                ->has('indicators.k', 60)
+                // 首載瘦身：prices/indicators 不再由 index 輸出，前端掛載後另打 chart endpoint。
+                ->missing('prices')
+                ->missing('indicators')
                 ->where('news.0.title', '2330.TW 相關新聞 1')
                 ->has('analyses', 0));
 
@@ -82,7 +84,7 @@ class StockSearchTest extends TestCase
         $user = User::factory()->create();
 
         $this->actingAs($user)
-            ->get('/stocks/search?symbol=2330.TW&name=' . urlencode('台積電'))
+            ->get('/stocks/search?symbol=2330.TW&name='.urlencode('台積電'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Stocks/Search')
@@ -302,7 +304,7 @@ class StockSearchTest extends TestCase
         $this->actingAs($user)
             ->get('/stocks/search')
             ->assertOk()
-            ->assertInertia(fn (\Inertia\Testing\AssertableInertia $page) => $page
+            ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('Stocks/Search')
                 ->has('llmProviders', 1)
                 ->where('llmProviders.0.display_name', 'Local Ollama')

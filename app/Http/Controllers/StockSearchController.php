@@ -9,10 +9,10 @@ use App\Enums\MarketRegion;
 use App\Models\Instrument;
 use App\Models\LlmProviderSetting;
 use App\Models\StockAnalysis;
+use App\Models\User;
 use App\Services\Llm\LlmProviderFactory;
 use App\Services\Search\StockSearchService;
 use App\Services\StockAnalysisService;
-use App\Services\TechnicalIndicatorService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -27,7 +27,6 @@ class StockSearchController extends Controller
         private readonly NewsProvider $news,
         private readonly StockAnalysisService $stockAnalysis,
         private readonly LlmProviderFactory $llmFactory,
-        private readonly TechnicalIndicatorService $indicators,
     ) {}
 
     public function index(Request $request): Response|RedirectResponse
@@ -49,17 +48,15 @@ class StockSearchController extends Controller
         $symbol = $data['symbol'];
         $name = isset($data['name']) ? trim((string) $data['name']) : '';
         $quote = $this->marketData->quote($symbol);
-        $history = $this->marketData->dailyPrices($symbol, 120);
-        $prices = array_slice($history, -20);
         $news = $this->news->relatedNews($symbol, 5);
         $instrument = $this->findOrCreateInstrumentFromQuote($quote, $name !== '' ? $name : null);
 
+        // 首載瘦身：不再輸出 prices/indicators，前端掛載後另打 stocks.chart endpoint
+        // 取 5 年日/週/月 K 與完整指標序列，避免首頁 payload 過大。
         return Inertia::render('Stocks/Search', [
             'symbol' => $instrument->symbol,
             'instrument' => $this->instrumentPayload($instrument),
             'quote' => $this->quotePayload($quote),
-            'prices' => array_map(fn (object $price): array => $this->pricePayload($price), $prices),
-            'indicators' => $this->indicatorsPayload($history),
             'news' => array_map(fn (object $item): array => $this->newsPayload($item), $news),
             'analyses' => $this->analysisPayload($request, $instrument),
             'llmProviders' => $this->llmProvidersPayload($request),
@@ -110,7 +107,7 @@ class StockSearchController extends Controller
         return redirect()->route('stocks.search', ['symbol' => $instrument->symbol]);
     }
 
-    private function resolveSetting(\App\Models\User $user, ?int $settingId): ?LlmProviderSetting
+    private function resolveSetting(User $user, ?int $settingId): ?LlmProviderSetting
     {
         if ($settingId === null) {
             return $user->defaultLlmSetting();
@@ -128,32 +125,10 @@ class StockSearchController extends Controller
             'symbol' => null,
             'instrument' => null,
             'quote' => null,
-            'prices' => [],
-            'indicators' => null,
             'news' => [],
             'analyses' => [],
             'llmProviders' => [],
         ];
-    }
-
-    /**
-     * Indicator series for charting, computed over the full warmup history and
-     * trimmed to the last 60 entries (each array sliced consistently).
-     *
-     * @param  list<object>  $history
-     */
-    private function indicatorsPayload(array $history): ?array
-    {
-        if ($history === []) {
-            return null;
-        }
-
-        $series = $this->indicators->series($history);
-
-        return array_map(
-            fn ($values) => is_array($values) ? array_values(array_slice($values, -60)) : $values,
-            $series,
-        );
     }
 
     private function llmProvidersPayload(Request $request): array
@@ -221,18 +196,6 @@ class StockSearchController extends Controller
             'change' => $quote->change,
             'change_percent' => $quote->changePercent,
             'as_of' => $quote->asOf,
-        ];
-    }
-
-    private function pricePayload(object $price): array
-    {
-        return [
-            'date' => $price->date,
-            'open' => $price->open,
-            'high' => $price->high,
-            'low' => $price->low,
-            'close' => $price->close,
-            'volume' => $price->volume,
         ];
     }
 

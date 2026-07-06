@@ -928,6 +928,59 @@ button {
     font-size: 0.85rem;
 }
 
+.chart-toolbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 6px 0 12px;
+}
+
+.chart-panes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.chart-pane-toggle {
+    align-items: center;
+    background: var(--accent-soft);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 0.78rem;
+    font-weight: 700;
+    gap: 5px;
+    padding: 4px 10px;
+    user-select: none;
+}
+
+.chart-pane-toggle input {
+    accent-color: var(--accent);
+    cursor: pointer;
+    margin: 0;
+}
+
+.chart-container {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    height: 480px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.chart-container--empty {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: auto;
+    justify-content: center;
+    min-height: 150px;
+    padding: 24px;
+}
+
 .price-table-wrap {
     overflow-x: auto;
 }
