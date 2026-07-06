@@ -5,7 +5,8 @@ import { Bot, LineChart, Newspaper, RotateCcw, Sparkles } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 import StockSearchBox from '../../Components/StockSearchBox';
 import Markdown from '../../Components/Markdown';
-import CandlestickChart from '../../Components/charts/CandlestickChart';
+import StockChart from '../../Components/charts/StockChart';
+import CompareBox from '../../Components/charts/CompareBox';
 import TimeframeSwitcher from '../../Components/charts/TimeframeSwitcher';
 
 const stanceLabels = {
@@ -190,6 +191,10 @@ function QuotePanel({ quote, instrument }) {
 /**
  * 圖表區塊：掛載與 timeframe 變更時非同步打 chart endpoint（首載已不帶 prices/indicators）。
  * 副圖開關持久化於 localStorage；error 顯示重試按鈕不白屏。
+ *
+ * 比較模式：compareSymbols 非空時 StockChart 派生為 compare 模式。
+ * 各比較 symbol 走 by-symbol endpoint（可能無 instrument，含指數），
+ * 與主 tf 一致；fetch 失敗只標記該 symbol，不影響主圖與其他比較線。
  */
 function ChartSection({ instrument }) {
     const [tf, setTf] = useState('daily');
@@ -197,6 +202,9 @@ function ChartSection({ instrument }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(false);
     const [panes, setPanes] = useState(() => loadPanes());
+    const [compareSymbols, setCompareSymbols] = useState([]);
+    const [compareSeries, setCompareSeries] = useState([]);
+    const [compareErrors, setCompareErrors] = useState({});
 
     const fetchChart = useCallback((timeframe, signal) => {
         setLoading(true);
@@ -224,6 +232,43 @@ function ChartSection({ instrument }) {
         return () => controller.abort();
     }, [fetchChart, tf]);
 
+    // 比較 series 依 compareSymbols × tf 取回。symbol/tf 變更時整批重抓，
+    // 各 symbol 獨立成敗：成功者進 compareSeries，失敗者進 compareErrors。
+    useEffect(() => {
+        if (compareSymbols.length === 0) {
+            setCompareSeries([]);
+            setCompareErrors({});
+
+            return undefined;
+        }
+
+        const controller = new AbortController();
+
+        Promise.all(compareSymbols.map((symbol) => axios
+            .get('/stocks/chart', { params: { symbol, tf }, signal: controller.signal })
+            .then((response) => ({ symbol, candles: response.data.candles ?? [], ok: true }))
+            .catch((err) => {
+                if (axios.isCancel?.(err) || err?.name === 'CanceledError') {
+                    return { symbol, cancelled: true };
+                }
+
+                return { symbol, ok: false };
+            }))).then((results) => {
+            if (results.some((result) => result.cancelled)) {
+                return;
+            }
+
+            setCompareSeries(results
+                .filter((result) => result.ok)
+                .map(({ symbol, candles }) => ({ symbol, candles })));
+            setCompareErrors(Object.fromEntries(results
+                .filter((result) => !result.ok)
+                .map((result) => [result.symbol, true])));
+        });
+
+        return () => controller.abort();
+    }, [compareSymbols, tf]);
+
     const togglePane = (key) => {
         setPanes((current) => {
             const next = current.includes(key)
@@ -238,6 +283,20 @@ function ChartSection({ instrument }) {
         });
     };
 
+    const addCompareSymbol = (symbol) => {
+        // 不與主 symbol 重複、去重、上限 4（CompareBox 亦有把關，此為第二道）。
+        if (symbol === instrument.symbol.toUpperCase() || compareSymbols.includes(symbol) || compareSymbols.length >= 4) {
+            return;
+        }
+        setCompareSymbols((current) => [...current, symbol]);
+    };
+
+    const removeCompareSymbol = (symbol) => {
+        setCompareSymbols((current) => current.filter((item) => item !== symbol));
+    };
+
+    const isCompare = compareSymbols.length > 0;
+
     return (
         <section className="stock-panel chart-section">
             <div className="panel-heading">
@@ -250,19 +309,28 @@ function ChartSection({ instrument }) {
 
             <div className="chart-toolbar">
                 <TimeframeSwitcher loading={loading} onChange={setTf} value={tf} />
-                <div className="chart-panes" role="group" aria-label="副圖指標">
-                    {PANE_OPTIONS.map((option) => (
-                        <label className="chart-pane-toggle" key={option.key}>
-                            <input
-                                checked={panes.includes(option.key)}
-                                onChange={() => togglePane(option.key)}
-                                type="checkbox"
-                            />
-                            <span>{option.label}</span>
-                        </label>
-                    ))}
-                </div>
+                {isCompare ? null : (
+                    <div className="chart-panes" role="group" aria-label="副圖指標">
+                        {PANE_OPTIONS.map((option) => (
+                            <label className="chart-pane-toggle" key={option.key}>
+                                <input
+                                    checked={panes.includes(option.key)}
+                                    onChange={() => togglePane(option.key)}
+                                    type="checkbox"
+                                />
+                                <span>{option.label}</span>
+                            </label>
+                        ))}
+                    </div>
+                )}
             </div>
+
+            <CompareBox
+                errors={compareErrors}
+                onAdd={addCompareSymbol}
+                onRemove={removeCompareSymbol}
+                symbols={compareSymbols}
+            />
 
             {error ? (
                 <div className="chart-container chart-container--empty">
@@ -273,7 +341,13 @@ function ChartSection({ instrument }) {
                     </button>
                 </div>
             ) : chartData ? (
-                <CandlestickChart chartData={chartData} visiblePanes={panes} />
+                <StockChart
+                    chartData={chartData}
+                    compareSeries={compareSeries}
+                    compareSymbols={compareSymbols}
+                    tf={tf}
+                    visiblePanes={panes}
+                />
             ) : (
                 <div className="chart-container chart-container--empty">
                     <span className="chart-empty">載入圖表資料中…</span>

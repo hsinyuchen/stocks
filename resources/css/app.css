@@ -981,6 +981,99 @@ button {
     padding: 24px;
 }
 
+.compare-box {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.compare-box__heading {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.compare-box__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.compare-chip {
+    align-items: center;
+    background: var(--accent-soft);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 0.8rem;
+    font-weight: 700;
+    gap: 6px;
+    padding: 4px 6px 4px 12px;
+}
+
+.compare-chip--error {
+    border-color: var(--neg);
+    color: var(--neg);
+}
+
+.compare-chip small {
+    font-weight: 500;
+    opacity: 0.85;
+}
+
+.compare-chip button {
+    align-items: center;
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    padding: 2px;
+}
+
+.compare-chip button:hover {
+    background: var(--surface-strong);
+}
+
+.compare-box__manual {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.compare-box__manual input {
+    flex: 1 1 220px;
+}
+
+.compare-box__shortcuts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.compare-shortcut {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 4px 12px;
+}
+
+.compare-shortcut:hover:not(:disabled) {
+    background: var(--accent-soft);
+}
+
+.compare-shortcut:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
 .price-table-wrap {
     overflow-x: auto;
 }
