@@ -8,6 +8,7 @@ use App\Http\Controllers\LlmProviderSettingController;
 use App\Http\Controllers\NewsAnalysisController;
 use App\Http\Controllers\NewsController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\StockChartController;
 use App\Http\Controllers\StockSearchController;
 use App\Http\Controllers\WatchlistController;
 use Illuminate\Support\Facades\Route;
@@ -35,6 +36,7 @@ Route::middleware('auth')->group(function (): void {
     Route::delete('/watchlists/{watchlist}/items/{watchlistItem}', [WatchlistController::class, 'removeItem'])->name('watchlists.items.destroy');
     Route::get('/stocks/search', [StockSearchController::class, 'index'])->name('stocks.search');
     Route::get('/stocks/lookup', [StockSearchController::class, 'lookup'])->name('stocks.lookup');
+    Route::get('/stocks/{instrument}/chart', StockChartController::class)->name('stocks.chart');
     Route::post('/stocks/{instrument}/analyses', [StockSearchController::class, 'analyze'])->name('stocks.analyses.store');
     Route::get('/analyses', [AnalysesController::class, 'index'])->name('analyses.index');
     Route::get('/settings', [LlmProviderSettingController::class, 'index'])->name('settings.index');
