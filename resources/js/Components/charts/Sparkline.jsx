@@ -5,7 +5,7 @@ import useChartColors from './useChartColors';
 /**
  * 迷你趨勢線。`data` 為數字陣列（oldest -> newest）。
  * `up` 控制顏色；省略時由頭尾值推導。
- * props 介面與舊 recharts 版本一致：`{ data = [], up }`。
+ * props 介面 `{ data = [], up }` 為對外契約，呼叫端（Dashboard）依賴其穩定。
  */
 export default function Sparkline({ data = [], up }) {
     const colors = useChartColors();
