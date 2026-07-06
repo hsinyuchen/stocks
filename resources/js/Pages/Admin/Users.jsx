@@ -80,8 +80,18 @@ function CreateUserForm() {
 function DeleteConfirm({ user, onCancel }) {
     const [confirmEmail, setConfirmEmail] = useState('');
 
+    const [submitting, setSubmitting] = useState(false);
+
     const submit = () => {
-        router.delete(`/admin/users/${user.id}`, { preserveScroll: true });
+        if (submitting) {
+            return;
+        }
+
+        setSubmitting(true);
+        router.delete(`/admin/users/${user.id}`, {
+            preserveScroll: true,
+            onFinish: () => setSubmitting(false),
+        });
     };
 
     return (
@@ -99,7 +109,7 @@ function DeleteConfirm({ user, onCancel }) {
             <div className="admin-create-form__actions">
                 <button
                     className="button-danger"
-                    disabled={confirmEmail !== user.email}
+                    disabled={confirmEmail !== user.email || submitting}
                     onClick={submit}
                     type="button"
                 >
@@ -129,9 +139,22 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
         router[method](path, {}, { preserveScroll: true });
     };
 
+    const [confirming, setConfirming] = useState(false);
+
     const confirmPendingAction = () => {
+        if (confirming) {
+            return;
+        }
+
+        setConfirming(true);
         const { method, path } = pendingAction;
-        router[method](path, {}, { preserveScroll: true, onFinish: () => setPendingAction(null) });
+        router[method](path, {}, {
+            preserveScroll: true,
+            onFinish: () => {
+                setConfirming(false);
+                setPendingAction(null);
+            },
+        });
     };
 
     return (
@@ -213,11 +236,17 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                         <div className="admin-action-confirm">
                             <span>{pendingAction.label}</span>
                             <div className="admin-create-form__actions">
-                                <button className="button-danger" onClick={confirmPendingAction} type="button">
+                                <button
+                                    className="button-danger"
+                                    disabled={confirming}
+                                    onClick={confirmPendingAction}
+                                    type="button"
+                                >
                                     確認
                                 </button>
                                 <button
                                     className="button-secondary"
+                                    disabled={confirming}
                                     onClick={() => setPendingAction(null)}
                                     type="button"
                                 >
