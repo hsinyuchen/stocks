@@ -3,7 +3,7 @@ import { lazy, Suspense, useState } from 'react';
 import { Bot, LineChart, Newspaper, RefreshCw, Star } from 'lucide-react';
 import AppShell from '../Layouts/AppShell';
 
-// Sparkline pulls in recharts — load it on demand so the bundle stays light.
+// Sparkline 建立獨立的 Lightweight Charts 實例，按需載入讓首屏 bundle 保持精簡。
 const Sparkline = lazy(() => import('../Components/charts/Sparkline'));
 
 const stanceLabels = {

@@ -98,7 +98,14 @@ class YahooChartMarketDataProvider implements MarketDataProvider
             return [];
         }
 
-        $url = 'https://query2.finance.yahoo.com/v8/finance/chart/'.rawurlencode($symbol).'?range=1y&interval=1d';
+        // Yahoo range 檔位：以請求天數換算，寬鬆取上一檔，避免上游回不足量。
+        // 252 ≈ 一年交易日。
+        $range = match (true) {
+            $days <= 252 => '1y',
+            $days <= 504 => '2y',
+            default => '5y',
+        };
+        $url = 'https://query2.finance.yahoo.com/v8/finance/chart/'.rawurlencode($symbol)."?range={$range}&interval=1d";
         $response = Http::timeout($this->timeoutSeconds)
             ->withHeaders(['User-Agent' => 'Mozilla/5.0 (compatible; StockRadar/1.0)'])
             ->acceptJson()

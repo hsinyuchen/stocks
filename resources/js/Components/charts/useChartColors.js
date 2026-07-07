@@ -43,8 +43,9 @@ function resolveColors() {
 
 /**
  * Resolve theme colors from the document's CSS variables into real color
- * strings so Recharts (which writes SVG attributes) gets usable values rather
- * than unresolved `var(...)`. Re-reads when the `data-theme` attribute changes.
+ * strings so Lightweight Charts (canvas options don't resolve CSS vars) gets
+ * usable values rather than unresolved `var(...)`. Re-reads when the
+ * `data-theme` attribute changes.
  *
  * @returns {{positive:string, neg:string, accent:string, muted:string, border:string, surface:string, surfaceStrong:string, text:string}}
  */

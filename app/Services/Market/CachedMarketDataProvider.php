@@ -59,7 +59,7 @@ class CachedMarketDataProvider implements MarketDataProvider
 
         $instrument = $this->resolveInstrument($symbol);
 
-        if ($this->isFresh($instrument)) {
+        if ($this->isFresh($instrument) && $this->covers($instrument, $days)) {
             return $this->readFromDatabase($instrument, $days);
         }
 
@@ -67,6 +67,20 @@ class CachedMarketDataProvider implements MarketDataProvider
         $this->store($instrument, $fetched);
 
         return $this->readFromDatabase($instrument, $days);
+    }
+
+    /**
+     * 快取涵蓋度：DB 既有 row 數是否足以回應本次請求。
+     * 用 row 數而非日期回推，避免假日/停牌造成的日曆日誤差；
+     * 上游實際可給的最大歷史可能少於請求（新上市股），因此以
+     * 「row 數 >= 請求的 7 成」為足量門檻，避免對天生短歷史的
+     * 標的每次都重抓。
+     */
+    private function covers(Instrument $instrument, int $days): bool
+    {
+        $rows = $instrument->dailyPrices()->count();
+
+        return $rows >= (int) ceil($days * 0.7);
     }
 
     private function resolveInstrument(string $symbol): Instrument
