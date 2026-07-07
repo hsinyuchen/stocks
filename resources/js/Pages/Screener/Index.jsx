@@ -30,6 +30,7 @@ function AddToWatchlist({ symbol, name, watchlists }) {
     const [targetId, setTargetId] = useState(watchlists[0]?.id ?? '');
     const [submitting, setSubmitting] = useState(false);
     const [added, setAdded] = useState(false);
+    const [error, setError] = useState(null);
 
     if (watchlists.length === 0) {
         return (
@@ -45,13 +46,18 @@ function AddToWatchlist({ symbol, name, watchlists }) {
         }
 
         setSubmitting(true);
+        setError(null);
         router.post(
             `/watchlists/${targetId}/items`,
             { symbol, name },
             {
                 preserveScroll: true,
                 preserveState: true,
-                onSuccess: () => setAdded(true),
+                onSuccess: () => {
+                    setAdded(true);
+                    setError(null);
+                },
+                onError: (errors) => setError(Object.values(errors)[0] ?? '加入失敗'),
                 onFinish: () => setSubmitting(false),
             },
         );
@@ -79,6 +85,7 @@ function AddToWatchlist({ symbol, name, watchlists }) {
             >
                 {added ? '已加入' : '加入'}
             </button>
+            {error ? <span className="field-error">{error}</span> : null}
         </div>
     );
 }
