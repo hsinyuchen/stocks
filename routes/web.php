@@ -8,6 +8,7 @@ use App\Http\Controllers\LlmProviderSettingController;
 use App\Http\Controllers\NewsAnalysisController;
 use App\Http\Controllers\NewsController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\ScreenerController;
 use App\Http\Controllers\StockChartController;
 use App\Http\Controllers\StockSearchController;
 use App\Http\Controllers\WatchlistController;
@@ -39,6 +40,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/stocks/chart', [StockChartController::class, 'bySymbol'])->name('stocks.chart.symbol');
     Route::get('/stocks/{instrument}/chart', StockChartController::class)->name('stocks.chart');
     Route::post('/stocks/{instrument}/analyses', [StockSearchController::class, 'analyze'])->name('stocks.analyses.store');
+    Route::get('/screener', [ScreenerController::class, 'index'])->name('screener.index');
+    Route::post('/screener/scan', [ScreenerController::class, 'scan'])->name('screener.scan');
     Route::get('/analyses', [AnalysesController::class, 'index'])->name('analyses.index');
     Route::get('/settings', [LlmProviderSettingController::class, 'index'])->name('settings.index');
     Route::post('/settings', [LlmProviderSettingController::class, 'store'])->name('settings.store');
