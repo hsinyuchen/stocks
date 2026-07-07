@@ -51,7 +51,7 @@ class NewsIngestionService
             $count = 0;
 
             foreach ($items as $item) {
-                if ($this->store($item)) {
+                if ($this->upsert($item)) {
                     $inserted++;
                 } else {
                     $updated++;
@@ -74,12 +74,16 @@ class NewsIngestionService
     }
 
     /**
-     * Classify, dedup and upsert one item.
+     * 分類並寫入一則新聞（url_hash 去重）。
      *
-     * @return bool true when a new row was inserted, false when an existing
-     *              row was updated (deduplicated by url_hash)
+     * related_symbols 採聯集語義：既有 DB 值 ∪ classifier 判出 ∪ $extraSymbols。
+     * 同一 URL 先被 A symbol 寫入、後被 B symbol 寫入時，A 不會被覆蓋——
+     * relatedNews(A) 的可見性因此不受後續寫入影響。
+     *
+     * @param  list<string>  $extraSymbols
+     * @return bool true = 新增，false = 更新既有
      */
-    private function store(NewsItemData $item): bool
+    public function upsert(NewsItemData $item, array $extraSymbols = []): bool
     {
         $classification = $this->classifier->classify($item->title, $item->summary);
 
@@ -87,7 +91,14 @@ class NewsIngestionService
             ? $item->url
             : $item->source.'|'.$item->title);
 
-        $existing = NewsItem::where('url_hash', $hash)->exists();
+        $existing = NewsItem::query()->where('url_hash', $hash)->first();
+
+        // 聯集：先取既有 related_symbols，避免後續其他 symbol 的寫入覆蓋前一個 symbol 的標記
+        $symbols = array_values(array_unique(array_merge(
+            $existing?->related_symbols ?? [],
+            $classification['symbols'],
+            $extraSymbols,
+        )));
 
         NewsItem::updateOrCreate(
             ['url_hash' => $hash],
@@ -101,11 +112,11 @@ class NewsIngestionService
                 'market' => $item->market,
                 'topic' => $item->topic,
                 'domain' => $classification['domain'],
-                'related_symbols' => $classification['symbols'],
+                'related_symbols' => $symbols,
             ],
         );
 
-        return ! $existing;
+        return $existing === null;
     }
 
     /**

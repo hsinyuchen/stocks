@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\SymbolNewsProvider;
 use App\Models\Instrument;
 use App\Models\StockAnalysis;
 use App\Models\User;
@@ -309,6 +310,28 @@ class StockSearchTest extends TestCase
                 ->has('llmProviders', 1)
                 ->where('llmProviders.0.display_name', 'Local Ollama')
                 ->where('llmProviders.0.model', 'llama3.1'));
+    }
+
+    public function test_stock_page_triggers_symbol_news_refresh(): void
+    {
+        $counting = new class implements SymbolNewsProvider
+        {
+            public int $calls = 0;
+
+            public function fetchForSymbol(string $symbol, string $name, ?string $market): array
+            {
+                $this->calls++;
+
+                return [];
+            }
+        };
+        $this->app->instance(SymbolNewsProvider::class, $counting);
+
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->get('/stocks/search?symbol=NVDA')->assertOk();
+
+        $this->assertSame(1, $counting->calls);
     }
 
     public function test_blank_or_invalid_symbol_does_not_create_instrument(): void

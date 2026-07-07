@@ -852,6 +852,16 @@ button {
     grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
 }
 
+/* Lightweight Charts 的 autoSize canvas 會把 grid 軌道的 auto 最小尺寸
+   一路撐大（canvas 變寬 → 容器變寬 → canvas 再變寬的回饋循環），
+   所有包住圖表的 grid 子項必須顯式 min-width: 0 斷開循環。 */
+.stock-workspace__main,
+.stock-workspace__side,
+.stock-workspace__main > *,
+.stock-workspace__side > * {
+    min-width: 0;
+}
+
 .stock-panel {
     padding: 20px;
 }
@@ -1331,7 +1341,8 @@ button {
     .stock-quote,
     .stock-search-form,
     .settings-form-grid {
-        grid-template-columns: 1fr;
+        /* minmax(0,1fr) 而非 1fr：1fr 的最小尺寸是 auto，圖表 canvas 會撐爆軌道 */
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .settings-form-grid .form-field:nth-child(4),

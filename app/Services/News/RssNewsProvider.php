@@ -23,13 +23,14 @@ class RssNewsProvider
      * XML yields an empty list.
      *
      * @param  array{key?: string, name?: string, url?: string, market?: string, language?: string}  $feed
+     * @param  int|null  $timeoutSeconds  per-call HTTP timeout override; null 時沿用 config('news.http_timeout')
      * @return list<NewsItemData>
      */
-    public function fetch(array $feed): array
+    public function fetch(array $feed, ?int $timeoutSeconds = null): array
     {
         $url = (string) ($feed['url'] ?? '');
 
-        $body = Http::timeout((int) config('news.http_timeout', 15))
+        $body = Http::timeout($timeoutSeconds ?? (int) config('news.http_timeout', 15))
             ->get($url)
             ->throw()
             ->body();
@@ -88,7 +89,10 @@ class RssNewsProvider
 
         foreach ($nodes as $node) {
             $items[] = new NewsItemData(
-                source: $source,
+                // Google News RSS 每則 item 帶 <source> 子元素標示原始媒體名，
+                // 較 feed 層級名稱精確；非空時優先採用，缺漏才 fallback feed name。
+                // Atom entry 無此欄位，故僅 RSS 路徑解析。
+                source: ! $atom && ($itemSource = $this->text($node->source)) !== '' ? $itemSource : $source,
                 title: $this->text($node->title),
                 summary: $atom ? $this->text($node->summary) : $this->text($node->description),
                 topic: 'macro',
