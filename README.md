@@ -7,7 +7,8 @@ This foundation includes:
 - Inertia React app shell with warm and dark themes.
 - PWA manifest and service worker for static assets.
 - User profiles, watchlists, stock search, and saved reference analyses.
-- Technical indicators: KD, MACD, moving averages, volume-aware signal rules.
+- Technical indicators: KD, MACD, RSI, Bollinger Bands, OBV, moving averages (MA5/20/60), volume-aware signal rules.
+- Candlestick charts via [TradingView Lightweight Charts™](https://www.tradingview.com/lightweight-charts/) (Apache 2.0, attribution logo kept on the main chart): daily/weekly/monthly timeframes, toggleable indicator panes, multi-symbol normalized comparison incl. indices.
 - LLM provider settings for OpenAI, Gemini, OpenRouter, Zeabur/OpenAI-compatible endpoints, Ollama, and llama.cpp.
 - Python YouTube worker skeleton for future transcript cleanup and chunking.
 
