@@ -159,7 +159,11 @@ class RssNewsProvider
         }
 
         try {
-            return Carbon::parse($raw)->toIso8601String();
+            // 正規化為 UTC：來源 pubDate 可能帶任意 offset（台灣 feed 常用
+            // +0800）。若保留原 offset 表示法，Eloquent datetime cast 會把
+            // 牆鐘時間直接當 UTC 存（丟棄 offset），前端再轉台北時多加 8 小時，
+            // 造成新聞時間跳到未來。先轉 UTC，牆鐘即為真 UTC，存取皆正確。
+            return Carbon::parse($raw)->utc()->toIso8601String();
         } catch (\Throwable) {
             return $raw;
         }

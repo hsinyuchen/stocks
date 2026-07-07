@@ -71,6 +71,34 @@ XML;
         $this->assertStringContainsString('旺宏營收創高', $items[0]->summary);
     }
 
+    public function test_pubdate_with_offset_is_normalized_to_utc(): void
+    {
+        // 台灣 feed（如自由財經）pubDate 帶 +0800。必須正規化為 UTC 存，
+        // 否則牆鐘時間被 Eloquent 當 UTC 直接吃掉，前端再 +8 轉台北，
+        // 累積 8 小時未來偏移（17:53 台北 → 顯示成隔天 01:53）。
+        $rss = <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>自由財經</title>
+<item>
+  <title>台積電盤中新高</title>
+  <link>https://ec.ltn.com.tw/article/1</link>
+  <pubDate>Tue, 07 Jul 2026 17:53:02 +0800</pubDate>
+  <description>x</description>
+</item>
+</channel></rss>
+XML;
+        Http::fake(['news.ltn.com.tw/*' => Http::response($rss)]);
+
+        $items = (new RssNewsProvider)->fetch([
+            'key' => 'ltn', 'name' => '自由財經',
+            'url' => 'https://news.ltn.com.tw/rss/business.xml',
+            'market' => 'TW', 'language' => 'zh-TW',
+        ]);
+
+        // 17:53:02 +0800 == 09:53:02 UTC
+        $this->assertSame('2026-07-07T09:53:02+00:00', $items[0]->publishedAt);
+    }
+
     public function test_timeout_parameter_overrides_config(): void
     {
         Http::fake(['example.com/*' => Http::response(self::GOOGLE_STYLE_RSS)]);
