@@ -153,7 +153,9 @@ class WatchlistController extends Controller
             $this->throwUniqueValidation($exception, 'symbol', 'This symbol is already on this watchlist.');
         }
 
-        return redirect()->route('watchlists.index');
+        // 成功後 redirect back，而非固定導回 watchlists.index：
+        // 自選頁呼叫時 back 即該頁（行為等價），Screener 等頁內呼叫時可留在原結果頁。
+        return redirect()->back();
     }
 
     public function removeItem(Request $request, Watchlist $watchlist, WatchlistItem $watchlistItem): RedirectResponse

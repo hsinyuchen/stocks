@@ -144,7 +144,9 @@ class WatchlistCrudTest extends TestCase
                 'exchange' => 'NYSE',
                 'note' => 'Track earnings',
             ])
-            ->assertRedirect('/watchlists');
+            // addItem 成功後改為 redirect back（無 from header 時退回站根），
+            // 故此處只斷言有 302 重導，不綁定固定目標。
+            ->assertRedirect();
 
         $this->assertDatabaseHas('watchlist_items', [
             'watchlist_id' => $watchlist->id,
