@@ -19,12 +19,15 @@ class TechnicalIndicatorService
         );
 
         $closes = array_column($normalized, 'close');
-        $highs = array_column($normalized, 'high');
-        $lows = array_column($normalized, 'low');
 
         $ma5 = $this->average(array_slice($closes, -5));
         $ma20 = $this->average(array_slice($closes, -20));
-        [$k, $d] = $this->kd($highs, $lows, $closes);
+        // KD 單一真相源：直接取 series() 尾值，避免 calculate() 另有一套簡化 KD
+        // 與圖表序列不一致。series() 內部會重跑一次 normalize；輸入最多數百根，
+        // PHP 毫秒級，重複成本可接受，換取兩處 KD 數值完全一致。
+        $kdSeries = $this->series($prices);
+        $k = end($kdSeries['k']);
+        $d = end($kdSeries['d']);
         [$macd, $signal] = $this->macd($closes);
 
         $macd = round($macd, 4);
@@ -93,12 +96,19 @@ class TechnicalIndicatorService
 
         $ma5 = [];
         $ma20 = [];
-        $k = [];
-        $d = [];
         for ($i = 0; $i < $count; $i++) {
             $ma5[$i] = $i >= 4 ? round($this->average(array_slice($closes, $i - 4, 5)), 4) : null;
             $ma20[$i] = $i >= 19 ? round($this->average(array_slice($closes, $i - 19, 20)), 4) : null;
+        }
 
+        $k = [];
+        $d = [];
+        // 真 KD：K/D 以前一根平滑值遞迴（首根以 50 起算），非每根固定 50。
+        // 舊簡化版每根都從 50 起算，會把 K 鎖在 66.7 上限、失去趨勢資訊，
+        // 導致 KD 交叉與超買超賣訊號失真。
+        $prevK = 50.0;
+        $prevD = 50.0;
+        for ($i = 0; $i < $count; $i++) {
             $periodHighs = array_slice($highs, max(0, $i - 8), min($i + 1, 9));
             $periodLows = array_slice($lows, max(0, $i - 8), min($i + 1, 9));
             $close = $closes[$i];
@@ -106,10 +116,12 @@ class TechnicalIndicatorService
             $lowest = min($periodLows);
             $rsv = $highest === $lowest ? 50.0 : (($close - $lowest) / ($highest - $lowest)) * 100;
 
-            $kVal = (2 / 3) * 50 + (1 / 3) * $rsv;
-            $dVal = (2 / 3) * 50 + (1 / 3) * $kVal;
+            $kVal = (2 / 3) * $prevK + (1 / 3) * $rsv;
+            $dVal = (2 / 3) * $prevD + (1 / 3) * $kVal;
             $k[$i] = round($kVal, 4);
             $d[$i] = round($dVal, 4);
+            $prevK = $kVal;
+            $prevD = $dVal;
         }
 
         $ema12 = $this->emaSeries($closes, 12);
@@ -212,21 +224,6 @@ class TechnicalIndicatorService
     private function average(array $values): float
     {
         return array_sum($values) / max(count($values), 1);
-    }
-
-    private function kd(array $highs, array $lows, array $closes): array
-    {
-        $periodHighs = array_slice($highs, -9);
-        $periodLows = array_slice($lows, -9);
-        $close = end($closes);
-        $highest = max($periodHighs);
-        $lowest = min($periodLows);
-        $rsv = $highest === $lowest ? 50.0 : (($close - $lowest) / ($highest - $lowest)) * 100;
-
-        $k = (2 / 3) * 50 + (1 / 3) * $rsv;
-        $d = (2 / 3) * 50 + (1 / 3) * $k;
-
-        return [$k, $d];
     }
 
     private function macd(array $closes): array

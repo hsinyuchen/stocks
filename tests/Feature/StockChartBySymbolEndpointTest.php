@@ -58,6 +58,21 @@ class StockChartBySymbolEndpointTest extends TestCase
         $this->assertSame('^TWII', $response['symbol']);
     }
 
+    public function test_taiwan_index_instrument_gets_taiwan_metadata(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->get('/stocks/chart?symbol=%5ETWII')->assertOk();
+
+        // 回歸：^TWII 曾被依 .TW 後綴規則錯標成 market=US/currency=USD/stock。
+        $this->assertDatabaseHas('instruments', [
+            'symbol' => '^TWII',
+            'market' => 'TW',
+            'currency' => 'TWD',
+            'asset_type' => 'index',
+        ]);
+    }
+
     public function test_malformed_symbol_is_rejected(): void
     {
         $user = User::factory()->create();

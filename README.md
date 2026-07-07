@@ -8,6 +8,7 @@ This foundation includes:
 - PWA manifest and service worker for static assets.
 - User profiles, watchlists, stock search, and saved reference analyses.
 - Technical indicators: KD, MACD, RSI, Bollinger Bands, OBV, moving averages (MA5/20/60), volume-aware signal rules.
+- Technical screener: preset signal rules (KD cross, MA20, MACD cross, RSI, volume surge) over a configurable universe + personal watchlists.
 - Candlestick charts via [TradingView Lightweight Charts™](https://www.tradingview.com/lightweight-charts/) (Apache 2.0, attribution logo kept on the main chart): daily/weekly/monthly timeframes, toggleable indicator panes, multi-symbol normalized comparison incl. indices.
 - LLM provider settings for OpenAI, Gemini, OpenRouter, Zeabur/OpenAI-compatible endpoints, Ollama, and llama.cpp.
 - Python YouTube worker skeleton for future transcript cleanup and chunking.
@@ -64,6 +65,20 @@ npm run build
 ```
 
 The app currently uses fake market, news, and LLM providers. Real data vendors and real LLM calls are intentionally deferred behind provider contracts.
+
+## Screener
+
+技術選股器：以勾選的預設訊號規則（KD 交叉、站上/跌破 MA20、MACD 多頭交叉、RSI 超買/超賣、爆量）AND 複選過濾股票。掃描範圍 = `config/screener.php` 的內建股池 ∪ 使用者自選股。
+
+首次使用先預載股池價格（建立/更新 `daily_prices` 快取，可重複執行）：
+
+```powershell
+php artisan screener:warm
+```
+
+股池可自行增減：編輯 `config/screener.php` 的 `universe`（`['symbol' => ..., 'name' => ...]`），新增後重跑 `php artisan screener:warm` 預載。
+
+掃描為 on-demand + 快取優先，無 cron；首次掃到未快取的股票會即時拉取，可能較慢。分析結果僅供參考，非投資建議。
 
 ## Admin
 

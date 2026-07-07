@@ -5,7 +5,6 @@ namespace App\Services\Market;
 use App\Contracts\MarketDataProvider;
 use App\Data\DailyPriceData;
 use App\Data\MarketQuoteData;
-use App\Enums\AssetType;
 use App\Models\DailyPrice;
 use App\Models\Instrument;
 use App\Support\MarketResolver;
@@ -92,7 +91,7 @@ class CachedMarketDataProvider implements MarketDataProvider
             [
                 'name' => $symbol,
                 'market' => MarketResolver::region($symbol),
-                'asset_type' => AssetType::Stock,
+                'asset_type' => MarketResolver::assetType($symbol),
                 'currency' => MarketResolver::currency($symbol),
                 'exchange' => null,
             ],

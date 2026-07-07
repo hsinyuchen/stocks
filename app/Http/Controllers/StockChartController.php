@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Contracts\MarketDataProvider;
-use App\Enums\AssetType;
 use App\Models\Instrument;
 use App\Services\PriceAggregationService;
 use App\Services\TechnicalIndicatorService;
@@ -70,14 +69,12 @@ class StockChartController extends Controller
      */
     private function resolveInstrument(string $symbol): Instrument
     {
-        $region = MarketResolver::region($symbol);
-
         return Instrument::query()->createOrFirst(
             ['symbol' => $symbol],
             [
                 'name' => $symbol,
-                'market' => $region,
-                'asset_type' => AssetType::Stock,
+                'market' => MarketResolver::region($symbol),
+                'asset_type' => MarketResolver::assetType($symbol),
                 'currency' => MarketResolver::currency($symbol),
                 'exchange' => null,
             ],
