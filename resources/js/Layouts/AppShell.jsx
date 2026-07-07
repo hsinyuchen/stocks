@@ -6,6 +6,7 @@ import {
     Bot,
     LogOut,
     Newspaper,
+    ScanSearch,
     Search,
     Settings,
     Star,
@@ -19,6 +20,7 @@ const baseMenuItems = [
     { href: '/news', label: '即時新聞', icon: Newspaper },
     { href: '/watchlists', label: '自選清單', icon: Star },
     { href: '/stocks/search', label: '個股搜尋', icon: Search },
+    { href: '/screener', label: '選股器', icon: ScanSearch },
     { href: '/analyses', label: 'AI 分析紀錄', icon: Bot },
     { href: '/settings', label: '系統設定', icon: Settings },
 ];

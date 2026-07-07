@@ -2161,3 +2161,129 @@ select:focus-visible {
 .admin-users__pagination span {
     opacity: 0.5;
 }
+
+/* 選股器：規則 chips 換行複選 + 結果表（沿用 admin-users 表格視覺）。 */
+.screener__subtitle {
+    color: var(--muted);
+    line-height: 1.5;
+    margin: 6px 0 0;
+}
+
+.screener-rules {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 16px 0;
+}
+
+.screener-chip {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 6px 14px;
+}
+
+.screener-chip--active {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+    color: var(--accent);
+}
+
+.screener__actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.screener-hint,
+.screener-muted {
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
+.screener-spin {
+    animation: screener-spin 0.9s linear infinite;
+}
+
+@keyframes screener-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.screener-error {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.screener-result {
+    margin-top: 20px;
+}
+
+.screener-result__meta {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 10px;
+}
+
+.screener-issues {
+    margin-bottom: 12px;
+}
+
+.screener-issues__body {
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    margin-top: 6px;
+}
+
+.screener-result-table-wrap {
+    overflow-x: auto;
+}
+
+.screener-result-table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.screener-result-table th,
+.screener-result-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 10px;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.screener-signals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.screener-add {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+}
+
+.screener-add select {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    max-width: 140px;
+    min-height: 34px;
+    padding: 4px 8px;
+}
+
+.screener-add .button-secondary {
+    min-height: 34px;
+    padding: 4px 12px;
+}
