@@ -4,15 +4,17 @@ namespace App\Providers;
 
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
+use App\Contracts\SymbolNewsProvider;
 use App\Contracts\YoutubeWorkerRunner;
 use App\Services\Fake\FakeMarketDataProvider;
 use App\Services\Fake\FakeNewsProvider;
+use App\Services\Fake\FakeSymbolNewsProvider;
 use App\Services\Market\CachedMarketDataProvider;
 use App\Services\Market\FinMindMarketDataProvider;
 use App\Services\Market\RoutingMarketDataProvider;
-use App\Services\Market\StooqMarketDataProvider;
 use App\Services\Market\YahooChartMarketDataProvider;
 use App\Services\News\DbNewsProvider;
+use App\Services\News\GoogleNewsSymbolNewsProvider;
 use App\Services\News\ProcessYoutubeWorkerRunner;
 use App\Services\Search\FinMindStockSearchProvider;
 use Illuminate\Support\ServiceProvider;
@@ -29,12 +31,19 @@ class AppServiceProvider extends ServiceProvider
                 ? $app->make(FakeNewsProvider::class)
                 : $app->make(DbNewsProvider::class);
         });
+
+        // 個股新聞抓取：fake driver 用固定 fixture，正式走 Google News RSS。
+        $this->app->bind(SymbolNewsProvider::class, function ($app): SymbolNewsProvider {
+            return config('services.news.driver') === 'fake'
+                ? $app->make(FakeSymbolNewsProvider::class)
+                : $app->make(GoogleNewsSymbolNewsProvider::class);
+        });
         // LlmProvider 沒有全站綁定：真實 LLM 一律 per-user，由 LlmProviderFactory
         // 依使用者設定建立；未設定時各功能走明確的降級路徑，不得回退到假內容。
 
         $this->app->bind(MarketDataProvider::class, function ($app): MarketDataProvider {
             if (config('services.market_data.driver') === 'fake') {
-                return new FakeMarketDataProvider();
+                return new FakeMarketDataProvider;
             }
 
             // Yahoo is the primary US source: Stooq's free CSV endpoint proved
@@ -42,8 +51,8 @@ class AppServiceProvider extends ServiceProvider
             // remains available as a class and can be re-wired if it stabilizes.
             $routing = new RoutingMarketDataProvider(
                 taiwan: new FinMindMarketDataProvider(config('services.finmind.token')),
-                unitedStates: new YahooChartMarketDataProvider(),
-                fallback: new YahooChartMarketDataProvider(),
+                unitedStates: new YahooChartMarketDataProvider,
+                fallback: new YahooChartMarketDataProvider,
             );
 
             return new CachedMarketDataProvider(
