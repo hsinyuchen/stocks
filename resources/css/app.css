@@ -1120,6 +1120,8 @@ button {
     border-radius: var(--radius-sm);
     display: grid;
     gap: 8px;
+    /* 外部新聞內容可能含長 URL 等不可斷 token，任何情況都不得撐爆版面 */
+    overflow-wrap: anywhere;
     padding: 14px;
 }
 

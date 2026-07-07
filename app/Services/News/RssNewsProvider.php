@@ -93,8 +93,8 @@ class RssNewsProvider
                 // 較 feed 層級名稱精確；非空時優先採用，缺漏才 fallback feed name。
                 // Atom entry 無此欄位，故僅 RSS 路徑解析。
                 source: ! $atom && ($itemSource = $this->text($node->source)) !== '' ? $itemSource : $source,
-                title: $this->text($node->title),
-                summary: $atom ? $this->text($node->summary) : $this->text($node->description),
+                title: $this->plainText($node->title),
+                summary: $atom ? $this->plainText($node->summary) : $this->plainText($node->description),
                 topic: 'macro',
                 relatedSymbols: [],
                 publishedAt: $atom
@@ -112,6 +112,25 @@ class RssNewsProvider
     private function text(?SimpleXMLElement $node): string
     {
         return $node === null ? '' : trim((string) $node);
+    }
+
+    /**
+     * 剝成純文字：部分 feed（尤其 Google News）的 title/description 內含
+     * HTML（<a>、<font>）與實體。原樣入庫會讓前端把原始碼當內文顯示，
+     * 長 URL 還會撐爆版面；分類器吃到 markup 也會失準。
+     */
+    private function plainText(?SimpleXMLElement $node): string
+    {
+        $raw = $this->text($node);
+
+        if ($raw === '') {
+            return '';
+        }
+
+        $decoded = html_entity_decode(strip_tags($raw), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        // 摺疊空白（含 &nbsp; 解碼後的不斷行空格 \x{00A0}）
+        return trim(preg_replace('/[\s\x{00A0}]+/u', ' ', $decoded) ?? '');
     }
 
     /**

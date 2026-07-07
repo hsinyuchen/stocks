@@ -43,6 +43,34 @@ XML;
         $this->assertSame('Google News', $items[1]->source);
     }
 
+    public function test_html_description_is_stripped_to_plain_text(): void
+    {
+        // Google News 的 <description> 是 HTML（<a href=...> 連結 + 樣式標籤），
+        // 必須剝成純文字，否則前端把原始碼當內文顯示且長 URL 撐爆版面。
+        $rss = <<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Google News</title>
+<item>
+  <title>旺宏營收創高</title>
+  <link>https://news.google.com/rss/articles/xyz</link>
+  <pubDate>Mon, 06 Jul 2026 08:00:00 GMT</pubDate>
+  <description>&lt;a href="https://news.google.com/rss/articles/xyz"&gt;旺宏營收創高&lt;/a&gt;&amp;nbsp;&amp;nbsp;&lt;font color="#6f6f6f"&gt;UDN&lt;/font&gt;</description>
+</item>
+</channel></rss>
+XML;
+        Http::fake(['news.google.com/*' => Http::response($rss)]);
+
+        $items = (new RssNewsProvider)->fetch([
+            'key' => 'gnews', 'name' => 'Google News',
+            'url' => 'https://news.google.com/rss/search?q=x',
+            'market' => 'TW', 'language' => 'zh-TW',
+        ]);
+
+        $this->assertStringNotContainsString('<', $items[0]->summary);
+        $this->assertStringNotContainsString('href', $items[0]->summary);
+        $this->assertStringContainsString('旺宏營收創高', $items[0]->summary);
+    }
+
     public function test_timeout_parameter_overrides_config(): void
     {
         Http::fake(['example.com/*' => Http::response(self::GOOGLE_STYLE_RSS)]);
