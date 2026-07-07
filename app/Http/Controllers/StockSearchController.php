@@ -11,6 +11,7 @@ use App\Models\LlmProviderSetting;
 use App\Models\StockAnalysis;
 use App\Models\User;
 use App\Services\Llm\LlmProviderFactory;
+use App\Services\News\SymbolNewsService;
 use App\Services\Search\StockSearchService;
 use App\Services\StockAnalysisService;
 use Carbon\CarbonImmutable;
@@ -48,8 +49,13 @@ class StockSearchController extends Controller
         $symbol = $data['symbol'];
         $name = isset($data['name']) ? trim((string) $data['name']) : '';
         $quote = $this->marketData->quote($symbol);
-        $news = $this->news->relatedNews($symbol, 5);
         $instrument = $this->findOrCreateInstrumentFromQuote($quote, $name !== '' ? $name : null);
+
+        // 個股新聞新鮮度觸發（best-effort、有節流），讓同請求內的
+        // relatedNews 直接讀到新資料。refreshIfStale 自身已 try/catch，不擋頁面。
+        app(SymbolNewsService::class)->refreshIfStale($instrument);
+
+        $news = $this->news->relatedNews($symbol, 5);
 
         // 首載瘦身：不再輸出 prices/indicators，前端掛載後另打 stocks.chart endpoint
         // 取 5 年日/週/月 K 與完整指標序列，避免首頁 payload 過大。
