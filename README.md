@@ -7,6 +7,7 @@ This foundation includes:
 - Inertia React app shell with warm and dark themes.
 - PWA manifest and service worker for static assets.
 - User profiles, watchlists, stock search, and saved reference analyses.
+- Portfolio tracking: average-cost holdings with unrealized P&L and return %, grouped by currency (no FX conversion).
 - Technical indicators: KD, MACD, RSI, Bollinger Bands, OBV, moving averages (MA5/20/60), volume-aware signal rules.
 - Technical screener: preset signal rules (KD cross, MA20, MACD cross, RSI, volume surge) over a configurable universe + personal watchlists.
 - Per-symbol news via Google News RSS, fetched on stock-page visits (throttled per symbol), deduped into the shared news stream.
