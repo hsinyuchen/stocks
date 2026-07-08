@@ -65,8 +65,17 @@ function AddHoldingForm() {
         );
     }
 
+    // StockSearchBox 內是 <input type="search">，本 form 又有 default submit button，
+    // 依 HTML implicit submission 規則在搜尋框按 Enter 會直接送出新增持倉。
+    // 搜尋框的 Enter 應留給搜尋（由 onSelect 回填 symbol），故在此攔截。
+    const onKeyDown = (event) => {
+        if (event.key === 'Enter' && event.target.type === 'search') {
+            event.preventDefault();
+        }
+    };
+
     return (
-        <form className="portfolio-form" onSubmit={submit}>
+        <form className="portfolio-form" onKeyDown={onKeyDown} onSubmit={submit}>
             {/* 標的欄含兩個輸入（搜尋框、直接輸入代號），故用 div 而非 label：
                 label 只能綁定單一控制項，包住兩者會讓點擊標題聚焦到錯的輸入框。 */}
             <div className="form-field">
