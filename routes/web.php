@@ -8,6 +8,7 @@ use App\Http\Controllers\LlmProviderSettingController;
 use App\Http\Controllers\NewsAnalysisController;
 use App\Http\Controllers\NewsController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\PortfolioController;
 use App\Http\Controllers\ScreenerController;
 use App\Http\Controllers\StockChartController;
 use App\Http\Controllers\StockSearchController;
@@ -40,6 +41,10 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/stocks/chart', [StockChartController::class, 'bySymbol'])->name('stocks.chart.symbol');
     Route::get('/stocks/{instrument}/chart', StockChartController::class)->name('stocks.chart');
     Route::post('/stocks/{instrument}/analyses', [StockSearchController::class, 'analyze'])->name('stocks.analyses.store');
+    Route::get('/portfolio', [PortfolioController::class, 'index'])->name('portfolio.index');
+    Route::post('/portfolio', [PortfolioController::class, 'store'])->name('portfolio.store');
+    Route::patch('/portfolio/{holding}', [PortfolioController::class, 'update'])->name('portfolio.update');
+    Route::delete('/portfolio/{holding}', [PortfolioController::class, 'destroy'])->name('portfolio.destroy');
     Route::get('/screener', [ScreenerController::class, 'index'])->name('screener.index');
     Route::post('/screener/scan', [ScreenerController::class, 'scan'])->name('screener.scan');
     Route::get('/analyses', [AnalysesController::class, 'index'])->name('analyses.index');

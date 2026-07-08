@@ -2300,3 +2300,87 @@ select:focus-visible {
     min-height: 34px;
     padding: 4px 12px;
 }
+
+.portfolio-page {
+    display: grid;
+    gap: 16px;
+}
+
+.portfolio-header {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+}
+
+.portfolio-form {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+}
+
+.portfolio-form__actions {
+    display: flex;
+    gap: 8px;
+}
+
+.portfolio-group__header {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+}
+
+.portfolio-table-wrap {
+    margin-top: 12px;
+    overflow-x: auto;
+}
+
+.portfolio-table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.portfolio-table th,
+.portfolio-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 10px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.portfolio-table th:first-child,
+.portfolio-table td:first-child,
+.portfolio-table th:last-child,
+.portfolio-table td:last-child {
+    text-align: left;
+}
+
+.portfolio-actions {
+    display: flex;
+    gap: 6px;
+}
+
+/* 刪除二次確認的 .button-danger / .button-secondary 需保留自身配色，故排除在幽靈按鈕樣式外 */
+.portfolio-actions button:not(.button-danger):not(.button-secondary) {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 6px 10px;
+}
+
+.portfolio-actions .button-danger,
+.portfolio-actions .button-secondary {
+    padding: 6px 10px;
+    white-space: nowrap;
+}
+
+.portfolio-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
