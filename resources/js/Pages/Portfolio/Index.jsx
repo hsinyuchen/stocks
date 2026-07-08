@@ -13,6 +13,16 @@ function money(value) {
     return Number(value).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** 股數格式：碎股（如 0.0001 股）不能被 2 位小數金額格式器截成 0.00，
+ *  故最多顯示 4 位、尾零去除，保留真實持有量。 */
+function shares(value) {
+    if (value === null || value === undefined) {
+        return '—';
+    }
+
+    return Number(value).toLocaleString('zh-TW', { maximumFractionDigits: 4 });
+}
+
 function percent(value) {
     if (value === null || value === undefined) {
         return '—';
@@ -199,7 +209,7 @@ function HoldingRow({ holding }) {
                 <br />
                 <small>{holding.name}</small>
             </td>
-            <td>{money(holding.shares)}</td>
+            <td>{shares(holding.shares)}</td>
             <td>{money(holding.avg_cost)}</td>
             <td>{holding.price === null ? <span className="field-hint">報價暫無</span> : money(holding.price)}</td>
             <td>{money(holding.market_value)}</td>
