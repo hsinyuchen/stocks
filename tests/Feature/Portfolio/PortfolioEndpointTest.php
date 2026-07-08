@@ -107,6 +107,46 @@ class PortfolioEndpointTest extends TestCase
         $this->assertSame(0, $user->holdings()->count());
     }
 
+    /**
+     * `1e400` 溢出成 float INF，能通過 numeric + min。若寫進 decimal(20,4)，
+     * 之後每次讀取都會在 decimal cast 拋 MathException，投資組合頁永久 500。
+     */
+    public function test_store_rejects_non_finite_amounts(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->from('/portfolio')
+            ->post('/portfolio', ['symbol' => 'NVDA', 'shares' => '1e400', 'avg_cost' => 1])
+            ->assertSessionHasErrors('shares');
+
+        $this->actingAs($user)->from('/portfolio')
+            ->post('/portfolio', ['symbol' => 'NVDA', 'shares' => 1, 'avg_cost' => '1e400'])
+            ->assertSessionHasErrors('avg_cost');
+
+        $this->assertSame(0, $user->holdings()->count());
+    }
+
+    public function test_update_rejects_non_finite_amounts(): void
+    {
+        $user = User::factory()->create();
+        $holding = $this->holdingFor($user, 'NVDA');
+
+        $this->actingAs($user)->from('/portfolio')
+            ->patch("/portfolio/{$holding->id}", ['shares' => '1e400', 'avg_cost' => 1])
+            ->assertSessionHasErrors('shares');
+
+        $this->actingAs($user)->from('/portfolio')
+            ->patch("/portfolio/{$holding->id}", ['shares' => 1, 'avg_cost' => '1e400'])
+            ->assertSessionHasErrors('avg_cost');
+
+        $holding->refresh();
+        $this->assertSame('10.0000', $holding->shares);
+        $this->assertSame('100.0000', $holding->avg_cost);
+
+        // index 仍可正常渲染（未被 INF 汙染）
+        $this->actingAs($user)->get('/portfolio')->assertOk();
+    }
+
     public function test_update_and_destroy(): void
     {
         $user = User::factory()->create();

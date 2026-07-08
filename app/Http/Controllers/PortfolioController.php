@@ -17,6 +17,10 @@ class PortfolioController extends Controller
     // 投資組合不接受指數（無法持有 ^TWII），故不含 `^`。
     private const SYMBOL_REGEX = '/^[A-Z0-9.\-]+$/';
 
+    // decimal(20,4)：整數部最多 16 位。設上界同時擋掉 `1e400` 溢出成 INF 寫進 DB
+    // （INF 通過 numeric + min，讀取時 decimal cast 會拋 MathException，導致 index 永久 500）。
+    private const MAX_AMOUNT = '9999999999999999';
+
     public function index(Request $request, PortfolioService $portfolio): Response
     {
         return Inertia::render('Portfolio/Index', $portfolio->summary($request->user()));
@@ -29,8 +33,8 @@ class PortfolioController extends Controller
 
         $data = $request->validate([
             'symbol' => ['required', 'string', 'max:32', 'regex:'.self::SYMBOL_REGEX],
-            'shares' => ['required', 'numeric', 'min:0.0001'],
-            'avg_cost' => ['required', 'numeric', 'min:0'],
+            'shares' => ['required', 'numeric', 'min:0.0001', 'max:'.self::MAX_AMOUNT],
+            'avg_cost' => ['required', 'numeric', 'min:0', 'max:'.self::MAX_AMOUNT],
             'note' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -59,8 +63,8 @@ class PortfolioController extends Controller
 
         // symbol 不可變更：改標的等於換一筆持倉，請刪除後重加。
         $data = $request->validate([
-            'shares' => ['required', 'numeric', 'min:0.0001'],
-            'avg_cost' => ['required', 'numeric', 'min:0'],
+            'shares' => ['required', 'numeric', 'min:0.0001', 'max:'.self::MAX_AMOUNT],
+            'avg_cost' => ['required', 'numeric', 'min:0', 'max:'.self::MAX_AMOUNT],
             'note' => ['nullable', 'string', 'max:255'],
         ]);
 
