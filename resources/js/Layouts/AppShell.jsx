@@ -11,6 +11,7 @@ import {
     Settings,
     Star,
     Users,
+    Wallet,
 } from 'lucide-react';
 import HamburgerButton from '../Components/HamburgerButton';
 import ThemeToggle from '../Components/ThemeToggle';
@@ -21,6 +22,7 @@ const baseMenuItems = [
     { href: '/watchlists', label: '自選清單', icon: Star },
     { href: '/stocks/search', label: '個股搜尋', icon: Search },
     { href: '/screener', label: '選股器', icon: ScanSearch },
+    { href: '/portfolio', label: '投資組合', icon: Wallet },
     { href: '/analyses', label: 'AI 分析紀錄', icon: Bot },
     { href: '/settings', label: '系統設定', icon: Settings },
 ];
