@@ -121,6 +121,7 @@ function AddHoldingForm() {
 function HoldingRow({ holding }) {
     const [editing, setEditing] = useState(false);
     const [removing, setRemoving] = useState(false);
+    const [pendingRemove, setPendingRemove] = useState(false);
     const form = useForm({
         shares: holding.shares,
         avg_cost: holding.avg_cost,
@@ -135,6 +136,7 @@ function HoldingRow({ holding }) {
         });
     };
 
+    // holdings 無 soft delete，刪除不可復原，故要求行內二次確認（沿用 Admin/Users 的 pendingAction 模式）。
     const remove = () => {
         if (removing) {
             return;
@@ -143,14 +145,17 @@ function HoldingRow({ holding }) {
         setRemoving(true);
         router.delete(`/portfolio/${holding.id}`, {
             preserveScroll: true,
-            onFinish: () => setRemoving(false),
+            onFinish: () => {
+                setRemoving(false);
+                setPendingRemove(false);
+            },
         });
     };
 
     if (editing) {
         return (
             <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                     <form className="portfolio-form" onSubmit={save}>
                         <label className="form-field">
                             <span>股數</span>
@@ -192,11 +197,21 @@ function HoldingRow({ holding }) {
             <td className={changeClass(holding.unrealized_pnl)}>{money(holding.unrealized_pnl)}</td>
             <td className={changeClass(holding.return_pct)}>{percent(holding.return_pct)}</td>
             <td><small>{formatDate(holding.as_of)}</small></td>
+            <td><small>{holding.note ?? '—'}</small></td>
             <td className="portfolio-actions">
-                <button onClick={() => setEditing(true)} title="編輯" type="button">編輯</button>
-                <button disabled={removing} onClick={remove} title="刪除" type="button">
-                    <Trash2 aria-hidden="true" size={16} />
-                </button>
+                {pendingRemove ? (
+                    <>
+                        <button className="button-danger" disabled={removing} onClick={remove} type="button">確認刪除</button>
+                        <button className="button-secondary" disabled={removing} onClick={() => setPendingRemove(false)} type="button">取消</button>
+                    </>
+                ) : (
+                    <>
+                        <button onClick={() => setEditing(true)} title="編輯" type="button">編輯</button>
+                        <button onClick={() => setPendingRemove(true)} title="刪除" type="button">
+                            <Trash2 aria-hidden="true" size={16} />
+                        </button>
+                    </>
+                )}
             </td>
         </tr>
     );
@@ -237,6 +252,7 @@ function CurrencyGroup({ group, unavailableCount }) {
                             <th>未實現損益</th>
                             <th>報酬率</th>
                             <th>資料時間</th>
+                            <th>備註</th>
                             <th>操作</th>
                         </tr>
                     </thead>

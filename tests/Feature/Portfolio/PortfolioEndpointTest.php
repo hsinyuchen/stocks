@@ -47,6 +47,20 @@ class PortfolioEndpointTest extends TestCase
                 ->has('unavailable'));
     }
 
+    /** 持倉表格直接渲染備註欄，payload 必須帶 note。 */
+    public function test_index_payload_exposes_holding_note(): void
+    {
+        $user = User::factory()->create();
+        $holding = $this->holdingFor($user, '2330.TW');
+        $holding->update(['note' => '長期持有']);
+
+        $this->actingAs($user)
+            ->get('/portfolio')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('groups.0.holdings.0.note', '長期持有'));
+    }
+
     public function test_store_creates_holding_with_server_derived_currency(): void
     {
         $user = User::factory()->create();

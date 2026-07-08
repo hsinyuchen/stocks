@@ -2365,12 +2365,19 @@ select:focus-visible {
     gap: 6px;
 }
 
-.portfolio-actions button {
+/* 刪除二次確認的 .button-danger / .button-secondary 需保留自身配色，故排除在幽靈按鈕樣式外 */
+.portfolio-actions button:not(.button-danger):not(.button-secondary) {
     background: transparent;
     border: 1px solid var(--border);
     border-radius: 8px;
     cursor: pointer;
     padding: 6px 10px;
+}
+
+.portfolio-actions .button-danger,
+.portfolio-actions .button-secondary {
+    padding: 6px 10px;
+    white-space: nowrap;
 }
 
 .portfolio-actions button:disabled {
