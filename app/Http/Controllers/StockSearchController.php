@@ -10,6 +10,7 @@ use App\Models\Instrument;
 use App\Models\LlmProviderSetting;
 use App\Models\StockAnalysis;
 use App\Models\User;
+use App\Services\Fundamentals\FundamentalsService;
 use App\Services\Llm\LlmProviderFactory;
 use App\Services\News\SymbolNewsService;
 use App\Services\Search\StockSearchService;
@@ -57,6 +58,9 @@ class StockSearchController extends Controller
 
         $news = $this->news->relatedNews($symbol, 5);
 
+        // 台股才有基本面（best-effort，service 內已容錯且有快取節流）。
+        $fundamentals = app(FundamentalsService::class)->forInstrument($instrument);
+
         // 首載瘦身：不再輸出 prices/indicators，前端掛載後另打 stocks.chart endpoint
         // 取 5 年日/週/月 K 與完整指標序列，避免首頁 payload 過大。
         return Inertia::render('Stocks/Search', [
@@ -66,6 +70,12 @@ class StockSearchController extends Controller
             'news' => array_map(fn (object $item): array => $this->newsPayload($item), $news),
             'analyses' => $this->analysisPayload($request, $instrument),
             'llmProviders' => $this->llmProvidersPayload($request),
+            'fundamentals' => $fundamentals === null ? null : [
+                'per' => $fundamentals->per, 'pbr' => $fundamentals->pbr, 'dividend_yield' => $fundamentals->dividendYield,
+                'eps' => $fundamentals->eps, 'eps_quarter' => $fundamentals->epsQuarter, 'roe' => $fundamentals->roe,
+                'revenue' => $fundamentals->revenue, 'revenue_month' => $fundamentals->revenueMonth, 'revenue_yoy' => $fundamentals->revenueYoy,
+                'data_as_of' => $fundamentals->dataAsOf,
+            ],
         ]);
     }
 
