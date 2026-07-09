@@ -2,6 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\MarketDataProvider;
+use App\Data\MarketQuoteData;
+use App\Models\Alert;
 use App\Models\Instrument;
 use App\Models\NewsItem;
 use App\Models\User;
@@ -246,6 +249,37 @@ class DashboardTest extends TestCase
 
         // No live feed was hit because the stored news was within the window.
         Http::assertNothingSent();
+    }
+
+    public function test_dashboard_evaluates_alerts_and_exposes_triggered_outside_cache(): void
+    {
+        // 綁命中 provider（price 150 > threshold 100）
+        $this->app->bind(MarketDataProvider::class, fn () => new class implements MarketDataProvider
+        {
+            public function quote(string $symbol): MarketQuoteData
+            {
+                return new MarketQuoteData($symbol, 150.0, 0.0, 0.0, '2026-07-08T00:00:00+00:00');
+            }
+
+            public function dailyPrices(string $symbol, int $days): array
+            {
+                return [];
+            }
+        });
+
+        $user = User::factory()->create();
+        $instrument = Instrument::factory()->create(['symbol' => 'NVDA', 'name' => 'NVDA']);
+        $alert = new Alert(['instrument_id' => $instrument->id, 'type' => 'price_above', 'threshold' => 100]);
+        $user->alerts()->save($alert);
+
+        $this->actingAs($user)
+            ->get('/dashboard')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('triggeredAlerts', 1)
+                ->where('triggeredAlerts.0.symbol', 'NVDA'));
+
+        $this->assertSame('triggered', $alert->refresh()->status);
     }
 
     private function makeNewsItem(string $title): void
