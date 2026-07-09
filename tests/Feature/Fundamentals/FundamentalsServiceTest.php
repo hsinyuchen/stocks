@@ -1,0 +1,133 @@
+<?php
+
+namespace Tests\Feature\Fundamentals;
+
+use App\Contracts\FundamentalsProvider;
+use App\Data\FundamentalsData;
+use App\Models\Fundamental;
+use App\Models\Instrument;
+use App\Services\Fundamentals\FundamentalsService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class FundamentalsServiceTest extends TestCase
+{
+    use RefreshDatabase;
+
+    /** 計數 + 可回全 null 或拋例外的 stub。 */
+    private function bindProvider(?FundamentalsData $data = null, bool $throw = false): object
+    {
+        $stub = new class($data, $throw) implements FundamentalsProvider
+        {
+            public int $calls = 0;
+
+            public function __construct(private readonly ?FundamentalsData $data, private readonly bool $throw) {}
+
+            public function fetch(string $symbol): FundamentalsData
+            {
+                $this->calls++;
+
+                if ($this->throw) {
+                    throw new \RuntimeException('finmind down');
+                }
+
+                return $this->data ?? new FundamentalsData;
+            }
+        };
+
+        $this->app->instance(FundamentalsProvider::class, $stub);
+
+        return $stub;
+    }
+
+    private function tw(): Instrument
+    {
+        return Instrument::factory()->create(['symbol' => '2330.TW', 'market' => 'TW']);
+    }
+
+    public function test_non_taiwan_returns_null_without_calling_provider(): void
+    {
+        $stub = $this->bindProvider();
+        $us = Instrument::factory()->create(['symbol' => 'NVDA', 'market' => 'US']);
+
+        $this->assertNull(app(FundamentalsService::class)->forInstrument($us));
+        $this->assertSame(0, $stub->calls);
+        $this->assertSame(0, Fundamental::query()->count());
+    }
+
+    public function test_taiwan_with_no_row_fetches_and_persists(): void
+    {
+        $stub = $this->bindProvider(new FundamentalsData(per: 33.14, eps: 46.0));
+        $instrument = $this->tw();
+
+        $data = app(FundamentalsService::class)->forInstrument($instrument);
+
+        $this->assertSame(1, $stub->calls);
+        $this->assertSame(33.14, $data->per);
+        $this->assertSame(1, Fundamental::query()->where('instrument_id', $instrument->id)->count());
+    }
+
+    public function test_fresh_row_with_data_is_not_refetched(): void
+    {
+        $stub = $this->bindProvider(new FundamentalsData(per: 33.14));
+        $instrument = $this->tw();
+        app(FundamentalsService::class)->forInstrument($instrument);   // 1st fetch
+        app(FundamentalsService::class)->forInstrument($instrument);   // fresh → no refetch
+
+        $this->assertSame(1, $stub->calls);
+    }
+
+    public function test_stale_data_row_is_refetched(): void
+    {
+        $instrument = $this->tw();
+        Fundamental::query()->create([
+            'instrument_id' => $instrument->id, 'per' => 10.0,
+            'fetched_at' => now()->subHours(25),   // > ttl_hours(24)
+        ]);
+        $stub = $this->bindProvider(new FundamentalsData(per: 33.14));
+
+        app(FundamentalsService::class)->forInstrument($instrument);
+
+        $this->assertSame(1, $stub->calls);
+    }
+
+    public function test_all_null_row_uses_short_failure_ttl(): void
+    {
+        $instrument = $this->tw();
+        // 全 null 列（上次抓失敗），1 小時前 → 在 failure_ttl(2h) 內，不重抓
+        Fundamental::query()->create(['instrument_id' => $instrument->id, 'fetched_at' => now()->subHour()]);
+        $stub = $this->bindProvider(new FundamentalsData(per: 33.14));
+
+        app(FundamentalsService::class)->forInstrument($instrument);
+        $this->assertSame(0, $stub->calls);
+
+        // 3 小時前 → 超過 failure_ttl，重抓
+        Fundamental::query()->where('instrument_id', $instrument->id)->update(['fetched_at' => now()->subHours(3)]);
+        app(FundamentalsService::class)->forInstrument($instrument);
+        $this->assertSame(1, $stub->calls);
+    }
+
+    public function test_provider_failure_writes_null_row_and_does_not_throw(): void
+    {
+        $stub = $this->bindProvider(throw: true);
+        $instrument = $this->tw();
+
+        $data = app(FundamentalsService::class)->forInstrument($instrument);
+
+        $this->assertNull($data);   // 無既有非空資料 → null
+        $this->assertSame(1, $stub->calls);
+        // 寫了負快取列（fetched_at 更新），下次 failure_ttl 內不重打
+        $this->assertSame(1, Fundamental::query()->where('instrument_id', $instrument->id)->count());
+        app(FundamentalsService::class)->forInstrument($instrument);
+        $this->assertSame(1, $stub->calls);   // 仍 1
+    }
+
+    public function test_payload_numbers_are_floats_not_strings(): void
+    {
+        $this->bindProvider(new FundamentalsData(per: 33.14, eps: 46.0));
+        $data = app(FundamentalsService::class)->forInstrument($this->tw());
+
+        $this->assertIsFloat($data->per);
+        $this->assertIsFloat($data->eps);
+    }
+}
