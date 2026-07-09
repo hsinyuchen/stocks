@@ -431,6 +431,102 @@ function AnalysisHistory({ analyses }) {
     );
 }
 
+function fmtNum(value, digits = 2) {
+    if (value === null || value === undefined) {
+        return '—';
+    }
+
+    return Number(value).toLocaleString('zh-TW', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+function fmtPct(value) {
+    if (value === null || value === undefined) {
+        return '—';
+    }
+
+    const num = Number(value);
+
+    return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
+}
+
+function fmtRevenue(value) {
+    if (value === null || value === undefined) {
+        return '—';
+    }
+
+    // 億元
+    return `${(Number(value) / 1e8).toLocaleString('zh-TW', { maximumFractionDigits: 1 })} 億`;
+}
+
+function changeClass(value) {
+    if (value === null || value === undefined || Number(value) === 0) {
+        return '';
+    }
+
+    return Number(value) > 0 ? 'is-up' : 'is-down';
+}
+
+function FundamentalsPanel({ fundamentals }) {
+    if (!fundamentals) {
+        return null;
+    }
+
+    const f = fundamentals;
+    const allNull = ['per', 'pbr', 'dividend_yield', 'eps', 'roe', 'revenue', 'revenue_yoy']
+        .every((key) => f[key] === null || f[key] === undefined);
+
+    return (
+        <section className="stock-panel fundamentals-panel">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">基本面</p>
+                    <h2>財報與估值</h2>
+                </div>
+                {f.data_as_of ? <span className="field-hint">估值資料日 {f.data_as_of}</span> : null}
+            </div>
+
+            {allNull ? (
+                <p className="dashboard-empty">基本面資料暫無。</p>
+            ) : (
+                <div className="fundamentals-grid">
+                    <div className="fundamentals-cell">
+                        <span>本益比</span>
+                        <strong>{fmtNum(f.per)}</strong>
+                    </div>
+                    <div className="fundamentals-cell">
+                        <span>股價淨值比</span>
+                        <strong>{fmtNum(f.pbr)}</strong>
+                    </div>
+                    <div className="fundamentals-cell">
+                        <span>殖利率</span>
+                        <strong>{f.dividend_yield === null ? '—' : `${fmtNum(f.dividend_yield)}%`}</strong>
+                    </div>
+                    <div className="fundamentals-cell">
+                        <span>EPS{f.eps_quarter ? `（${f.eps_quarter}）` : ''}</span>
+                        <strong>{fmtNum(f.eps)}</strong>
+                    </div>
+                    <div className="fundamentals-cell">
+                        <span>ROE</span>
+                        <strong>{f.roe === null ? '—' : `${fmtNum(f.roe)}%`}</strong>
+                    </div>
+                    <div className="fundamentals-cell">
+                        <span>月營收{f.revenue_month ? `（${f.revenue_month.slice(0, 7)}）` : ''}</span>
+                        <strong>{fmtRevenue(f.revenue)}</strong>
+                    </div>
+                    <div className="fundamentals-cell">
+                        <span>營收年增</span>
+                        <strong className={changeClass(f.revenue_yoy)}>{fmtPct(f.revenue_yoy)}</strong>
+                    </div>
+                </div>
+            )}
+
+            <p className="fundamentals-disclaimer">
+                基本面數據來自 FinMind，可能延遲或與官方財報有出入，僅供參考，非投資建議。
+            </p>
+        </section>
+    );
+}
+
 export default function StockSearch({
     symbol = null,
     instrument = null,
@@ -438,6 +534,7 @@ export default function StockSearch({
     news = [],
     analyses = [],
     llmProviders = [],
+    fundamentals = null,
 }) {
     return (
         <AppShell title="個股搜尋">
@@ -455,6 +552,7 @@ export default function StockSearch({
                     <div className="stock-workspace__main">
                         <QuotePanel instrument={instrument} quote={quote} />
                         {instrument ? <ChartSection instrument={instrument} /> : null}
+                        <FundamentalsPanel fundamentals={fundamentals} />
                         <NewsList news={news} />
                     </div>
                     <aside className="stock-workspace__side">
