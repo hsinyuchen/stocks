@@ -46,6 +46,10 @@ ollama serve
 
 Then add an `ollama` provider in Settings with model `llama3.1` and a blank base URL.
 
+## Deployment
+
+Deploying to KnownHost shared hosting (cPanel, no cron): see [`../docs/DEPLOY-knownhost.md`](../docs/DEPLOY-knownhost.md). Moving hosts / restoring backups: see [`../MIGRATION.md`](../MIGRATION.md).
+
 ## Local Setup
 
 ```powershell
