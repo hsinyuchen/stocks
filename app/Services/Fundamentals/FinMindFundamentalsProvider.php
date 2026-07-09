@@ -21,6 +21,7 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
         $dataId = MarketResolver::taiwanCode($symbol);   // 2330.TW → 2330
         $per = $this->rows('TaiwanStockPER', $dataId, now()->subDays(30)->toDateString());
         $fs = $this->rows('TaiwanStockFinancialStatements', $dataId, now()->subMonths(18)->toDateString());
+        $bs = $this->rows('TaiwanStockBalanceSheet', $dataId, now()->subMonths(18)->toDateString());
         $mr = $this->rows('TaiwanStockMonthRevenue', $dataId, now()->subMonths(18)->toDateString());
 
         [$eps, $epsQuarter] = $this->ttmEps($fs);
@@ -31,7 +32,7 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
             dividendYield: $this->latest($per, 'dividend_yield'),
             eps: $eps,
             epsQuarter: $epsQuarter,
-            roe: $this->roe($fs),
+            roe: $this->roe($fs, $bs),
             revenue: $this->latestRevenue($mr)['revenue'] ?? null,
             revenueMonth: $this->latestRevenue($mr)['month'] ?? null,
             revenueYoy: $this->revenueYoy($mr),
@@ -105,10 +106,19 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
         return [round(array_sum($lastFour), 4), array_key_last($lastFour)];
     }
 
-    private function roe(array $fs): ?float
+    /**
+     * ROE = TTM 淨利（近四季 IncomeAfterTaxes 加總）/ 最新季股東權益 × 100。
+     * 淨利來自損益表 $fs；股東權益來自資產負債表 $bs（FinMind 損益表 dataset 不含 Equity）。
+     * 股東權益優先 type=Equity，缺則 fallback EquityAttributableToOwnersOfParent。
+     *
+     * @param  list<array<string, mixed>>  $fs
+     * @param  list<array<string, mixed>>  $bs
+     */
+    private function roe(array $fs, array $bs): ?float
     {
         $ni = $this->seriesByQuarter($fs, 'IncomeAfterTaxes');
-        $equity = $this->seriesByQuarter($fs, 'Equity');
+        $equity = $this->seriesByQuarter($bs, 'Equity')
+            ?: $this->seriesByQuarter($bs, 'EquityAttributableToOwnersOfParent');
 
         if (count($ni) < 4 || $equity === []) {
             return null;

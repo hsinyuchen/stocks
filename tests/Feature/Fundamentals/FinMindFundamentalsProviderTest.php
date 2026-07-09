@@ -28,6 +28,7 @@ class FinMindFundamentalsProviderTest extends TestCase
                 ['date' => '2026-07-08', 'stock_id' => '2330', 'dividend_yield' => 0.89, 'PER' => 33.14, 'PBR' => 10.85],
             ],
             'TaiwanStockFinancialStatements' => $this->fsRows(),
+            'TaiwanStockBalanceSheet' => $this->balanceSheetRows(),
             'TaiwanStockMonthRevenue' => [
                 // date 落後一月：date 2025-06 但 revenue_month=5；用 revenue_year/month 配對
                 ['date' => '2025-06-01', 'stock_id' => '2330', 'revenue' => 200_000_000_000, 'revenue_month' => 5, 'revenue_year' => 2025],
@@ -37,7 +38,7 @@ class FinMindFundamentalsProviderTest extends TestCase
         };
     }
 
-    /** 近四季（單季值）：EPS 合計 = 10+11+12+13 = 46；淨利合計 = 40。Equity 最新季 = 400 → ROE = 40/400*100 = 10。 */
+    /** 近四季（單季值）：EPS 合計 = 10+11+12+13 = 46；淨利合計 = 40。損益表不含 Equity。 */
     private function fsRows(): array
     {
         $rows = [];
@@ -46,10 +47,17 @@ class FinMindFundamentalsProviderTest extends TestCase
             $rows[] = ['date' => $date, 'stock_id' => '2330', 'type' => 'EPS', 'value' => $eps, 'origin_name' => '基本每股盈餘'];
             $rows[] = ['date' => $date, 'stock_id' => '2330', 'type' => 'IncomeAfterTaxes', 'value' => $ni, 'origin_name' => '本期淨利'];
         }
-        // Equity 只需最新季有值（此處給每季，取最新）
-        $rows[] = ['date' => '2026-03-31', 'stock_id' => '2330', 'type' => 'Equity', 'value' => 400, 'origin_name' => '權益總額'];
 
         return $rows;
+    }
+
+    /** 股東權益來自資產負債表（非損益表）。Equity 最新季 = 400 → ROE = 40/400*100 = 10。 */
+    private function balanceSheetRows(): array
+    {
+        return [
+            ['date' => '2025-12-31', 'stock_id' => '2330', 'type' => 'Equity', 'value' => 380, 'origin_name' => '權益總額'],
+            ['date' => '2026-03-31', 'stock_id' => '2330', 'type' => 'Equity', 'value' => 400, 'origin_name' => '權益總額'],
+        ];
     }
 
     public function test_maps_finmind_datasets_to_fundamentals(): void
