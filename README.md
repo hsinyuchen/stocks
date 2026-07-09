@@ -9,6 +9,7 @@ This foundation includes:
 - User profiles, watchlists, stock search, and saved reference analyses.
 - Portfolio tracking: average-cost holdings with unrealized P&L and return %, grouped by currency (no FX conversion).
 - Technical indicators: KD, MACD, RSI, Bollinger Bands, OBV, moving averages (MA5/20/60), volume-aware signal rules.
+- Taiwan fundamentals on the stock page (FinMind): P/E, P/B, dividend yield, TTM EPS/ROE, monthly revenue with YoY. Cached in a shared table with a short negative-cache TTL.
 - Technical screener: preset signal rules (KD cross, MA20, MACD cross, RSI, volume surge) over a configurable universe + personal watchlists.
 - Price alerts: threshold / daily-change-% / technical-signal conditions, checked passively on page visits (no cron), one-shot with manual re-arm.
 - Per-symbol news via Google News RSS, fetched on stock-page visits (throttled per symbol), deduped into the shared news stream.

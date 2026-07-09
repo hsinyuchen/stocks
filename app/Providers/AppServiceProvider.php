@@ -2,13 +2,16 @@
 
 namespace App\Providers;
 
+use App\Contracts\FundamentalsProvider;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Contracts\SymbolNewsProvider;
 use App\Contracts\YoutubeWorkerRunner;
+use App\Services\Fake\FakeFundamentalsProvider;
 use App\Services\Fake\FakeMarketDataProvider;
 use App\Services\Fake\FakeNewsProvider;
 use App\Services\Fake\FakeSymbolNewsProvider;
+use App\Services\Fundamentals\FinMindFundamentalsProvider;
 use App\Services\Market\CachedMarketDataProvider;
 use App\Services\Market\FinMindMarketDataProvider;
 use App\Services\Market\RoutingMarketDataProvider;
@@ -66,6 +69,14 @@ class AppServiceProvider extends ServiceProvider
         // Yahoo's provider has no required dependencies and auto-resolves.
         $this->app->bind(FinMindStockSearchProvider::class, function (): FinMindStockSearchProvider {
             return new FinMindStockSearchProvider(config('services.finmind.token'));
+        });
+
+        // 台股基本面：沿用 market_data.driver 開關（測試 fake，正式走 FinMind）。
+        // token 建構子注入，與其他 FinMind provider 一致。
+        $this->app->bind(FundamentalsProvider::class, function ($app): FundamentalsProvider {
+            return config('services.market_data.driver') === 'fake'
+                ? $app->make(FakeFundamentalsProvider::class)
+                : new FinMindFundamentalsProvider(config('services.finmind.token'));
         });
 
         // YouTube captions worker (2C). The real runner shells out to the Python

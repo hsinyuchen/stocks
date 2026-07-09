@@ -352,4 +352,29 @@ class StockSearchTest extends TestCase
 
         $this->assertDatabaseCount('instruments', 0);
     }
+
+    public function test_taiwan_stock_page_includes_fundamentals(): void
+    {
+        // fake driver 綁 FakeFundamentalsProvider（回固定值）
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/stocks/search?symbol=2330.TW')
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('Stocks/Search')
+                ->where('fundamentals.per', 18.5)
+                ->where('fundamentals.eps', 8.4));
+    }
+
+    public function test_us_stock_page_has_null_fundamentals(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/stocks/search?symbol=NVDA')
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('fundamentals', null));
+    }
 }
