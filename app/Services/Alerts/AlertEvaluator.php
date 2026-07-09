@@ -29,37 +29,47 @@ class AlertEvaluator
     public function evaluate(User $user): int
     {
         $triggered = 0;
-        $quoteCache = [];   // symbol => MarketQuoteData
-        $failed = [];       // symbol => true
+        $quoteCache = [];    // symbol => MarketQuoteData（memoize，同 symbol 只呼叫上游一次）
+        $failedQuote = [];   // symbol => true（quote() 失敗）
+        $failedDaily = [];   // symbol => true（dailyPrices() 失敗）
 
         foreach ($user->alerts()->with('instrument')->where('status', 'active')->get() as $alert) {
             $symbol = $alert->instrument->symbol;
 
-            if (isset($failed[$symbol])) {
+            // 訊號類只依賴 dailyPrices（獨立資料源），不因 quote 中斷而被跳過。
+            if ($alert->type === 'signal') {
+                if ($this->matchesSignal($alert, $symbol, $failedDaily)
+                    && $this->markTriggered($alert, $this->bestEffortPrice($symbol, $quoteCache, $failedQuote))) {
+                    $triggered++;
+                }
+
+                continue;
+            }
+
+            // 價格 / 漲跌幅類：需要 quote；失敗則本輪跳過該 symbol 其餘價格警報。
+            if (isset($failedQuote[$symbol])) {
                 continue;
             }
 
             try {
                 $quote = $quoteCache[$symbol] ??= $this->marketData->quote($symbol);
             } catch (\Throwable $exception) {
-                $failed[$symbol] = true;
+                $failedQuote[$symbol] = true;
                 Log::warning('alert: quote unavailable', ['symbol' => $symbol, 'error' => $exception->getMessage()]);
 
                 continue;
             }
 
-            if ($this->matches($alert, $quote, $symbol, $failed)) {
-                if ($this->markTriggered($alert, (float) $quote->price)) {
-                    $triggered++;
-                }
+            if ($this->matchesPrice($alert, $quote)
+                && $this->markTriggered($alert, (float) $quote->price)) {
+                $triggered++;
             }
         }
 
         return $triggered;
     }
 
-    /** @param array<string, true> $failed */
-    private function matches(Alert $alert, MarketQuoteData $quote, string $symbol, array &$failed): bool
+    private function matchesPrice(Alert $alert, MarketQuoteData $quote): bool
     {
         $price = (float) $quote->price;
         $changePct = (float) $quote->changePercent;
@@ -70,13 +80,37 @@ class AlertEvaluator
             'price_below' => $price < $threshold,
             'change_pct_above' => $changePct > $threshold,
             'change_pct_below' => $changePct < $threshold,
-            'signal' => $this->matchesSignal($alert, $symbol, $failed),
             default => false,
         };
     }
 
-    /** @param array<string, true> $failed */
-    private function matchesSignal(Alert $alert, string $symbol, array &$failed): bool
+    /**
+     * 訊號命中後補觸發價：best-effort。已知 quote 失敗或本次呼叫失敗都回 null
+     * （triggered_price 可為 null），不讓報價中斷阻擋訊號觸發。
+     *
+     * @param  array<string, MarketQuoteData>  $quoteCache
+     * @param  array<string, true>  $failedQuote
+     */
+    private function bestEffortPrice(string $symbol, array &$quoteCache, array &$failedQuote): ?float
+    {
+        if (isset($failedQuote[$symbol])) {
+            return null;
+        }
+
+        try {
+            $quote = $quoteCache[$symbol] ??= $this->marketData->quote($symbol);
+        } catch (\Throwable $exception) {
+            $failedQuote[$symbol] = true;
+            Log::warning('alert: quote unavailable', ['symbol' => $symbol, 'error' => $exception->getMessage()]);
+
+            return null;
+        }
+
+        return (float) $quote->price;
+    }
+
+    /** @param array<string, true> $failedDaily */
+    private function matchesSignal(Alert $alert, string $symbol, array &$failedDaily): bool
     {
         $rule = $this->registry->all()[$alert->signal_key] ?? null;
 
@@ -84,10 +118,14 @@ class AlertEvaluator
             return false;
         }
 
+        if (isset($failedDaily[$symbol])) {
+            return false;
+        }
+
         try {
             $prices = $this->marketData->dailyPrices($symbol, self::HISTORY_DAYS);
         } catch (\Throwable $exception) {
-            $failed[$symbol] = true;
+            $failedDaily[$symbol] = true;
             Log::warning('alert: daily prices unavailable', ['symbol' => $symbol, 'error' => $exception->getMessage()]);
 
             return false;
@@ -102,9 +140,9 @@ class AlertEvaluator
 
     /**
      * Atomic one-shot：只在該列仍為 active 時觸發，避免並發重複觸發。
-     * affected rows === 1 才算本次觸發。
+     * affected rows === 1 才算本次觸發。price 可為 null（訊號類報價失敗時）。
      */
-    private function markTriggered(Alert $alert, float $price): bool
+    private function markTriggered(Alert $alert, ?float $price): bool
     {
         $affected = Alert::query()
             ->whereKey($alert->id)

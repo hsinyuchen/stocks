@@ -135,6 +135,9 @@ class AlertEndpointTest extends TestCase
         // INF threshold
         $post(['symbol' => 'NVDA', 'type' => 'price_above', 'threshold' => '1e400'])
             ->assertSessionHasErrors('threshold');
+        // change_pct 負無窮門檻（下界防護）
+        $post(['symbol' => 'NVDA', 'type' => 'change_pct_below', 'threshold' => '-1e999'])
+            ->assertSessionHasErrors('threshold');
 
         $this->assertSame(0, $user->alerts()->count());
     }

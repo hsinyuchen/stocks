@@ -52,13 +52,14 @@ class AlertController extends Controller
         $data = $request->validate([
             'symbol' => ['required', 'string', 'max:32', 'regex:'.self::SYMBOL_REGEX],
             'type' => ['required', Rule::in(self::TYPES)],
-            // 互斥：非訊號類必填 threshold 且訊號類禁帶；價格類禁負。
+            // 互斥：非訊號類必填 threshold 且訊號類禁帶；價格類禁負，
+            // change_pct 類補下界（擋 "-1e999" → -INF 溢出 decimal 欄位）。
             'threshold' => [
                 'exclude_if:type,signal',
                 'required',
                 'numeric',
                 'max:9999999999999999',
-                ...($isPrice ? ['gt:0'] : []),
+                ...($isPrice ? ['gt:0'] : ['min:-9999999999999999']),
             ],
             'signal_key' => [
                 Rule::requiredIf($type === 'signal'),
