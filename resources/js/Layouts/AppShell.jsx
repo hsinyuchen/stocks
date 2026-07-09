@@ -23,6 +23,7 @@ const baseMenuItems = [
     { href: '/stocks/search', label: '個股搜尋', icon: Search },
     { href: '/screener', label: '選股器', icon: ScanSearch },
     { href: '/portfolio', label: '投資組合', icon: Wallet },
+    { href: '/alerts', label: '價格警報', icon: Bell },
     { href: '/analyses', label: 'AI 分析紀錄', icon: Bot },
     { href: '/settings', label: '系統設定', icon: Settings },
 ];
