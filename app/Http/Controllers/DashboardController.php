@@ -3,17 +3,20 @@
 namespace App\Http\Controllers;
 
 use App\Contracts\MarketDataProvider;
+use App\Models\Alert;
 use App\Models\Instrument;
 use App\Models\NewsAnalysis;
 use App\Models\NewsItem;
 use App\Models\StockAnalysis;
 use App\Models\User;
+use App\Services\Alerts\AlertEvaluator;
 use App\Services\News\NewsIngestionService;
 use App\Services\SignalEngine;
 use App\Services\TechnicalIndicatorService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
@@ -57,10 +60,29 @@ class DashboardController extends Controller
             },
         );
 
+        // 開頁被動檢查警報（best-effort），並把已觸發警報放快取外——
+        // 觸發要即時反映，不被 dashboard 的 session 快取凍住（同 hasLlmProvider）。
+        try {
+            app(AlertEvaluator::class)->evaluate($user);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+
         return Inertia::render('Dashboard', [
             ...$payload,
             // 放在快取外：使用者新增 AI 模型後，提示要立即消失，不等快取過期。
             'hasLlmProvider' => $user->llmProviderSettings()->exists(),
+            'triggeredAlerts' => $user->alerts()->with('instrument')->where('status', 'triggered')->latest('triggered_at')->get()
+                ->map(fn (Alert $alert): array => [
+                    'id' => $alert->id,
+                    'symbol' => $alert->instrument->symbol,
+                    'name' => $alert->instrument->name,
+                    'type' => $alert->type,
+                    'threshold' => $alert->threshold === null ? null : (float) $alert->threshold,
+                    'signal_key' => $alert->signal_key,
+                    'triggered_price' => $alert->triggered_price === null ? null : (float) $alert->triggered_price,
+                    'triggered_at' => $alert->triggered_at?->toIso8601String(),
+                ])->all(),
         ]);
     }
 
@@ -160,9 +182,9 @@ class DashboardController extends Controller
     /**
      * Distinct instruments across the user's watchlists, capped at the configured limit.
      *
-     * @return \Illuminate\Support\Collection<int, Instrument>
+     * @return Collection<int, Instrument>
      */
-    private function watchlistInstruments(User $user): \Illuminate\Support\Collection
+    private function watchlistInstruments(User $user): Collection
     {
         $limit = (int) config('dashboard.watchlist_movers_limit', 8);
 
@@ -177,10 +199,10 @@ class DashboardController extends Controller
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, Instrument>  $instruments
+     * @param  Collection<int, Instrument>  $instruments
      * @return list<array<string, mixed>>
      */
-    private function watchlistMovers(\Illuminate\Support\Collection $instruments): array
+    private function watchlistMovers(Collection $instruments): array
     {
         $out = [];
 

@@ -2384,3 +2384,83 @@ select:focus-visible {
     cursor: not-allowed;
     opacity: 0.4;
 }
+
+.alerts-page {
+    display: grid;
+    gap: 16px;
+}
+
+.alerts-header {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+}
+
+.alert-form {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+}
+
+.alert-form__actions {
+    display: flex;
+    gap: 8px;
+}
+
+.alert-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.alert-card {
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    overflow-wrap: anywhere;
+    padding: 12px 14px;
+}
+
+.alert-card--triggered {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.alert-card > div {
+    display: grid;
+    gap: 2px;
+}
+
+.alert-card__desc {
+    color: var(--muted);
+}
+
+.alert-card__meta {
+    color: var(--accent-strong);
+}
+
+.alert-card__actions {
+    display: flex;
+    flex: none;
+    gap: 6px;
+}
+
+.alert-card__actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 6px 10px;
+}
+
+.alert-card__actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}

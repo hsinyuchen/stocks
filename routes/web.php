@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\UserManagementController;
+use App\Http\Controllers\AlertController;
 use App\Http\Controllers\AnalysesController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
@@ -45,6 +46,10 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/portfolio', [PortfolioController::class, 'store'])->name('portfolio.store');
     Route::patch('/portfolio/{holding}', [PortfolioController::class, 'update'])->name('portfolio.update');
     Route::delete('/portfolio/{holding}', [PortfolioController::class, 'destroy'])->name('portfolio.destroy');
+    Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
+    Route::post('/alerts', [AlertController::class, 'store'])->name('alerts.store');
+    Route::patch('/alerts/{alert}/reactivate', [AlertController::class, 'reactivate'])->name('alerts.reactivate');
+    Route::delete('/alerts/{alert}', [AlertController::class, 'destroy'])->name('alerts.destroy');
     Route::get('/screener', [ScreenerController::class, 'index'])->name('screener.index');
     Route::post('/screener/scan', [ScreenerController::class, 'scan'])->name('screener.scan');
     Route::get('/analyses', [AnalysesController::class, 'index'])->name('analyses.index');

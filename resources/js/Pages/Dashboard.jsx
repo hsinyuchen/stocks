@@ -1,6 +1,6 @@
 import { Link, router } from '@inertiajs/react';
 import { lazy, Suspense, useState } from 'react';
-import { Bot, LineChart, Newspaper, RefreshCw, Star } from 'lucide-react';
+import { Bell, Bot, LineChart, Newspaper, RefreshCw, Star } from 'lucide-react';
 import AppShell from '../Layouts/AppShell';
 
 // Sparkline 建立獨立的 Lightweight Charts 實例，按需載入讓首屏 bundle 保持精簡。
@@ -235,6 +235,7 @@ export default function Dashboard({
     disclaimer = '',
     generatedAt = null,
     hasLlmProvider = true,
+    triggeredAlerts = [],
 }) {
     const [refreshing, setRefreshing] = useState(false);
 
@@ -290,6 +291,33 @@ export default function Dashboard({
                             新增模型。
                         </span>
                     </p>
+                ) : null}
+
+                {triggeredAlerts.length > 0 ? (
+                    <section className="table-panel">
+                        <div className="panel-heading">
+                            <div>
+                                <p className="section-kicker">
+                                    <Bell aria-hidden="true" size={16} /> 已觸發警報
+                                </p>
+                                <h2>價格警報</h2>
+                            </div>
+                            <Link className="panel-link" href="/alerts">查看全部</Link>
+                        </div>
+                        <ul className="dashboard-news-list">
+                            {triggeredAlerts.map((alert) => (
+                                <li className="dashboard-news-item" key={alert.id}>
+                                    <Link href={`/stocks/search?symbol=${encodeURIComponent(alert.symbol)}`}>
+                                        <strong>{alert.symbol}</strong> {alert.name}
+                                    </Link>
+                                    <small>
+                                        {alert.type === 'signal' ? `訊號 ${alert.signal_key}` : `${alert.type} ${alert.threshold}`}
+                                        {alert.triggered_price !== null ? `｜觸發價 ${alert.triggered_price}` : ''}
+                                    </small>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
                 ) : null}
 
                 <MarketSnapshot items={marketSnapshot} />

@@ -66,6 +66,11 @@ class User extends Authenticatable
         return $this->hasMany(Holding::class);
     }
 
+    public function alerts(): HasMany
+    {
+        return $this->hasMany(Alert::class);
+    }
+
     public function stockAnalyses(): HasMany
     {
         return $this->hasMany(StockAnalysis::class);
