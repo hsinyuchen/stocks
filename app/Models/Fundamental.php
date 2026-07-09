@@ -11,7 +11,7 @@ class Fundamental extends Model
         'instrument_id',
         'per', 'pbr', 'dividend_yield', 'eps', 'roe',
         'revenue', 'revenue_yoy',
-        'eps_quarter', 'revenue_month', 'data_as_of', 'fetched_at',
+        'eps_quarter', 'revenue_month', 'data_as_of', 'fetched_at', 'failed_at',
     ];
 
     /** 指標欄位（判斷「全 null 列」= 抓取失敗，走 failure TTL）。 */
@@ -26,6 +26,7 @@ class Fundamental extends Model
             'revenue' => 'decimal:4', 'revenue_yoy' => 'decimal:4',
             'eps_quarter' => 'date', 'revenue_month' => 'date', 'data_as_of' => 'date',
             'fetched_at' => 'datetime',
+            'failed_at' => 'datetime',
         ];
     }
 

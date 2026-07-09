@@ -122,6 +122,55 @@ class FundamentalsServiceTest extends TestCase
         $this->assertSame(1, $stub->calls);   // 仍 1
     }
 
+    /**
+     * 抓取失敗（回全 null DTO，模擬 FinMind rate-limit/5xx，未拋例外）時，
+     * 不得清空既有非空列，須保留 last-known-good，並回傳既有資料。
+     */
+    public function test_failed_refetch_preserves_last_known_good_metrics(): void
+    {
+        $instrument = $this->tw();
+        Fundamental::query()->create([
+            'instrument_id' => $instrument->id, 'per' => 33.14, 'eps' => 46.0,
+            'fetched_at' => now()->subHours(25),   // > ttl_hours(24) → 觸發重抓
+        ]);
+        // 回全 null DTO（rate-limit 路徑：provider->rows() 回 []，fetch() 不拋例外）
+        $stub = $this->bindProvider(new FundamentalsData);
+
+        $data = app(FundamentalsService::class)->forInstrument($instrument);
+
+        $this->assertSame(1, $stub->calls);
+        $this->assertSame(33.14, $data->per);   // 回傳既有資料，非 null
+        // DB 既有非空列未被清空
+        $row = Fundamental::query()->where('instrument_id', $instrument->id)->first();
+        $this->assertSame('33.1400', $row->per);
+    }
+
+    /**
+     * 失敗後只刷新失敗標記：failure_ttl 內第二次不重打 provider；超過 failure_ttl 才重試。
+     */
+    public function test_failed_refetch_throttles_retry_within_failure_ttl(): void
+    {
+        $instrument = $this->tw();
+        Fundamental::query()->create([
+            'instrument_id' => $instrument->id, 'per' => 33.14,
+            'fetched_at' => now()->subHours(25),
+        ]);
+        $stub = $this->bindProvider(new FundamentalsData);
+
+        app(FundamentalsService::class)->forInstrument($instrument);   // 1st：失敗，保留舊值
+        $this->assertSame(1, $stub->calls);
+
+        // failure_ttl(2h) 內第二次 → 不重打
+        app(FundamentalsService::class)->forInstrument($instrument);
+        $this->assertSame(1, $stub->calls);
+
+        // 讓 failed_at 超過 failure_ttl → 允許重試
+        Fundamental::query()->where('instrument_id', $instrument->id)
+            ->update(['failed_at' => now()->subHours(3)]);
+        app(FundamentalsService::class)->forInstrument($instrument);
+        $this->assertSame(2, $stub->calls);
+    }
+
     public function test_payload_numbers_are_floats_not_strings(): void
     {
         $this->bindProvider(new FundamentalsData(per: 33.14, eps: 46.0));

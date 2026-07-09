@@ -29,33 +29,72 @@ class FundamentalsService
             return $this->toData($row);
         }
 
+        // 抓取失敗判定：拋例外，或未拋但回全 null DTO（FinMind rate-limit/5xx →
+        // provider->rows() 回 []，fetch() 靜默回全 null）。兩者一律視為失敗，
+        // 不得覆蓋既有非空列（保留 last-known-good）。
         try {
             $data = $this->provider->fetch($instrument->symbol);
         } catch (\Throwable $exception) {
             Log::warning('fundamentals: fetch failed', ['symbol' => $instrument->symbol, 'error' => $exception->getMessage()]);
-            // 寫負快取列（fetched_at 更新），避免故障時每次開頁重打。
-            $this->persist($instrument, new FundamentalsData);
 
-            return $row !== null && $this->hasMetric($row) ? $this->toData($row) : null;
+            return $this->handleFailure($instrument, $row);
         }
 
+        if (! $this->hasAnyMetric($data)) {
+            return $this->handleFailure($instrument, $row);
+        }
+
+        // 成功抓取：寫入指標、刷新 fetched_at、清除 failed_at（persist 預設 failedAt=null）。
         $this->persist($instrument, $data);
 
-        return $this->hasAnyMetric($data) ? $data : null;
+        return $data;
     }
 
-    /** 全 null 列（抓失敗/無資料）用短 failure TTL；有資料用長 TTL。 */
+    /**
+     * 抓取失敗時：
+     * - 既有非空列：保留 last-known-good 指標與原 fetched_at，只刷新 failed_at 節流重試，回傳既有資料。
+     * - 無既有非空列：寫全 null 負快取列（failure_ttl 節流），回傳 null。
+     */
+    private function handleFailure(Instrument $instrument, ?Fundamental $row): ?FundamentalsData
+    {
+        if ($row !== null && $this->hasMetric($row)) {
+            $row->forceFill(['failed_at' => now()])->save();
+
+            return $this->toData($row);
+        }
+
+        $this->persist($instrument, new FundamentalsData);
+
+        return null;
+    }
+
+    /**
+     * 新鮮度：
+     * - 有指標列：failed_at 在 failure_ttl 內視為 fresh（節流失敗重試）；否則依 ttl_hours 判斷 fetched_at。
+     * - 全 null 列（無既有非空資料）：failure_ttl off fetched_at。
+     */
     private function isStale(Fundamental $row): bool
     {
-        $hours = $this->hasMetric($row)
-            ? (int) config('fundamentals.ttl_hours', 24)
-            : (int) config('fundamentals.failure_ttl_hours', 2);
+        if (! $this->hasMetric($row)) {
+            return $row->fetched_at === null
+                || $row->fetched_at->lessThan(CarbonImmutable::now()->subHours($this->failureTtl()));
+        }
+
+        if ($row->failed_at !== null
+            && $row->failed_at->greaterThan(CarbonImmutable::now()->subHours($this->failureTtl()))) {
+            return false;
+        }
 
         return $row->fetched_at === null
-            || $row->fetched_at->lessThan(CarbonImmutable::now()->subHours($hours));
+            || $row->fetched_at->lessThan(CarbonImmutable::now()->subHours((int) config('fundamentals.ttl_hours', 24)));
     }
 
-    private function persist(Instrument $instrument, FundamentalsData $data): void
+    private function failureTtl(): int
+    {
+        return (int) config('fundamentals.failure_ttl_hours', 2);
+    }
+
+    private function persist(Instrument $instrument, FundamentalsData $data, ?\DateTimeInterface $failedAt = null): void
     {
         Fundamental::query()->updateOrCreate(
             ['instrument_id' => $instrument->id],
@@ -66,6 +105,7 @@ class FundamentalsService
                 'eps_quarter' => $data->epsQuarter, 'revenue_month' => $data->revenueMonth,
                 'data_as_of' => $data->dataAsOf,
                 'fetched_at' => now(),
+                'failed_at' => $failedAt,
             ],
         );
     }
