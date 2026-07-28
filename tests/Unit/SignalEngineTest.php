@@ -72,33 +72,46 @@ class SignalEngineTest extends TestCase
 
     public function test_returns_neutral_for_flat_indicator_snapshot_from_technical_indicator_service(): void
     {
-        $snapshot = (new TechnicalIndicatorService())->calculate([
-            [
+        // 40 根：需覆蓋 MACD 的 33 根暖身鏈，否則 macd_histogram 為 null，
+        // SignalEngine 會（正確地）回 insufficient_data 而非 neutral。
+        $snapshot = (new TechnicalIndicatorService())->calculate(
+            array_fill(0, 40, [
                 'open' => 100.0,
                 'high' => 100.0,
                 'low' => 100.0,
                 'close' => 100.0,
                 'volume' => 1000,
-            ],
-            [
-                'open' => 100.0,
-                'high' => 100.0,
-                'low' => 100.0,
-                'close' => 100.0,
-                'volume' => 1000,
-            ],
-            [
-                'open' => 100.0,
-                'high' => 100.0,
-                'low' => 100.0,
-                'close' => 100.0,
-                'volume' => 1000,
-            ],
-        ]);
+            ])
+        );
 
         $signal = (new SignalEngine())->evaluate($snapshot);
 
         $this->assertSame('neutral', $signal['stance']);
+        $this->assertSame(0, $signal['score']);
+    }
+
+    /**
+     * 暖身期未過時 calculate() 的 MACD / MA 為 null，SignalEngine 必須回
+     * insufficient_data，而不是拿播種殘差或短視窗均線算出的方向給 stance。
+     */
+    public function test_returns_insufficient_data_while_indicators_are_still_warming_up(): void
+    {
+        $snapshot = (new TechnicalIndicatorService())->calculate(
+            array_fill(0, 10, [
+                'open' => 100.0,
+                'high' => 100.0,
+                'low' => 100.0,
+                'close' => 100.0,
+                'volume' => 1000,
+            ])
+        );
+
+        $this->assertNull($snapshot['macd_histogram']);
+        $this->assertNull($snapshot['ma20']);
+
+        $signal = (new SignalEngine())->evaluate($snapshot);
+
+        $this->assertSame('insufficient_data', $signal['stance']);
         $this->assertSame(0, $signal['score']);
     }
 

@@ -16,6 +16,15 @@ class MacdBullishCross extends BaseRule
 
     protected function evaluate(array $series, int $n): bool
     {
-        return $series['histogram'][$n - 1] <= 0 && $series['histogram'][$n] > 0;
+        // histogram 在 MACD 暖身期（前 33 根）為 null。MIN_BARS 是所有規則共用的
+        // 下限，低於 MACD 所需根數，故本規則自行擋掉暖身期，不比較 null。
+        $previous = $series['histogram'][$n - 1] ?? null;
+        $current = $series['histogram'][$n] ?? null;
+
+        if ($previous === null || $current === null) {
+            return false;
+        }
+
+        return $previous <= 0 && $current > 0;
     }
 }

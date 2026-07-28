@@ -19,9 +19,12 @@ class TechnicalIndicatorService
         );
 
         $closes = array_column($normalized, 'close');
+        $count = count($closes);
 
-        $ma5 = $this->average(array_slice($closes, -5));
-        $ma20 = $this->average(array_slice($closes, -20));
+        // 不足週期就回 null，不用手上僅有的幾根冒充 MA。
+        // 舊版對 8 根資料照樣輸出「MA20」，SignalEngine 會據此給出 stance。
+        $ma5 = $count >= 5 ? $this->average(array_slice($closes, -5)) : null;
+        $ma20 = $count >= 20 ? $this->average(array_slice($closes, -20)) : null;
         // KD 單一真相源：直接取 series() 尾值，避免 calculate() 另有一套簡化 KD
         // 與圖表序列不一致。series() 內部會重跑一次 normalize；輸入最多數百根，
         // PHP 毫秒級，重複成本可接受，換取兩處 KD 數值完全一致。
@@ -30,17 +33,14 @@ class TechnicalIndicatorService
         $d = end($kdSeries['d']);
         [$macd, $signal] = $this->macd($closes);
 
-        $macd = round($macd, 4);
-        $signal = round($signal, 4);
-
         return [
             'k' => round($k, 4),
             'd' => round($d, 4),
-            'macd' => $macd,
-            'macd_signal' => $signal,
-            'macd_histogram' => round($macd - $signal, 4),
-            'ma5' => round($ma5, 4),
-            'ma20' => round($ma20, 4),
+            'macd' => $macd === null ? null : round($macd, 4),
+            'macd_signal' => $signal === null ? null : round($signal, 4),
+            'macd_histogram' => ($macd === null || $signal === null) ? null : round($macd - $signal, 4),
+            'ma5' => $ma5 === null ? null : round($ma5, 4),
+            'ma20' => $ma20 === null ? null : round($ma20, 4),
         ];
     }
 
@@ -124,12 +124,19 @@ class TechnicalIndicatorService
             $prevD = $dVal;
         }
 
+        // MACD 暖身鏈：EMA12 自第 11 根有值、EMA26 自第 25 根，兩者相減後
+        // MACD 自第 25 根有值；signal 是 MACD 的 EMA9，故自第 33 根才有值。
+        // 暖身期一律回 null，與 ma5/ma20/ma60/rsi/布林 的處理一致——前端
+        // zip() 會濾掉 null，SignalEngine 的 is_numeric 檢查會轉為
+        // insufficient_data，兩端都不會把播種殘差當成訊號。
         $ema12 = $this->emaSeries($closes, 12);
         $ema26 = $this->emaSeries($closes, 26);
 
         $macdSeries = [];
         for ($i = 0; $i < $count; $i++) {
-            $macdSeries[$i] = $ema12[$i] - $ema26[$i];
+            $macdSeries[$i] = ($ema12[$i] === null || $ema26[$i] === null)
+                ? null
+                : $ema12[$i] - $ema26[$i];
         }
 
         $signalSeries = $this->emaSeries($macdSeries, 9);
@@ -138,9 +145,11 @@ class TechnicalIndicatorService
         $signal = [];
         $histogram = [];
         for ($i = 0; $i < $count; $i++) {
-            $macd[$i] = round($macdSeries[$i], 4);
-            $signal[$i] = round($signalSeries[$i], 4);
-            $histogram[$i] = round($macdSeries[$i] - $signalSeries[$i], 4);
+            $macd[$i] = $macdSeries[$i] === null ? null : round($macdSeries[$i], 4);
+            $signal[$i] = $signalSeries[$i] === null ? null : round($signalSeries[$i], 4);
+            $histogram[$i] = ($macdSeries[$i] === null || $signalSeries[$i] === null)
+                ? null
+                : round($macdSeries[$i] - $signalSeries[$i], 4);
         }
 
         // MA60 與布林通道（period 20，2 倍母體標準差）。
@@ -226,6 +235,12 @@ class TechnicalIndicatorService
         return array_sum($values) / max(count($values), 1);
     }
 
+    /**
+     * 最新一根的 MACD 與 signal；資料不足暖身期時為 null。
+     *
+     * @param  list<float>  $closes
+     * @return array{0: ?float, 1: ?float}
+     */
     private function macd(array $closes): array
     {
         $ema12 = $this->emaSeries($closes, 12);
@@ -233,33 +248,64 @@ class TechnicalIndicatorService
 
         $macdSeries = [];
         foreach ($closes as $index => $_) {
-            $macdSeries[$index] = $ema12[$index] - $ema26[$index];
+            $macdSeries[$index] = ($ema12[$index] === null || $ema26[$index] === null)
+                ? null
+                : $ema12[$index] - $ema26[$index];
         }
 
         $signalSeries = $this->emaSeries(array_values($macdSeries), 9);
 
-        $macd = end($macdSeries);
-        $signal = end($signalSeries);
+        // end() 空陣列回 false；不可用 ?: 收斂，MACD 合法值可以是 0.0。
+        $macd = $macdSeries === [] ? null : end($macdSeries);
+        $signal = $signalSeries === [] ? null : end($signalSeries);
 
-        return [$macd, $signal, $macd - $signal];
+        return [$macd, $signal];
     }
 
     /**
-     * @param  list<float>  $values
-     * @return list<float>
+     * EMA 序列，暖身期為 null。
+     *
+     * 以前 period 根的 SMA 播種，而非以第一根值播種。單值播種會讓前數十根帶著
+     * 明顯的播種殘差（period 26 尤其嚴重），而這段殘差過去被當成有效值輸出，
+     * 使 MACD 交叉在資料量不足時失真。
+     *
+     * 輸入允許前導 null：signal 線是 MACD 序列的 EMA，而 MACD 本身有暖身期。
+     * period 自第一個非 null 起算。
+     *
+     * @param  list<?float>  $values
+     * @return list<?float>
      */
     private function emaSeries(array $values, int $period): array
     {
-        if ($values === []) {
-            return [];
+        $count = count($values);
+        $series = array_fill(0, $count, null);
+
+        $first = null;
+        foreach ($values as $index => $value) {
+            if ($value !== null) {
+                $first = $index;
+                break;
+            }
         }
 
-        $multiplier = 2 / ($period + 1);
-        $series = [];
-        $ema = $values[0];
+        if ($first === null || $count - $first < $period) {
+            return $series;
+        }
 
-        foreach ($values as $index => $value) {
-            $ema = $index === 0 ? $value : (($value - $ema) * $multiplier) + $ema;
+        $seedIndex = $first + $period - 1;
+        $ema = array_sum(array_slice($values, $first, $period)) / $period;
+        $series[$seedIndex] = $ema;
+
+        $multiplier = 2 / ($period + 1);
+
+        for ($index = $seedIndex + 1; $index < $count; $index++) {
+            $value = $values[$index];
+
+            if ($value === null) {
+                continue;
+            }
+
+            $ema = (($value - $ema) * $multiplier) + $ema;
             $series[$index] = $ema;
         }
 

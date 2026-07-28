@@ -34,19 +34,25 @@ class TechnicalIndicatorServiceTest extends TestCase
         (new TechnicalIndicatorService())->calculate([]);
     }
 
-    public function test_calculates_indicators_for_one_day_price_history(): void
+    /**
+     * 單根資料不足以算出任何週期型指標，必須回 null 而非拿該根值冒充。
+     * 舊版會把 123.45 同時當成 MA5 與 MA20，SignalEngine 便會據此給出 stance。
+     */
+    public function test_one_day_price_history_yields_null_period_indicators(): void
     {
         $snapshot = (new TechnicalIndicatorService())->calculate([
             $this->price(close: 123.45, high: 126.0, low: 121.0, open: 122.0),
         ]);
 
-        $this->assertSame(123.45, $snapshot['ma5']);
-        $this->assertSame(123.45, $snapshot['ma20']);
-        $this->assertArrayHasKey('k', $snapshot);
-        $this->assertArrayHasKey('d', $snapshot);
-        $this->assertArrayHasKey('macd', $snapshot);
-        $this->assertArrayHasKey('macd_signal', $snapshot);
-        $this->assertArrayHasKey('macd_histogram', $snapshot);
+        $this->assertNull($snapshot['ma5']);
+        $this->assertNull($snapshot['ma20']);
+        $this->assertNull($snapshot['macd']);
+        $this->assertNull($snapshot['macd_signal']);
+        $this->assertNull($snapshot['macd_histogram']);
+
+        // KD 以 50 起算並遞迴平滑，單根即有定義值，刻意不回 null。
+        $this->assertIsFloat($snapshot['k']);
+        $this->assertIsFloat($snapshot['d']);
     }
 
     public function test_flat_prices_produce_neutral_kd_values(): void
@@ -130,27 +136,50 @@ class TechnicalIndicatorServiceTest extends TestCase
             ],
         ]);
 
-        $this->assertSame(15.0, $snapshot['ma5']);
-        $this->assertSame(15.0, $snapshot['ma20']);
+        // 陣列形式的價格項可被接受並完成計算；兩根仍在 MA 暖身期，故為 null。
+        $this->assertIsFloat($snapshot['k']);
+        $this->assertNull($snapshot['ma5']);
+        $this->assertNull($snapshot['ma20']);
     }
 
-    public function test_calculates_exact_moving_averages_for_short_deterministic_history(): void
+    /** 資料足夠時，MA5 / MA20 必須是尾端視窗的精確算術平均。 */
+    public function test_calculates_exact_moving_averages_once_periods_are_covered(): void
     {
-        $snapshot = (new TechnicalIndicatorService())->calculate([
-            $this->price(close: 10.0, high: 10.0, low: 10.0, open: 10.0),
-            $this->price(close: 20.0, high: 20.0, low: 20.0, open: 20.0, date: '2026-06-19'),
-            $this->price(close: 30.0, high: 30.0, low: 30.0, open: 30.0, date: '2026-06-20'),
-        ]);
+        $closes = [];
+        $prices = [];
 
-        $this->assertSame(20.0, $snapshot['ma5']);
-        $this->assertSame(20.0, $snapshot['ma20']);
+        for ($i = 0; $i < 20; $i++) {
+            $close = 10.0 + $i;
+            $closes[] = $close;
+            $prices[] = $this->price(
+                close: $close,
+                high: $close,
+                low: $close,
+                open: $close,
+                date: sprintf('2026-05-%02d', $i + 1),
+            );
+        }
+
+        $snapshot = (new TechnicalIndicatorService())->calculate($prices);
+
+        // 尾五根 25..29 平均 27；全 20 根 10..29 平均 19.5。
+        $this->assertSame(27.0, $snapshot['ma5']);
+        $this->assertSame(19.5, $snapshot['ma20']);
+        $this->assertSame(array_sum(array_slice($closes, -5)) / 5, $snapshot['ma5']);
+        $this->assertSame(array_sum($closes) / 20, $snapshot['ma20']);
+
+        // 20 根仍不足 MACD 的 33 根暖身鏈。
+        $this->assertNull($snapshot['macd_histogram']);
     }
 
     public function test_macd_signal_is_ema_of_macd_series_not_a_fixed_ratio(): void
     {
+        // 加速上漲而非等速：等速直線上漲時 MACD 會收斂成常數，其 EMA9 signal
+        // 與之完全相等、histogram 為 0——那是數學上的正確結果，無法用來驗證
+        // signal 落後於 MACD。要驗證落後關係，MACD 本身必須仍在變動。
         $prices = [];
-        for ($i = 0; $i < 35; $i++) {
-            $close = 100.0 + $i;
+        for ($i = 0; $i < 40; $i++) {
+            $close = 100.0 + ($i ** 2) / 10;
             $prices[] = $this->price(
                 close: $close,
                 high: $close + 0.5,
@@ -162,8 +191,7 @@ class TechnicalIndicatorServiceTest extends TestCase
 
         $snapshot = (new TechnicalIndicatorService())->calculate($prices);
 
-        // On a steadily rising series the MACD line is positive and its EMA-9
-        // signal line lags below it, so the histogram is positive...
+        // MACD 持續走高時，其 EMA9 signal 落後於 MACD，histogram 為正。
         $this->assertGreaterThan(0, $snapshot['macd']);
         $this->assertGreaterThan(0, $snapshot['macd_signal']);
         $this->assertGreaterThan($snapshot['macd_signal'], $snapshot['macd']);

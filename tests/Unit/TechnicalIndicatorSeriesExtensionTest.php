@@ -46,6 +46,34 @@ class TechnicalIndicatorSeriesExtensionTest extends TestCase
         $this->assertNotNull($series['boll_upper'][19]);
     }
 
+    /**
+     * MACD 暖身鏈的精確邊界：EMA12 自第 11 根、EMA26 自第 25 根有值，
+     * 相減後 MACD 自第 25 根；signal 是 MACD 的 EMA9，故自第 33 根起才有值。
+     * histogram 需 macd 與 signal 皆有值，起點同 signal。
+     */
+    public function test_macd_warmup_boundaries(): void
+    {
+        $series = (new TechnicalIndicatorService)->series($this->prices(70));
+
+        $this->assertNull($series['macd'][24]);
+        $this->assertNotNull($series['macd'][25]);
+
+        $this->assertNull($series['signal'][32]);
+        $this->assertNotNull($series['signal'][33]);
+
+        $this->assertNull($series['histogram'][32]);
+        $this->assertNotNull($series['histogram'][33]);
+    }
+
+    /** 暖身期不足時，MACD 三條序列全為 null，而非輸出播種殘差。 */
+    public function test_macd_is_all_null_when_history_is_shorter_than_warmup(): void
+    {
+        $series = (new TechnicalIndicatorService)->series($this->prices(30));
+
+        $this->assertSame([], array_filter($series['signal'], static fn ($v) => $v !== null));
+        $this->assertSame([], array_filter($series['histogram'], static fn ($v) => $v !== null));
+    }
+
     public function test_rsi_of_monotonic_up_series_is_100(): void
     {
         // 連續上漲：無下跌日，RSI = 100
