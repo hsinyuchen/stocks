@@ -3,8 +3,12 @@
 namespace App\Services\Screener;
 
 use App\Contracts\MarketDataProvider;
+use App\Models\Instrument;
 use App\Models\User;
+use App\Services\Chip\ChipDataService;
+use App\Services\Fundamentals\FundamentalsService;
 use App\Services\TechnicalIndicatorService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ScreenerService
@@ -16,12 +20,31 @@ class ScreenerService
     ) {}
 
     /**
-     * @param  list<string>  $ruleKeys  已由 controller 白名單驗證
+     * @param  list<string>  $ruleKeys  必須全部成立（AND），已由 controller 白名單驗證
+     * @param  list<string>  $excludeKeys  命中任一即排除（NOT）
      * @return array{results: list<array<string, mixed>>, scanned: int, skipped: list<string>, failures: list<array{symbol: string, reason: string}>}
      */
-    public function scan(User $user, array $ruleKeys): array
+    public function scan(User $user, array $ruleKeys, array $excludeKeys = []): array
     {
-        $rules = array_intersect_key($this->registry->all(), array_flip($ruleKeys));
+        $all = $this->registry->all();
+        $rules = array_intersect_key($all, array_flip($ruleKeys));
+
+        // 排除規則：條件全用 AND 時，勾越多命中越少，實測「站上 MA20 + KD 黃金
+        // 交叉」直接歸零。實務上更常需要的是「站上 MA20 但排除 RSI 超買」，
+        // 也就是一組必要條件加一組否決條件。
+        $excludes = array_intersect_key($all, array_flip($excludeKeys));
+
+        // 只在真的有規則需要時才載入籌碼／基本面。沒有這個判斷的話，即使只勾
+        // 純技術規則，股池裡每一檔都會多兩次查詢與（未快取時）兩次上游抓取。
+        $needs = [];
+
+        foreach ([...array_values($rules), ...array_values($excludes)] as $rule) {
+            foreach ($rule->requires() as $need) {
+                $needs[$need] = true;
+            }
+        }
+
+        $needs = array_keys($needs);
         $pool = $this->pool($user);
         $historyDays = (int) config('screener.history_days', 250);
         $budget = (int) config('screener.scan_time_budget_seconds', 60);
@@ -31,6 +54,15 @@ class ScreenerService
         $failures = [];
         $skipped = [];
         $scanned = 0;
+
+        // 已快取者優先掃描。
+        //
+        // 掃描時間幾乎全花在未快取股票的上游抓取（每檔一次網路往返），而時間
+        // 預算一到就中止。若依設定順序掃，預算會被前面的抓取燒光，後面「已快取、
+        // 本來零成本」的股票反而掃不到——實測 100 檔只掃完 22-54 檔。
+        // 排序後：已快取的必定全部掃到，剩餘預算才用來補抓新的，等於每次掃描
+        // 都在漸進預熱，重複掃描會越來越完整。
+        $pool = $this->cachedFirst($pool, $historyDays);
 
         foreach ($pool as $symbol => $name) {
             // 時間預算只能在「支與支之間」檢查；在途 HTTP（上游 timeout ~20-40s）
@@ -52,9 +84,16 @@ class ScreenerService
                 }
 
                 $series = $this->indicators->series($prices);
+                $context = $this->contextFor($symbol, $needs);
 
                 foreach ($rules as $rule) {
-                    if (! $rule->matches($series)) {
+                    if (! $rule->matches($series, $context)) {
+                        continue 2;
+                    }
+                }
+
+                foreach ($excludes as $exclude) {
+                    if ($exclude->matches($series, $context)) {
                         continue 2;
                     }
                 }
@@ -72,6 +111,7 @@ class ScreenerService
                         : null,
                     'data_as_of' => $prices[$n]->date,
                     'matched' => array_keys($rules),
+                    ...$this->strength($series, $n),
                 ];
             } catch (\Throwable $exception) {
                 Log::warning('screener: symbol scan failed', ['symbol' => $symbol, 'error' => $exception->getMessage()]);
@@ -79,12 +119,144 @@ class ScreenerService
             }
         }
 
+        // 依強度排序：命中即命中，48 檔平等呈現時使用者還是得逐檔看。
+        usort($results, static fn (array $a, array $b): int => $b['strength'] <=> $a['strength']);
+
         return [
             'results' => $results,
             'scanned' => $scanned,
             'skipped' => $skipped,
             'failures' => $failures,
         ];
+    }
+
+    /**
+     * 訊號強度，供排序用。
+     *
+     * 「命中」是布林值，但同樣站上 MA20，乖離 1% 與 12% 的意義差很多。這裡取
+     * 三個可比較的量化維度，各自正規化後相加：
+     *   ma20_bias  價格相對月線的乖離（%）——趨勢強度
+     *   volume_x   當日量相對 20 日均量的倍數——參與度
+     *   rsi        相對強弱——動能位置
+     *
+     * 這是排序用的粗略指標，不是預測值，也未經回測驗證。
+     *
+     * @param  array<string, list<int|float|null>>  $series
+     * @return array<string, float|null>
+     */
+    private function strength(array $series, int $n): array
+    {
+        $close = (float) $series['close'][$n];
+        $ma20 = $series['ma20'][$n] ?? null;
+        $rsi = $series['rsi'][$n] ?? null;
+
+        $bias = ($ma20 !== null && $ma20 > 0) ? round(($close / $ma20 - 1) * 100, 2) : null;
+
+        $window = array_slice($series['volume'], max(0, $n - 20), min($n, 20));
+        $avgVolume = $window === [] ? 0.0 : array_sum($window) / count($window);
+        $volumeX = $avgVolume > 0 ? round($series['volume'][$n] / $avgVolume, 2) : null;
+
+        // 三者權重相同，且各自取絕對值——空方訊號的強度同樣要能排序。
+        $score = abs($bias ?? 0) + (($volumeX ?? 1) - 1) * 10 + abs(($rsi ?? 50) - 50) / 5;
+
+        return [
+            'ma20_bias' => $bias,
+            'volume_x' => $volumeX,
+            'rsi' => $rsi === null ? null : round($rsi, 1),
+            'strength' => round($score, 2),
+        ];
+    }
+
+    /**
+     * 依規則宣告的需求載入額外資料。
+     *
+     * 兩者都是 best-effort：籌碼與基本面只有台股有，且上游可能失敗。取不到就
+     * 留 null，由規則自行判定不命中——不可當成「無條件通過」，否則美股會在
+     * 勾選籌碼規則時全部混進結果。
+     *
+     * @param  list<string>  $needs
+     * @return array<string, mixed>
+     */
+    private function contextFor(string $symbol, array $needs): array
+    {
+        if ($needs === []) {
+            return [];
+        }
+
+        $instrument = Instrument::query()->where('symbol', $symbol)->first();
+
+        if ($instrument === null) {
+            return [];
+        }
+
+        $context = [];
+
+        foreach ($needs as $need) {
+            try {
+                $context[$need] = match ($need) {
+                    ScreenRule::NEEDS_CHIP => app(ChipDataService::class)->forInstrument($instrument),
+                    ScreenRule::NEEDS_FUNDAMENTALS => app(FundamentalsService::class)->forInstrument($instrument),
+                    default => null,
+                };
+            } catch (\Throwable $exception) {
+                Log::warning('screener: context load failed', [
+                    'symbol' => $symbol,
+                    'need' => $need,
+                    'error' => $exception->getMessage(),
+                ]);
+
+                $context[$need] = null;
+            }
+        }
+
+        return $context;
+    }
+
+    /**
+     * 把已有足量快取的股票排到前面，順序內維持原本的相對次序。
+     *
+     * 「足量」沿用 CachedMarketDataProvider::covers() 的門檻（請求根數的七成），
+     * 判定一致才不會出現「這裡算已快取、抓取時卻仍打上游」的落差。
+     *
+     * @param  array<string, string>  $pool
+     * @return array<string, string>
+     */
+    private function cachedFirst(array $pool, int $historyDays): array
+    {
+        $threshold = (int) ceil($historyDays * 0.7);
+
+        $cached = DB::table('instruments')
+            ->join('daily_prices', 'daily_prices.instrument_id', '=', 'instruments.id')
+            ->whereIn('instruments.symbol', array_keys($pool))
+            ->groupBy('instruments.symbol')
+            ->havingRaw('COUNT(daily_prices.id) >= ?', [$threshold])
+            ->pluck('instruments.symbol')
+            ->flip();
+
+        $ready = [];
+        $pending = [];
+
+        foreach ($pool as $symbol => $name) {
+            if ($cached->has($symbol)) {
+                $ready[$symbol] = $name;
+            } else {
+                $pending[$symbol] = $name;
+            }
+        }
+
+        return $ready + $pending;
+    }
+
+    /**
+     * 這位使用者實際會被掃描的檔數。
+     *
+     * 不等於 config universe 的數量：股池是 config ∪ 自選股去重後的結果，
+     * 自選股與內建股池重疊時只算一次。UI 若直接顯示 config 的筆數，會與
+     * 掃描結果的「掃描 N 支」對不上。
+     */
+    public function poolSize(User $user): int
+    {
+        return count($this->pool($user));
     }
 
     /**

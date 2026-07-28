@@ -8,6 +8,7 @@ use App\Models\Instrument;
 use App\Models\User;
 use App\Services\Fake\FakeMarketDataProvider;
 use App\Services\Screener\ScreenerService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -151,5 +152,65 @@ class ScreenerServiceTest extends TestCase
         $this->assertCount(1, $result['failures']);
         $this->assertSame('BAD', $result['failures'][0]['symbol']);
         $this->assertCount(1, $result['results']);
+    }
+
+    /**
+     * 已快取的股票必須優先掃描。
+     *
+     * 掃描時間幾乎全花在未快取股票的上游抓取，時間預算一到就中止。若依設定
+     * 順序掃，預算會被前面的抓取燒光，後面「已快取、零成本」的反而掃不到——
+     * 實測 100 檔的冷快取掃描只完成 22 檔。
+     */
+    public function test_cached_symbols_are_ordered_before_uncached_ones(): void
+    {
+        $pool = ['SLOW1' => '未快取一', 'SLOW2' => '未快取二', 'CACHED' => '已快取'];
+        $historyDays = 40;
+
+        // 快取量須超過 covers() 的七成門檻才算「已快取」，兩處判定必須一致。
+        $instrument = Instrument::factory()->create(['symbol' => 'CACHED', 'name' => '已快取']);
+        $start = CarbonImmutable::parse('2026-01-01');
+
+        for ($i = 0; $i < $historyDays; $i++) {
+            $instrument->dailyPrices()->create([
+                'priced_at' => $start->addDays($i)->toDateString(),
+                'open' => 100, 'high' => 100, 'low' => 100, 'close' => 100, 'volume' => 1000,
+            ]);
+        }
+
+        // 直接驗證排序，不依賴計時——用時間預算做斷言會受機器速度影響。
+        $method = new \ReflectionMethod(ScreenerService::class, 'cachedFirst');
+        $method->setAccessible(true);
+        $ordered = $method->invoke(app(ScreenerService::class), $pool, $historyDays);
+
+        $this->assertSame('CACHED', array_key_first($ordered), '已快取者必須排在最前面。');
+        $this->assertSame(['CACHED', 'SLOW1', 'SLOW2'], array_keys($ordered));
+    }
+
+    /** 快取不足門檻者不得被當成已快取，否則排序與實際抓取行為會不一致。 */
+    public function test_partially_cached_symbol_is_not_treated_as_ready(): void
+    {
+        $instrument = Instrument::factory()->create(['symbol' => 'PARTIAL']);
+        $start = CarbonImmutable::parse('2026-01-01');
+
+        // 只有 10 根，低於 40 * 0.7 = 28 的門檻。
+        for ($i = 0; $i < 10; $i++) {
+            $instrument->dailyPrices()->create([
+                'priced_at' => $start->addDays($i)->toDateString(),
+                'open' => 100, 'high' => 100, 'low' => 100, 'close' => 100, 'volume' => 1000,
+            ]);
+        }
+
+        $method = new \ReflectionMethod(ScreenerService::class, 'cachedFirst');
+        $method->setAccessible(true);
+        $ordered = $method->invoke(app(ScreenerService::class), ['AAA' => 'A', 'PARTIAL' => 'P'], 40);
+
+        $this->assertSame(['AAA', 'PARTIAL'], array_keys($ordered), '快取不足者不應被提前。');
+    }
+
+    /** 掃描根數只需覆蓋規則的暖身期，不必比照圖表的 250 根。 */
+    public function test_history_days_default_covers_every_rule_warmup(): void
+    {
+        // MACD histogram 自第 33 根起才有值，是所有規則中最長的暖身鏈。
+        $this->assertGreaterThanOrEqual(34, (int) config('screener.history_days'));
     }
 }
