@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\InstrumentController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\AlertController;
 use App\Http\Controllers\AnalysesController;
@@ -52,6 +53,8 @@ Route::middleware('auth')->group(function (): void {
     Route::delete('/alerts/{alert}', [AlertController::class, 'destroy'])->name('alerts.destroy');
     Route::get('/screener', [ScreenerController::class, 'index'])->name('screener.index');
     Route::post('/screener/scan', [ScreenerController::class, 'scan'])->name('screener.scan');
+    Route::get('/screener/history', [ScreenerController::class, 'history'])->name('screener.history');
+    Route::post('/screener/watchlist', [ScreenerController::class, 'addToWatchlist'])->name('screener.watchlist');
     Route::get('/analyses', [AnalysesController::class, 'index'])->name('analyses.index');
     Route::get('/settings', [LlmProviderSettingController::class, 'index'])->name('settings.index');
     Route::post('/settings', [LlmProviderSettingController::class, 'store'])->name('settings.store');
@@ -68,4 +71,11 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::patch('/users/{user}/role', [UserManagementController::class, 'toggleRole'])->name('users.role');
     Route::post('/users/{user}/reset-link', [UserManagementController::class, 'sendResetLink'])->name('users.reset-link');
     Route::delete('/users/{user}', [UserManagementController::class, 'destroy'])->name('users.destroy');
+
+    // 標的清單為全站共用資料（行情、籌碼、基本面快取都掛在其下），限 admin 維護。
+    Route::get('/instruments', [InstrumentController::class, 'index'])->name('instruments.index');
+    Route::post('/instruments', [InstrumentController::class, 'store'])->name('instruments.store');
+    Route::post('/instruments/import', [InstrumentController::class, 'import'])->name('instruments.import');
+    Route::patch('/instruments/{instrument}', [InstrumentController::class, 'update'])->name('instruments.update');
+    Route::delete('/instruments/{instrument}', [InstrumentController::class, 'destroy'])->name('instruments.destroy');
 });

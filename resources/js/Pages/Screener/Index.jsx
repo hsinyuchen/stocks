@@ -90,8 +90,11 @@ function AddToWatchlist({ symbol, name, watchlists }) {
     );
 }
 
-export default function ScreenerIndex({ rules = [], watchlists = [], universeCount = 0 }) {
+export default function ScreenerIndex({ rules = [], watchlists = [], universeCount = 0, poolCount = 0 }) {
     const [selectedRules, setSelectedRules] = useState([]);
+    const [excludedRules, setExcludedRules] = useState([]);
+    const [picked, setPicked] = useState([]);
+    const [targetList, setTargetList] = useState(watchlists[0] ? String(watchlists[0].id) : '');
     const [scanning, setScanning] = useState(false);
     const [result, setResult] = useState(null);
     const [error, setError] = useState(null);
@@ -103,10 +106,24 @@ export default function ScreenerIndex({ rules = [], watchlists = [], universeCou
         [rules],
     );
 
-    const toggleRule = (key) => {
-        setSelectedRules((current) =>
-            current.includes(key) ? current.filter((k) => k !== key) : [...current, key],
-        );
+    // 三態循環：未選 → 必要（AND）→ 排除（NOT）→ 未選。
+    // 條件全用 AND 時勾越多命中越少，實測兩條技術規則就直接歸零；
+    // 實務上更常需要的是「一組必要條件 + 一組否決條件」。
+    const cycleRule = (key) => {
+        if (selectedRules.includes(key)) {
+            setSelectedRules((c) => c.filter((k) => k !== key));
+            setExcludedRules((c) => [...c, key]);
+
+            return;
+        }
+
+        if (excludedRules.includes(key)) {
+            setExcludedRules((c) => c.filter((k) => k !== key));
+
+            return;
+        }
+
+        setSelectedRules((c) => [...c, key]);
     };
 
     const scan = async () => {
@@ -118,8 +135,12 @@ export default function ScreenerIndex({ rules = [], watchlists = [], universeCou
         setError(null);
 
         try {
-            const response = await axios.post('/screener/scan', { rules: selectedRules });
+            const response = await axios.post('/screener/scan', {
+                rules: selectedRules,
+                exclude: excludedRules,
+            });
             setResult(response.data);
+            setPicked([]);
             setIssuesOpen(false);
         } catch {
             setError('掃描失敗，請稍後重試。');
@@ -141,24 +162,27 @@ export default function ScreenerIndex({ rules = [], watchlists = [], universeCou
                         </p>
                         <h2>選股器</h2>
                         <p className="screener__subtitle">
-                            股池 {universeCount} 支 + 你的自選股。勾選規則後掃描，所有條件同時成立（AND）才入選。
+                            本次可掃描 {poolCount} 支（內建股池 {universeCount} 支 ∪ 你的自選股，重複只算一次）。點擊規則切換「必要 → 排除 → 取消」：必要條件須全部成立，命中任一排除條件即淘汰。結果依訊號強度排序。
                         </p>
                     </div>
                 </header>
 
                 <div className="screener-rules" role="group" aria-label="選股規則">
                     {rules.map((rule) => {
-                        const active = selectedRules.includes(rule.key);
+                        const required = selectedRules.includes(rule.key);
+                        const excluded = excludedRules.includes(rule.key);
+                        const state = required ? '--active' : excluded ? '--excluded' : '';
 
                         return (
                             <button
-                                aria-pressed={active}
-                                className={`screener-chip ${active ? 'screener-chip--active' : ''}`}
+                                aria-pressed={required || excluded}
+                                className={`screener-chip ${state ? `screener-chip${state}` : ''}`}
                                 key={rule.key}
-                                onClick={() => toggleRule(rule.key)}
+                                onClick={() => cycleRule(rule.key)}
+                                title="點擊切換：必要 → 排除 → 取消"
                                 type="button"
                             >
-                                {rule.label}
+                                {excluded ? '排除 ' : ''}{rule.label}
                             </button>
                         );
                     })}
@@ -235,14 +259,56 @@ export default function ScreenerIndex({ rules = [], watchlists = [], universeCou
                         {result.results.length === 0 ? (
                             <p className="dashboard-empty">沒有符合條件的股票。</p>
                         ) : (
+                            <>
+                            {/* 批次加入：走 /screener/watchlist，該端點會驗證代號確實在
+                                這次掃描的命中清單中——不能讓前端傳任意 symbol 進來，
+                                否則它會變成繞過個股搜尋直接建 instrument 的入口。 */}
+                            {picked.length > 0 && watchlists.length > 0 && result.run_id ? (
+                                <div className="screener-bulk">
+                                    <span>已選 {picked.length} 檔</span>
+                                    <select onChange={(e) => setTargetList(e.target.value)} value={targetList}>
+                                        {watchlists.map((w) => (
+                                            <option key={w.id} value={String(w.id)}>{w.name}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        className="button-primary"
+                                        onClick={() => router.post('/screener/watchlist', {
+                                            run_id: result.run_id,
+                                            watchlist_id: targetList,
+                                            symbols: picked,
+                                        }, {
+                                            preserveScroll: true,
+                                            preserveState: true,
+                                            onSuccess: () => setPicked([]),
+                                        })}
+                                        type="button"
+                                    >
+                                        加入自選清單
+                                    </button>
+                                    <button className="screener-bulk__clear" onClick={() => setPicked([])} type="button">
+                                        取消選取
+                                    </button>
+                                </div>
+                            ) : null}
+
                             <div className="screener-result-table-wrap">
                                 <table className="screener-result-table">
                                     <thead>
                                         <tr>
+                                            <th>
+                                                <input
+                                                    aria-label="全選"
+                                                    checked={picked.length > 0 && picked.length === result.results.length}
+                                                    onChange={(e) => setPicked(e.target.checked ? result.results.map((r) => r.symbol) : [])}
+                                                    type="checkbox"
+                                                />
+                                            </th>
                                             <th>代號</th>
                                             <th>名稱</th>
                                             <th>收盤</th>
                                             <th>漲跌%</th>
+                                            <th>強度</th>
                                             <th>命中訊號</th>
                                             <th>資料日期</th>
                                             <th>加自選</th>
@@ -251,6 +317,15 @@ export default function ScreenerIndex({ rules = [], watchlists = [], universeCou
                                     <tbody>
                                         {result.results.map((row) => (
                                             <tr key={row.symbol}>
+                                                <td>
+                                                    <input
+                                                        aria-label={`選取 ${row.symbol}`}
+                                                        checked={picked.includes(row.symbol)}
+                                                        onChange={(e) => setPicked((c) =>
+                                                            e.target.checked ? [...c, row.symbol] : c.filter((x) => x !== row.symbol))}
+                                                        type="checkbox"
+                                                    />
+                                                </td>
                                                 <td>
                                                     <Link
                                                         className="panel-link"
@@ -263,6 +338,9 @@ export default function ScreenerIndex({ rules = [], watchlists = [], universeCou
                                                 <td>{formatPrice(row.close)}</td>
                                                 <td>
                                                     <ChangePercent value={row.change_percent} />
+                                                </td>
+                                                <td className="screener-strength" title={`乖離 ${row.ma20_bias ?? '—'}%　量能 ${row.volume_x ?? '—'}x　RSI ${row.rsi ?? '—'}`}>
+                                                    {row.strength?.toFixed?.(1) ?? '—'}
                                                 </td>
                                                 <td>
                                                     <div className="screener-signals">
@@ -286,6 +364,7 @@ export default function ScreenerIndex({ rules = [], watchlists = [], universeCou
                                     </tbody>
                                 </table>
                             </div>
+                            </>
                         )}
                     </div>
                 ) : null}

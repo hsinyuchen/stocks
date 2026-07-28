@@ -76,6 +76,12 @@ class User extends Authenticatable
         return $this->hasMany(StockAnalysis::class);
     }
 
+    /** 選股掃描紀錄。屬個別使用者：股池含自選股，結果可反推自選內容。 */
+    public function screenRuns(): HasMany
+    {
+        return $this->hasMany(ScreenRun::class);
+    }
+
     public function newsAnalyses(): HasMany
     {
         return $this->hasMany(NewsAnalysis::class);
