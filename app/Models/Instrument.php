@@ -71,4 +71,35 @@ class Instrument extends Model
     {
         return $this->hasMany(WatchlistItem::class);
     }
+
+    public function holdings(): HasMany
+    {
+        return $this->hasMany(Holding::class);
+    }
+
+    public function alerts(): HasMany
+    {
+        return $this->hasMany(Alert::class);
+    }
+
+    public function chipFlows(): HasMany
+    {
+        return $this->hasMany(ChipFlow::class);
+    }
+
+    /**
+     * 是否被使用者資料參照。
+     *
+     * instruments 被 8 個表以 cascade 參照，其中這四個屬使用者資料，刪除
+     * instrument 會連同使用者的自選股、持倉、警報與已存分析一起消失。
+     * 其餘（daily_prices、chip_flows、fundamentals、technical_snapshots）
+     * 是可重抓的快取，隨之清除無妨。
+     */
+    public function isReferencedByUserData(): bool
+    {
+        return $this->watchlistItems()->exists()
+            || $this->stockAnalyses()->exists()
+            || $this->holdings()->exists()
+            || $this->alerts()->exists();
+    }
 }

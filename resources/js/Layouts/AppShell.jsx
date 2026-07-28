@@ -4,6 +4,7 @@ import {
     BarChart3,
     Bell,
     Bot,
+    ListChecks,
     LogOut,
     Newspaper,
     ScanSearch,
@@ -52,7 +53,11 @@ export default function AppShell({ children, title = '市場儀表板' }) {
     const { props, url } = usePage();
     const user = props.auth?.user;
     const menuItems = user?.is_admin
-        ? [...baseMenuItems, { href: '/admin/users', label: '使用者管理', icon: Users }]
+        ? [
+            ...baseMenuItems,
+            { href: '/admin/instruments', label: '標的清單', icon: ListChecks },
+            { href: '/admin/users', label: '使用者管理', icon: Users },
+        ]
         : baseMenuItems;
     const currentPath = url.split(/[?#]/)[0];
     const initialTheme = useMemo(() => normalizeTheme(readStoredTheme() ?? user?.profile?.theme), [user?.profile?.theme]);
