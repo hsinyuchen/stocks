@@ -22,7 +22,12 @@ class OpenAiCompatibleLlmProvider implements LlmProvider
     {
         $endpoint = rtrim($this->baseUrl, '/').'/chat/completions';
 
-        $request = Http::timeout($this->timeoutSeconds)->acceptJson()->asJson();
+        // 關閉 redirect：baseUrl 由使用者自填，允許跟隨跳轉等於把端點的控制權
+        // 交給對方主機，任何位址檢查都能被一次 302 繞過。正規的 LLM API 不跳轉。
+        $request = Http::timeout($this->timeoutSeconds)
+            ->withOptions(['allow_redirects' => false])
+            ->acceptJson()
+            ->asJson();
 
         if ($this->apiKey !== null && $this->apiKey !== '') {
             $request = $request->withToken($this->apiKey);

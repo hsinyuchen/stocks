@@ -21,15 +21,21 @@ class GeminiLlmProvider implements LlmProvider
     {
         $endpoint = rtrim($this->baseUrl, '/')."/models/{$model}:generateContent?key=".urlencode((string) $this->apiKey);
 
-        $response = Http::timeout($this->timeoutSeconds)->acceptJson()->asJson()->post($endpoint, [
-            'contents' => [
-                ['parts' => [['text' => $prompt]]],
-            ],
-            'generationConfig' => [
-                'temperature' => $this->temperature,
-                'maxOutputTokens' => $this->maxTokens,
-            ],
-        ]);
+        // 關閉 redirect：baseUrl 使用者可控，且金鑰帶在 query string 上，
+        // 跟隨跳轉會把整條含金鑰的 URL 交給跳轉目標。
+        $response = Http::timeout($this->timeoutSeconds)
+            ->withOptions(['allow_redirects' => false])
+            ->acceptJson()
+            ->asJson()
+            ->post($endpoint, [
+                'contents' => [
+                    ['parts' => [['text' => $prompt]]],
+                ],
+                'generationConfig' => [
+                    'temperature' => $this->temperature,
+                    'maxOutputTokens' => $this->maxTokens,
+                ],
+            ]);
 
         if ($response->failed()) {
             throw new RuntimeException("Gemini request failed with status {$response->status()}.");

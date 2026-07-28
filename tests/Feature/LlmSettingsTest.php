@@ -242,6 +242,46 @@ class LlmSettingsTest extends TestCase
     }
 
     /**
+     * base_url 會被伺服器主動請求，因此只准 http/https。裸 `url` rule 會放行
+     * file:// 等 scheme，讓設定頁變成 SSRF 入口。
+     */
+    public function test_base_url_rejects_non_http_schemes(): void
+    {
+        $user = User::factory()->create();
+
+        foreach (['file:///etc/passwd', 'gopher://127.0.0.1:11211/_x', 'ftp://internal.test/v1'] as $baseUrl) {
+            $this->actingAs($user)
+                ->from('/settings')
+                ->post('/settings', $this->validPayload([
+                    'provider_type' => 'openai_compatible',
+                    'base_url' => $baseUrl,
+                ]))
+                ->assertRedirect('/settings')
+                ->assertInvalid(['base_url']);
+        }
+
+        $this->assertSame(0, LlmProviderSetting::query()->count());
+    }
+
+    /** loopback 必須維持可用：ollama / llamacpp / lmstudio 的預設端點就是本機。 */
+    public function test_base_url_still_accepts_loopback_http_for_local_model_servers(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->from('/settings')
+            ->post('/settings', $this->validPayload([
+                'provider_type' => 'ollama',
+                'base_url' => 'http://127.0.0.1:11434/v1',
+                'api_key' => null,
+            ]))
+            ->assertRedirect('/settings')
+            ->assertValid();
+
+        $this->assertSame(1, LlmProviderSetting::query()->count());
+    }
+
+    /**
      * @param array<string, mixed> $overrides
      */
     private function validPayload(array $overrides = []): array

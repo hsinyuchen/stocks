@@ -23,7 +23,10 @@ class AnthropicLlmProvider implements LlmProvider
     {
         $endpoint = rtrim($this->baseUrl, '/').'/v1/messages';
 
+        // 關閉 redirect：baseUrl 使用者可控，且此請求帶著 x-api-key。
+        // 跟隨跳轉會把金鑰送到跳轉目標，等於憑證外洩原語。
         $response = Http::timeout($this->timeoutSeconds)
+            ->withOptions(['allow_redirects' => false])
             ->acceptJson()
             ->asJson()
             ->withHeaders([

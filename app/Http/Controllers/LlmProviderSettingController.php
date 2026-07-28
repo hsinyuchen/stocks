@@ -103,7 +103,10 @@ class LlmProviderSettingController extends Controller
         return $request->validate([
             'provider_type' => ['required', Rule::enum(LlmProviderType::class)],
             'display_name' => ['required', 'string', 'max:80'],
-            'base_url' => ['nullable', 'url', 'max:255'],
+            // 限定 http/https：base_url 是使用者可控且會被伺服器主動請求的位址，
+            // 裸 `url` rule 會放行 file://、gopher:// 等 scheme。私有網段不阻擋，
+            // 因為 ollama / llamacpp / lmstudio 的預設端點本來就是 loopback。
+            'base_url' => ['nullable', 'url:http,https', 'max:255'],
             'api_key' => ['nullable', 'string', 'max:2048'],
             'model' => ['required', 'string', 'max:120'],
             'timeout_seconds' => ['required', 'integer', 'min:5', 'max:300'],
