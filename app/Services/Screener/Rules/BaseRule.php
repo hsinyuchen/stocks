@@ -22,13 +22,20 @@ abstract class BaseRule implements ScreenRule
 
     public function matches(array $series, array $context = []): bool
     {
-        $count = count($series['close'] ?? []);
+        return $this->matchesAt($series, count($series['close'] ?? []) - 1, $context);
+    }
 
-        if ($count < self::MIN_BARS) {
+    /**
+     * 索引必須有足夠的前置根數，判定基準是「該點之前有幾根」而非序列總長——
+     * 回測會在同一段序列上逐點評估，用總長判斷會讓早期的點錯誤地通過暖身檢查。
+     */
+    public function matchesAt(array $series, int $n, array $context = []): bool
+    {
+        if ($n < self::MIN_BARS - 1 || $n >= count($series['close'] ?? [])) {
             return false;
         }
 
-        return $this->evaluate($series, $count - 1);
+        return $this->evaluate($series, $n);
     }
 
     /** @param array<string, list<int|float|null>> $series */

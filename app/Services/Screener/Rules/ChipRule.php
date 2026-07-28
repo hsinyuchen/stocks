@@ -38,6 +38,20 @@ abstract class ChipRule implements ScreenRule
     }
 
     /**
+     * 籌碼規則不支援歷史回放。
+     *
+     * context 帶進來的是「當下」的籌碼序列，與 $n 指向的歷史時點無關。要正確
+     * 回放必須把籌碼也切到該時點——chip_flows 確實有歷史可切，但那需要把
+     * 時點資訊傳進 context，屬於另一階段的工作。在那之前回傳 false 而非
+     * 沿用當下資料：用未來的籌碼去回測過去，是前視偏誤（look-ahead bias），
+     * 會產出看起來很好但完全不可信的結果。
+     */
+    public function matchesAt(array $series, int $n, array $context = []): bool
+    {
+        return false;
+    }
+
+    /**
      * @param  list<ChipFlowData>  $window  採計窗口內的買賣超
      * @param  list<ChipFlowData>  $all  完整序列（連續天數需要看更早的資料）
      */

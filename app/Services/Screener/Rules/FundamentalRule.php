@@ -29,6 +29,18 @@ abstract class FundamentalRule implements ScreenRule
         return $data instanceof FundamentalsData && $this->evaluateFundamentals($data);
     }
 
+    /**
+     * 基本面規則不支援歷史回放。
+     *
+     * fundamentals 現已按 data_as_of 保留歷史，但那是「開始保留之後」才累積的，
+     * 回測區間多半早於第一筆觀測。沿用當下資料去回測三個月前的訊號是前視偏誤，
+     * 因此一律回 false；等歷史深度足夠再開放，屆時需改為取 <= 該日的最後一筆。
+     */
+    public function matchesAt(array $series, int $n, array $context = []): bool
+    {
+        return false;
+    }
+
     abstract protected function evaluateFundamentals(FundamentalsData $data): bool;
 
     protected function threshold(string $key, float $default): float

@@ -35,4 +35,15 @@ interface ScreenRule
      * @param  array<string, mixed>  $context  依 requires() 提供；資料缺漏時對應鍵為 null
      */
     public function matches(array $series, array $context = []): bool;
+
+    /**
+     * 在指定索引評估，供回測在歷史上逐日回放。
+     *
+     * 沒有這個入口的話，回測必須為每個歷史日期各切一段序列再重算指標，
+     * 成本是 O(n²)；有了它就能整段序列只算一次，再逐點評估。
+     *
+     * @param  array<string, list<int|float|null>>  $series
+     * @param  array<string, mixed>  $context
+     */
+    public function matchesAt(array $series, int $n, array $context = []): bool;
 }
