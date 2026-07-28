@@ -1,6 +1,6 @@
 import { Link, router, useForm } from '@inertiajs/react';
-import { AlertTriangle, Bot, GitBranch, Newspaper, Settings, Sparkles, Video } from 'lucide-react';
-import { useState } from 'react';
+import { AlertTriangle, Bot, ChevronDown, GitBranch, Newspaper, Settings, SlidersHorizontal, Sparkles, Video } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import AppShell from '../../Layouts/AppShell';
 import Markdown from '../../Components/Markdown';
 
@@ -102,7 +102,15 @@ function FilterBar({ filters, facets }) {
         q: filters.q ?? '',
         from: filters.from ?? '',
         to: filters.to ?? '',
+        include_irrelevant: filters.include_irrelevant ? '1' : '',
     });
+
+    // 預設收合：篩選列有九個欄位，展開時會把新聞流推到折線以下。
+    // 已套用篩選時預設展開，否則使用者看不出結果為何被縮減。
+    const hasActiveFilter = Object.entries(filters).some(
+        ([key, value]) => key !== 'include_irrelevant' && value !== null && value !== '',
+    );
+    const [open, setOpen] = useState(hasActiveFilter);
 
     const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -114,7 +122,31 @@ function FilterBar({ filters, facets }) {
         router.get('/news', query, { preserveScroll: true });
     };
 
+    const reset = () => router.get('/news', {}, { preserveScroll: true });
+
+    const activeCount = Object.entries(filters).filter(
+        ([key, value]) => key !== 'include_irrelevant' && value !== null && value !== '',
+    ).length;
+
     return (
+        <div className="news-filter">
+            <div className="news-filter__head">
+                <button
+                    aria-expanded={open}
+                    className="news-filter__toggle"
+                    onClick={() => setOpen((v) => !v)}
+                    type="button"
+                >
+                    <SlidersHorizontal aria-hidden="true" size={15} />
+                    篩選{activeCount > 0 ? `（已套用 ${activeCount} 項）` : ''}
+                    <ChevronDown aria-hidden="true" className={open ? 'is-open' : undefined} size={15} />
+                </button>
+                {activeCount > 0 ? (
+                    <button className="news-filter__reset" onClick={reset} type="button">清除</button>
+                ) : null}
+            </div>
+
+            {open ? (
         <form className="news-filter-bar" onSubmit={submit}>
             <label className="form-field">
                 <span>市場</span>
@@ -179,17 +211,39 @@ function FilterBar({ filters, facets }) {
                 <span>迄</span>
                 <input onChange={(event) => update('to', event.target.value)} type="date" value={form.to} />
             </label>
+            {/* 分類器把明顯與投資無關的新聞標為雜訊並預設隱藏。這個開關是檢查
+                誤判的出口——被誤標的新聞若沒有辦法叫出來，就等於永遠消失。 */}
+            <label className="form-field form-field--checkbox">
+                <input
+                    checked={form.include_irrelevant === '1'}
+                    onChange={(event) => update('include_irrelevant', event.target.checked ? '1' : '')}
+                    type="checkbox"
+                />
+                <span>顯示雜訊新聞</span>
+            </label>
             <button className="button-primary" type="submit">篩選</button>
         </form>
+            ) : null}
+        </div>
     );
 }
 
-function DailySummaryPanel({ providers, summary }) {
-    const fallback = defaultProvider(providers);
+/**
+ * 今日總經摘要。
+ *
+ * 這裡的模型選擇是整頁共用的——下方每則新聞的分析也用它。原本每張新聞卡片
+ * 各自帶一個選擇器，一頁 20 則就有 20 個下拉選單，而使用者幾乎不會為個別
+ * 新聞換模型。
+ */
+function DailySummaryPanel({ providers, summary, providerId, onProviderChange }) {
     const form = useForm({
-        llm_provider_setting_id: fallback ? String(fallback.id) : '',
+        llm_provider_setting_id: providerId ?? '',
         model: '',
     });
+
+    useEffect(() => {
+        form.setData('llm_provider_setting_id', providerId ?? '');
+    }, [providerId]);
 
     const submit = (event) => {
         event.preventDefault();
@@ -213,9 +267,9 @@ function DailySummaryPanel({ providers, summary }) {
             ) : (
                 <form className="analysis-action" onSubmit={submit}>
                     <ModelPicker
-                        onChange={(value) => form.setData('llm_provider_setting_id', value)}
+                        onChange={onProviderChange}
                         providers={providers}
-                        value={form.data.llm_provider_setting_id}
+                        value={providerId}
                     />
                     <button className="button-secondary" disabled={form.processing} type="submit">
                         <Sparkles aria-hidden="true" size={18} />
@@ -280,12 +334,23 @@ function AnalysisResult({ analysis }) {
     );
 }
 
-function ItemAnalyzeForm({ item, providers }) {
-    const fallback = defaultProvider(providers);
+/**
+ * 單則新聞的分析按鈕。
+ *
+ * 刻意不放模型選擇器：一頁 20 則新聞就會有 20 個下拉選單，而使用者幾乎不會
+ * 為個別新聞換模型。模型統一由頁面上方「今日總經摘要」的選擇器控制，這裡只
+ * 沿用該選擇並在按鈕上標示目前用哪一個，避免使用者不知道會用什麼模型送出。
+ */
+function ItemAnalyzeForm({ item, providerId, providerName }) {
     const form = useForm({
-        llm_provider_setting_id: fallback ? String(fallback.id) : '',
+        llm_provider_setting_id: providerId ?? '',
         model: '',
     });
+
+    // 上方換模型後，本表單要跟著換——useForm 的初始值只在掛載時取一次。
+    useEffect(() => {
+        form.setData('llm_provider_setting_id', providerId ?? '');
+    }, [providerId]);
 
     const submit = (event) => {
         event.preventDefault();
@@ -294,21 +359,17 @@ function ItemAnalyzeForm({ item, providers }) {
 
     return (
         <form className="analysis-action news-analyze-form" onSubmit={submit}>
-            <ModelPicker
-                onChange={(value) => form.setData('llm_provider_setting_id', value)}
-                providers={providers}
-                value={form.data.llm_provider_setting_id}
-            />
-            <button className="button-secondary" disabled={form.processing} type="submit">
+            <button className="button-secondary" disabled={form.processing || !providerId} type="submit">
                 <Sparkles aria-hidden="true" size={18} />
-                <span>用我的模型分析</span>
+                <span>{form.processing ? '分析中…' : '分析這則新聞'}</span>
             </button>
+            {providerName ? <small className="field-hint">使用 {providerName}</small> : null}
             <FieldError message={form.errors.llm_provider_setting_id} />
         </form>
     );
 }
 
-function NewsCard({ item, providers }) {
+function NewsCard({ item, providers, providerId, providerName }) {
     return (
         <article className="news-card">
             <div className="news-card-meta">
@@ -317,7 +378,12 @@ function NewsCard({ item, providers }) {
                         <Video aria-hidden="true" size={14} /> {kindLabels.video}
                     </span>
                 ) : null}
-                <span className="news-chip">{domainLabels[item.domain] ?? item.domain}</span>
+                {/* 顯示全部命中的領域，不只主領域。跨領域新聞（例如對半導體加徵
+                    關稅＝科技＋地緣政治＋供應鏈）往往影響最大，只顯示第一個會
+                    把這個資訊藏起來。舊資料沒有 domains 欄位時退回單一 domain。 */}
+                {(item.domains?.length ? item.domains : [item.domain]).map((domain) => (
+                    <span className="news-chip" key={domain}>{domainLabels[domain] ?? domain}</span>
+                ))}
                 {item.market ? <span className="news-chip">{item.market}</span> : null}
                 <span className="news-source">{item.source}</span>
                 <span className="news-time">{formatDateTime(item.published_at)}</span>
@@ -356,7 +422,7 @@ function NewsCard({ item, providers }) {
                         新增模型。
                     </p>
                 ) : (
-                    <ItemAnalyzeForm item={item} providers={providers} />
+                    <ItemAnalyzeForm item={item} providerId={providerId} providerName={providerName} />
                 )}
                 <AnalysisResult analysis={item.latest_analysis} />
             </div>
@@ -511,6 +577,14 @@ export default function NewsIndex({
     const data = items.data ?? [];
     const providers = llmProviders ?? [];
 
+    // 模型選擇提升到頁面層級：上方摘要面板的選擇同時作為下方每則新聞分析的
+    // 預設模型，避免每張卡片各自帶一個選擇器。
+    const fallback = defaultProvider(providers);
+    const [selectedProviderId, setSelectedProviderId] = useState(fallback ? String(fallback.id) : '');
+    const selectedProviderName = providers.find(
+        (provider) => String(provider.id) === String(selectedProviderId),
+    )?.display_name ?? null;
+
     return (
         <AppShell title="即時新聞">
             <section className="news-panel">
@@ -526,7 +600,12 @@ export default function NewsIndex({
 
                 <FeedSourcePanel sources={feedSources} />
 
-                <DailySummaryPanel providers={providers} summary={latestDailySummary} />
+                <DailySummaryPanel
+                    onProviderChange={setSelectedProviderId}
+                    providerId={selectedProviderId}
+                    providers={providers}
+                    summary={latestDailySummary}
+                />
 
                 <FilterBar facets={facets} filters={filters} />
 
@@ -535,7 +614,13 @@ export default function NewsIndex({
                 ) : (
                     <div className="news-list">
                         {data.map((item) => (
-                            <NewsCard item={item} key={item.id} providers={providers} />
+                            <NewsCard
+                                item={item}
+                                key={item.id}
+                                providerId={selectedProviderId}
+                                providerName={selectedProviderName}
+                                providers={providers}
+                            />
                         ))}
                     </div>
                 )}
