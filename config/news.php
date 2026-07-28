@@ -107,9 +107,6 @@ return [
         // 國際新聞與地緣政治
         ['key' => 'bbc_business', 'name' => 'BBC Business', 'url' => 'https://feeds.bbci.co.uk/news/business/rss.xml', 'market' => 'INTL', 'language' => 'en'],
         ['key' => 'bbc_world', 'name' => 'BBC World', 'url' => 'https://feeds.bbci.co.uk/news/world/rss.xml', 'market' => 'INTL', 'language' => 'en'],
-        ['key' => 'aljazeera', 'name' => 'Al Jazeera', 'url' => 'https://www.aljazeera.com/xml/rss/all.xml', 'market' => 'INTL', 'language' => 'en'],
-        ['key' => 'guardian_business', 'name' => 'Guardian Business', 'url' => 'https://www.theguardian.com/uk/business/rss', 'market' => 'INTL', 'language' => 'en'],
-        ['key' => 'nyt_business', 'name' => 'NYT Business', 'url' => 'https://rss.nytimes.com/services/xml/rss/nyt/Business.xml', 'market' => 'US', 'language' => 'en'],
 
         // 官方一手來源：發布頻率低但屬事實而非報導，品質高於媒體轉述。
         // 低頻是常態，health.stale_runs_threshold 對這類來源會較寬鬆（見 health 設定）。
@@ -173,9 +170,19 @@ return [
     */
 
     'blocked_sources' => [
-        // 投資內容農場／個股推薦文工廠。
         // 注意子字串方向：寫 'CMoney' 才能同時擋掉「CMoney」與「CMoney投資網誌」；
-        // 反過來寫子品牌會漏掉母品牌（實測母品牌 63 筆全部漏網）。
+        // 反過來寫子品牌會漏掉母品牌（實測母品牌 63 筆全部漏網）。同理 'Guardian'
+        // 一併涵蓋「Guardian Business」與 Google News 的「The Guardian」。
+
+        // 綜合新聞媒體的財經版：本身混雜大量非財經內容（體育、影劇、社會案件），
+        // 靠關鍵字分類追不完。實測這三家佔被過濾雜訊的四成。同時列在這裡而非
+        // 只移除 feed，是因為 Google News 會用原始媒體名把同樣的文章送進來。
+        'Al Jazeera',
+        'Guardian',
+        'New York Times',
+        'NYT Business',
+
+        // 投資內容農場／個股推薦文工廠。
         'Insider Monkey',
         'CMoney',
         'Motley Fool',
