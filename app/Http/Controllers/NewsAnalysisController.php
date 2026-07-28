@@ -12,6 +12,13 @@ use Illuminate\Http\Request;
 
 class NewsAnalysisController extends Controller
 {
+    /**
+     * 每日摘要的候選新聞數（聚類前）。
+     *
+     * 聚類後才是實際進入 prompt 的事件數，因此這裡要取遠多於期望事件數的量。
+     */
+    private const DAILY_SUMMARY_CANDIDATES = 150;
+
     public function __construct(
         private readonly NewsAnalysisService $service,
         private readonly LlmProviderFactory $factory,
@@ -68,16 +75,22 @@ class NewsAnalysisController extends Controller
         $model = trim((string) ($data['model'] ?? '')) ?: (string) $setting->model;
         $llm = $this->factory->make($setting);
 
+        // 取遠多於最終需要的候選量：dailySummary 會先把同一事件的多家報導聚成
+        // 一組，若在這裡就砍到 30 則，當日若有大事件被十家媒體報導，其餘事件會
+        // 直接被擠出查詢，聚類再怎麼壓縮也補不回來，摘要會只剩單一主題。
+        // 另外排除與投資無關的雜訊，避免佔用候選名額。
         $items = NewsItem::query()
+            ->where('relevant', true)
             ->where('published_at', '>=', now()->subDay())
             ->orderByDesc('published_at')
-            ->limit(30)
+            ->limit(self::DAILY_SUMMARY_CANDIDATES)
             ->get();
 
         if ($items->isEmpty()) {
             $items = NewsItem::query()
+                ->where('relevant', true)
                 ->orderByDesc('created_at')
-                ->limit(30)
+                ->limit(self::DAILY_SUMMARY_CANDIDATES)
                 ->get();
         }
 
