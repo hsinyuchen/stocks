@@ -260,12 +260,35 @@ class NewsIngestionService
                 'domains' => $classification['domains'],
                 // 相關性依 classifier 判定的領域，但 symbols 用聯集後的結果：
                 // 個股 Google News 帶進來的 $extraSymbols 也算正向訊號。
-                'relevant' => $classification['relevant'] || $symbols !== [],
+                // 官方監理機關來源免判定——見 config('news.always_relevant_sources')。
+                'relevant' => $this->isAlwaysRelevant($item->source)
+                    || $classification['relevant']
+                    || $symbols !== [],
                 'related_symbols' => $symbols,
             ],
         );
 
         return $existing === null;
+    }
+
+    /**
+     * 官方監理與統計機關來源，發布內容一律視為相關。
+     *
+     * 與 isBlocked() 一樣公開且比對入庫的 source 名稱：news:reclassify 也要用
+     * 同一份判定，否則重跑分類會把官方來源的 relevant 洗掉（實測 SEC 25 筆
+     * 只剩 12 筆為 true）。
+     */
+    public function isAlwaysRelevant(string $source): bool
+    {
+        $source = trim(mb_strtolower($source));
+
+        foreach ((array) config('news.always_relevant_sources', []) as $trusted) {
+            if ($source === trim(mb_strtolower((string) $trusted))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

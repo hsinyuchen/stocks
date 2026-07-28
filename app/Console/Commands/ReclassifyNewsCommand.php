@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\NewsItem;
 use App\Services\News\NewsClassifier;
+use App\Services\News\NewsIngestionService;
 use Illuminate\Console\Command;
 
 /**
@@ -30,8 +31,10 @@ class ReclassifyNewsCommand extends Command
         $relevanceChanged = 0;
         $symbolsAdded = 0;
 
+        $ingestion = app(NewsIngestionService::class);
+
         NewsItem::query()->chunkById(500, function ($items) use (
-            $classifier, $dryRun, &$total, &$domainChanged, &$relevanceChanged, &$symbolsAdded
+            $classifier, $ingestion, $dryRun, &$total, &$domainChanged, &$relevanceChanged, &$symbolsAdded
         ): void {
             foreach ($items as $item) {
                 $total++;
@@ -43,7 +46,11 @@ class ReclassifyNewsCommand extends Command
                     $result['symbols'],
                 )));
 
-                $relevant = $result['relevant'] || $symbols !== [];
+                // 與 NewsIngestionService::upsert() 用同一份判定，否則官方監理
+                // 機關來源的 relevant 會在重跑分類時被洗掉。
+                $relevant = $ingestion->isAlwaysRelevant((string) $item->source)
+                    || $result['relevant']
+                    || $symbols !== [];
 
                 if ($item->domain !== $result['domain']) {
                     $domainChanged++;

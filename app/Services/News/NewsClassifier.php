@@ -28,7 +28,7 @@ class NewsClassifier
             'domain' => $domains === [] ? 'other' : $domains[0],
             'domains' => $domains,
             'symbols' => $symbols,
-            'relevant' => $this->isRelevant($haystack, $domains, $symbols),
+            'relevant' => $this->isRelevant($domains, $symbols),
         ];
     }
 
@@ -103,26 +103,26 @@ class NewsClassifier
     /**
      * 是否與投資相關。
      *
-     * 保守判定：只有在「沒有任何領域命中」且「沒有任何關聯個股」且「命中排除
-     * 關鍵字」三者同時成立時才判為不相關。有任一正向訊號就保留——漏掉真訊號
-     * 的代價遠高於留下雜訊。
+     * 需要正向訊號：命中任一領域或任一關聯個股才算相關。
+     *
+     * 舊版反過來——只有「無領域」且「無個股」且「命中排除關鍵字」三者同時成立
+     * 才判為不相關，等於黑名單。實測 1035 則新聞有 99% 被標為相關，其中包含
+     * 世界盃、影劇、社會案件與旅遊報導：綜合媒體（BBC、NYT、Guardian、
+     * Al Jazeera）的 Business 版本身就混雜大量非財經內容，靠一份排除詞表追不完。
+     *
+     * 代價是關鍵字表的覆蓋率直接決定召回率，漏收的詞會變成誤殺。因此改動同時
+     * 補齊了 finance / market 的常用詞，並讓官方監理機關來源免判定。
+     *
+     * 原本搭配的 news.irrelevant 排除詞表一併移除：它唯一的作用是把「無訊號」
+     * 判為不相關，而那已是現在的預設。改成硬性覆蓋則會誤殺複合標題——
+     * 「台積電法說會後美食街人潮回流」是真訊號，不該因為出現「美食」被丟掉。
      *
      * @param  list<string>  $domains
      * @param  list<string>  $symbols
      */
-    private function isRelevant(string $haystack, array $domains, array $symbols): bool
+    private function isRelevant(array $domains, array $symbols): bool
     {
-        if ($domains !== [] || $symbols !== []) {
-            return true;
-        }
-
-        foreach ((array) config('news.irrelevant', []) as $keyword) {
-            if ($this->matches($haystack, (string) $keyword)) {
-                return false;
-            }
-        }
-
-        return true;
+        return $domains !== [] || $symbols !== [];
     }
 
     /**

@@ -543,10 +543,15 @@ return [
             'semiconductor', 'chip', 'nvidia', 'ai', 'data center', 'foundry',
             'dram', 'nand', 'memory', 'wafer', 'lithography', 'euv', 'gpu', 'tsmc',
             'asml', 'robot', 'cloud', 'software', 'quantum',
+            // 製程與供應鏈用詞：DUV 與 EUV 同樣是設備管制焦點，先前只收了 EUV。
+            'duv', 'packaging', 'advanced packaging', 'hbm', 'chipmaking', 'fab',
         ],
         'defense' => [
             '國防', '軍工', '飛彈', '軍事', '國艦國造', '無人機',
             'defense', 'defence', 'military', 'missile', 'warship', 'fighter jet', 'drone',
+            // 軍購新聞多半只出現機構名或裝備名，不會出現「defense」這個詞。
+            'pentagon', 'rocket', 'munition', 'artillery', 'radar', 'submarine', 'aircraft',
+            '五角大廈', '國防部', '軍購', '標案', '戰機', '潛艦',
         ],
         'geopolitics' => [
             '地緣', '戰爭', '制裁', '關稅', '外交', '衝突', '停火', '和談', '出口管制',
@@ -565,6 +570,14 @@ return [
             '央行', '升息', '降息', '通膨', '利率', '公債', '殖利率', '衰退', '就業數據',
             'fed', 'federal reserve', 'cpi', 'inflation', 'rate cut', 'rate hike', 'yield',
             'bond', 'recession', 'ecb', 'payroll', 'gdp', 'treasury',
+            // 央行決策文件與信用環境：FOMC 會議紀要、ECB 放款調查等官方發布
+            // 先前完全比對不到，而那是總經新聞裡資訊量最高的一類。
+            'fomc', 'federal open market', 'monetary policy', 'basis point',
+            'lending', 'credit condition', 'jobless', 'unemployment',
+            '會議紀要', '貨幣政策', '放款', '信貸', '失業率', '基點', '財政',
+            // 金融業本身：銀行、保險、支付先前完全沒有對應詞。
+            'bank', 'banking', 'insurance', 'fintech', 'payment', 'mortgage',
+            '銀行', '金融', '保險', '支付', '房貸', '債務',
         ],
         'currency' => [
             '匯率', '新台幣', '美元', '日圓', '人民幣', '貶值', '升值',
@@ -573,6 +586,13 @@ return [
         'supply_chain' => [
             '供應鏈', '產能', '缺貨', '庫存', '港口', '物流', '轉單', '斷鏈',
             'supply chain', 'shortage', 'inventory', 'logistics', 'port', 'capacity',
+            // 運輸與天災：荷莫茲、紅海、強震都會直接打到供應鏈與運價，先前只有
+            // transmission 規則收了這些詞，domains 沒有，導致新聞被判為不相關。
+            'shipping', 'tanker', 'freight', 'red sea', 'houthi', 'earthquake',
+            '航運', '油輪', '運價', '紅海', '地震', '強震', '斷料', '停工',
+            // 在手訂單與交期是製造業最直接的營運指標。
+            'backlog', 'lead time', 'order book', 'production line',
+            '訂單', '在手訂單', '交機', '交期', '產線',
         ],
 
         // market 刻意排在最後：它涵蓋面最廣（幾乎所有財經新聞都提到股價或大盤），
@@ -586,6 +606,17 @@ return [
             '本益比', '殖利率', '配息', '庫藏股', '財富自由', '基金', 'etf',
             'earnings', 'analyst', 'stock', 'shares', 'ipo', 'dividend', 'buyback',
             'guidance', 'wall street', 'nasdaq', 's&p 500', 'dow jones', 'valuation',
+            // 「財經」「經濟」本身沒被收錄，導致大量標題（東協財經、財經快訊）
+            // 落在無領域而被判為不相關。
+            '財經', '經濟', '股市', '指數', '恒指', '恒生', '道瓊', '那斯達克',
+            '半年報', '季報', '財測', '獲利', '虧損', '成交量', '報酬率', '定存',
+            'economy', 'economic', 'forecast', 'outlook', 'revenue', 'profit',
+            'quarterly', 'market cap', 'index', 'hang seng', 'equities', 'investor',
+            // 公司事件：裁員與併購是最常見的個股題材，兩者都沒被收錄。
+            'layoff', 'merger', 'acquisition', 'restructuring', 'bankruptcy',
+            // 英文裁員有多種說法，只收 layoff 會漏掉「GSK to cut jobs」這類標題。
+            'job cut', 'cut jobs', 'cost-cutting', 'cost cutting', 'divest', 'spin-off',
+            '裁員', '併購', '收購', '重整', '破產', '下市', '減資',
         ],
     ],
 
@@ -602,14 +633,17 @@ return [
     |
     */
 
-    'irrelevant' => [
-        '美食', '餐廳', '旅遊', '景點', '娛樂', '明星', '藝人', '球賽', '運動賽事',
-        '星座', '命理', '寵物', '食譜', '減肥', '養生', '婚姻', '感情', '育兒',
-        '槍擊', '車禍', '命案', '竊盜', '詐騙集團', '天氣', '颱風假',
-        '熱浪', '遊行', '脫軌', '愛孫', '存摺', '避暑', '手環', '長者', '獨居',
-        '量販店', '超市', '飲料', '益生', '高蛋白', '民調', '婚禮', '喪禮',
-        'recipe', 'celebrity', 'sports', 'horoscope', 'travel guide',
-        'heatwave', 'parade', 'protein', 'dairy',
+    /*
+     * 官方監理與統計機關：發布內容本質上全屬總經，一律視為相關。
+     *
+     * 這些 feed 是人工挑選的官方來源，發文量低且全是政策文件、統計與新聞稿。
+     * 靠關鍵字碰運氣會漏掉最重要的一類——實測「Minutes of the FOMC」與
+     * 「Survey on the Access to Finance of Enterprises」都比對不到任何領域。
+     *
+     * 比對的是入庫的 source 名稱，與 blocked_sources 同一套判定方式。
+     */
+    'always_relevant_sources' => [
+        'Federal Reserve', 'ECB', 'SEC', 'EIA',
     ],
 
     /*
