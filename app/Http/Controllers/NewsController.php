@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\FeedHealth;
 use App\Models\LlmProviderSetting;
 use App\Models\NewsAnalysis;
 use App\Models\NewsItem;
 use App\Models\User;
+use App\Services\News\TransmissionMapper;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -26,11 +28,18 @@ class NewsController extends Controller
             'q' => ['nullable', 'string', 'max:120'],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
+            'include_irrelevant' => ['nullable', 'boolean'],
         ]);
 
         $user = $request->user();
 
+        // 預設濾掉與投資無關的雜訊（美食、社會案件、生活理財）。分類器的判定
+        // 很保守：只有「無領域 ∧ 無個股 ∧ 命中排除字」三者同時成立才會標記，
+        // 所以誤殺風險低。仍保留 include_irrelevant=1 供人工檢查誤判。
+        $includeIrrelevant = (bool) ($filters['include_irrelevant'] ?? false);
+
         $items = NewsItem::query()
+            ->unless($includeIrrelevant, fn (Builder $query) => $query->where('relevant', true))
             ->orderByDesc('published_at')
             ->orderByDesc('id')
             ->when(($filters['market'] ?? '') !== '', fn (Builder $query) => $query->where('market', $filters['market']))
@@ -66,6 +75,7 @@ class NewsController extends Controller
                 'q' => $filters['q'] ?? null,
                 'from' => $filters['from'] ?? null,
                 'to' => $filters['to'] ?? null,
+                'include_irrelevant' => $includeIrrelevant,
             ],
             'facets' => [
                 'markets' => $this->distinctValues('market'),
@@ -75,7 +85,55 @@ class NewsController extends Controller
             ],
             'lastUpdatedAt' => NewsItem::max('created_at'),
             'nextUpdateTimes' => array_values((array) config('news.schedule.times', [])),
+            'feedSources' => $this->feedSourcesPayload(),
         ]);
+    }
+
+    /**
+     * 全部設定中的來源與其健康度，供 UI 列出連結並標示失效者。
+     *
+     * 來源失效在此專案是靜默發生的：實測 WSJ Markets 回 HTTP 200 且項目滿滿，
+     * 但內容凍結在 547 天前，插入後即被 prune，DB 永遠 0 筆。使用者只會看到
+     * 「某個媒體的新聞不見了」，卻無從得知原因。把健康度攤在 UI 上，失效才是
+     * 可見的。
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function feedSourcesPayload(): array
+    {
+        $health = FeedHealth::query()->get()->keyBy('key');
+
+        return collect((array) config('news.feeds', []))
+            ->map(function (array $feed) use ($health): array {
+                $key = (string) ($feed['key'] ?? '');
+                $row = $health->get($key);
+
+                return [
+                    'key' => $key,
+                    'name' => (string) ($feed['name'] ?? $key),
+                    'market' => (string) ($feed['market'] ?? ''),
+                    // site 優先；否則由 feed URL 取主機名組出可點的首頁連結。
+                    'site' => $this->feedSite($feed),
+                    'healthy' => $row === null ? null : ! $row->isUnhealthy(),
+                    'last_fresh_at' => $row?->last_fresh_at?->toIso8601String(),
+                    'stale_runs' => (int) ($row?->consecutive_stale_runs ?? 0),
+                    'last_error' => $row?->last_error,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /** @param array<string, mixed> $feed */
+    private function feedSite(array $feed): ?string
+    {
+        if (isset($feed['site']) && $feed['site'] !== '') {
+            return (string) $feed['site'];
+        }
+
+        $host = parse_url((string) ($feed['url'] ?? ''), PHP_URL_HOST);
+
+        return is_string($host) && $host !== '' ? 'https://'.$host : null;
     }
 
     private function itemPayload(NewsItem $item, ?NewsAnalysis $analysis): array
@@ -89,8 +147,17 @@ class NewsController extends Controller
             'kind' => $item->kind,
             'market' => $item->market,
             'domain' => $item->domain,
+            'domains' => array_values($item->domains ?? []),
             'language' => $item->language,
             'related_symbols' => array_values($item->related_symbols ?? []),
+            // 傳導鏈與 related_symbols 語意不同：後者是「新聞提到這檔股票」，
+            // 前者是「這個事件可能影響這檔股票」。合併會讓使用者誤以為新聞
+            // 直接談到了該公司，故分開輸出。
+            'transmission' => app(TransmissionMapper::class)->map(
+                (string) $item->title,
+                (string) $item->summary,
+                (array) ($item->domains ?? []),
+            ),
             'published_at' => $item->published_at?->toIso8601String(),
             'latest_analysis' => $analysis === null ? null : [
                 'id' => $analysis->id,
@@ -173,9 +240,11 @@ class NewsController extends Controller
     /**
      * @return list<string>
      */
+    /** 篩選選項只列出相關新聞中實際存在的值，避免選了卻是空清單。 */
     private function distinctValues(string $column): array
     {
         return NewsItem::query()
+            ->where('relevant', true)
             ->whereNotNull($column)
             ->where($column, '!=', '')
             ->distinct()

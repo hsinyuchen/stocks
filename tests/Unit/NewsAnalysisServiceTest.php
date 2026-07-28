@@ -6,8 +6,10 @@ use App\Contracts\LlmProvider;
 use App\Data\LlmResponseData;
 use App\Models\NewsItem;
 use App\Services\News\NewsAnalysisService;
-use PHPUnit\Framework\TestCase;
 use RuntimeException;
+// 服務需要 config('news.symbols') 驗證 LLM 回傳的代號，故用 Laravel 基底
+// （同 tests/Unit/NewsConfigTest 的作法）。
+use Tests\TestCase;
 
 class NewsAnalysisServiceTest extends TestCase
 {
@@ -28,7 +30,9 @@ class NewsAnalysisServiceTest extends TestCase
         $this->assertSame('gpt-test', $result['model']);
         $this->assertSame('bullish', $result['sentiment']);
         $this->assertSame(4, $result['impact']);
-        $this->assertSame(['NVDA', 'TSM'], $result['symbols']);
+        // NVDA 在 config('news.symbols') 中；TSM 不在，屬無法驗證的代號，
+        // 必須被濾掉——否則模型幻覺出的 ticker 會被寫成「此新聞與該股相關」。
+        $this->assertSame(['NVDA'], $result['symbols']);
         $this->assertSame('需求強勁', $result['summary']);
         $this->assertSame('資料中心拉貨', $result['reasoning']);
         $this->assertIsArray($result['raw']);
