@@ -1,5 +1,6 @@
-import { router, useForm } from '@inertiajs/react';
-import { Plus, Save, Trash2, X } from 'lucide-react';
+import { Link, router, useForm } from '@inertiajs/react';
+import { useState } from 'react';
+import { Briefcase, Plus, Save, Trash2, X } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 import StockSearchBox from '../../Components/StockSearchBox';
 
@@ -123,7 +124,76 @@ function AddInstrumentForm({ watchlist }) {
     );
 }
 
-function InstrumentRow({ item, watchlist }) {
+/**
+ * 從自選清單加入投資組合。
+ *
+ * 不能做成一鍵加入：持倉需要股數與平均成本，沒有這兩個值就算不出損益，
+ * 這是它與「加入自選清單」的本質差異——後者只是標記關注，前者是記錄部位。
+ *
+ * 沿用既有的 POST /portfolio，它已處理代號解析、重複檢查與幣別判定；
+ * 另建平行端點只會讓兩套邏輯日後分歧。
+ */
+function AddToPortfolio({ instrument, held }) {
+    const [open, setOpen] = useState(false);
+    const form = useForm({ symbol: instrument.symbol, shares: '', avg_cost: '', note: '' });
+
+    if (held) {
+        return <span className="instrument-row__held">已在投資組合</span>;
+    }
+
+    const submit = (event) => {
+        event.preventDefault();
+        form.post('/portfolio', {
+            preserveScroll: true,
+            onSuccess: () => {
+                form.reset();
+                setOpen(false);
+            },
+        });
+    };
+
+    if (! open) {
+        return (
+            <button className="instrument-row__add" onClick={() => setOpen(true)} type="button">
+                <Briefcase aria-hidden="true" size={14} />
+                加入持倉
+            </button>
+        );
+    }
+
+    return (
+        <form className="instrument-row__portfolio" onSubmit={submit}>
+            <label>
+                <span>股數</span>
+                <input
+                    autoFocus
+                    onChange={(event) => form.setData('shares', event.target.value)}
+                    placeholder="1000"
+                    step="0.0001"
+                    type="number"
+                    value={form.data.shares}
+                />
+            </label>
+            <label>
+                <span>平均成本</span>
+                <input
+                    onChange={(event) => form.setData('avg_cost', event.target.value)}
+                    placeholder="580.5"
+                    step="0.0001"
+                    type="number"
+                    value={form.data.avg_cost}
+                />
+            </label>
+            <button className="button-secondary" disabled={form.processing} type="submit">
+                {form.processing ? '加入中…' : '確認'}
+            </button>
+            <button onClick={() => { form.reset(); setOpen(false); }} type="button">取消</button>
+            <FieldError message={form.errors.symbol ?? form.errors.shares ?? form.errors.avg_cost} />
+        </form>
+    );
+}
+
+function InstrumentRow({ item, watchlist, held }) {
     const instrument = item.instrument;
 
     const remove = () => {
@@ -134,10 +204,16 @@ function InstrumentRow({ item, watchlist }) {
 
     return (
         <article className="instrument-row">
-            <div>
+            {/* 只有代號與名稱包進連結，移除鈕留在外面——把整列做成連結會讓
+                點擊刪除同時觸發導航，Link 內嵌 button 也是無效的 HTML。 */}
+            <Link
+                aria-label={`查看 ${instrument.symbol} 個股分析`}
+                className="instrument-row__link"
+                href={`/stocks/search?symbol=${encodeURIComponent(instrument.symbol)}`}
+            >
                 <strong>{instrument.symbol}</strong>
                 <span>{instrument.name}</span>
-            </div>
+            </Link>
             <div className="instrument-row__meta">
                 <span>{instrument.market}</span>
                 <span>{instrument.asset_type.toUpperCase()}</span>
@@ -145,6 +221,7 @@ function InstrumentRow({ item, watchlist }) {
                 {instrument.exchange ? <span>{instrument.exchange}</span> : null}
             </div>
             {item.note ? <p>{item.note}</p> : <p className="muted-text">尚無備註</p>}
+            <AddToPortfolio held={held} instrument={instrument} />
             <button className="icon-button" onClick={remove} title="移除股票" type="button">
                 <X aria-hidden="true" size={18} />
             </button>
@@ -152,7 +229,7 @@ function InstrumentRow({ item, watchlist }) {
     );
 }
 
-function WatchlistCard({ watchlist }) {
+function WatchlistCard({ watchlist, heldInstrumentIds }) {
     const destroy = () => {
         router.delete(`/watchlists/${watchlist.id}`, {
             preserveScroll: true,
@@ -171,7 +248,12 @@ function WatchlistCard({ watchlist }) {
             <div className="watchlist-items">
                 {watchlist.items.length > 0 ? (
                     watchlist.items.map((item) => (
-                        <InstrumentRow item={item} key={item.id} watchlist={watchlist} />
+                        <InstrumentRow
+                            held={heldInstrumentIds.includes(item.instrument.id)}
+                            item={item}
+                            key={item.id}
+                            watchlist={watchlist}
+                        />
                     ))
                 ) : (
                     <div className="empty-state">
@@ -186,7 +268,7 @@ function WatchlistCard({ watchlist }) {
     );
 }
 
-export default function WatchlistsIndex({ watchlists = [] }) {
+export default function WatchlistsIndex({ watchlists = [], heldInstrumentIds = [] }) {
     return (
         <AppShell title="自選清單">
             <div className="watchlists-page">
@@ -205,6 +287,7 @@ export default function WatchlistsIndex({ watchlists = [] }) {
                     {watchlists.length > 0 ? (
                         watchlists.map((watchlist) => (
                             <WatchlistCard
+                                heldInstrumentIds={heldInstrumentIds}
                                 key={watchlist.id}
                                 watchlist={watchlist}
                             />

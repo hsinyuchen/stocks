@@ -43,6 +43,9 @@ class WatchlistController extends Controller
 
         return Inertia::render('Watchlists/Index', [
             'watchlists' => $watchlists,
+            // 已在投資組合中的標的。UI 需要據此標示狀態——否則使用者要填完
+            // 股數與成本、送出後才會收到「該標的已在投資組合中」的錯誤。
+            'heldInstrumentIds' => $request->user()->holdings()->pluck('instrument_id')->all(),
         ]);
     }
 

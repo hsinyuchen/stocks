@@ -417,12 +417,12 @@ function AnalysisHistory({ analyses }) {
             <div className="panel-heading">
                 <div>
                     <p className="section-kicker">參考分析</p>
-                    <h2>最新保存摘要</h2>
+                    <h2>已保存 {analyses.length} 筆</h2>
                 </div>
                 <Bot aria-hidden="true" size={22} />
             </div>
             <div className="analysis-list">
-                {analyses.map((analysis) => {
+                {analyses.map((analysis, index) => {
                     const stance = analysis.rule_signal?.stance ?? 'watch';
                     // chip / alignment 只在有籌碼資料時存在（台股且抓取成功）。
                     const chip = analysis.rule_signal?.chip ?? null;
@@ -444,7 +444,15 @@ function AnalysisHistory({ analyses }) {
                                         {alignmentLabels[alignment]}
                                     </span>
                                 ) : null}
-                                <small>{analysis.provider_type} · {analysis.model}</small>
+                                {/* 時間必須顯示：同一檔股票的多筆分析，provider 與
+                                    model 往往相同，沒有時間就完全無法區分，五筆疊在
+                                    一起看起來像同一筆。created_at 本來就在 payload 裡
+                                    卻沒被用。 */}
+                                <small className="analysis-item__time">
+                                    {index === 0 ? <strong>最新</strong> : null}
+                                    {formatDateTime(analysis.created_at)}
+                                    <span>{analysis.provider_type} · {analysis.model}</span>
+                                </small>
                             </div>
                             <Markdown>{analysis.llm_output?.content ?? '尚未保存 LLM 參考文字。'}</Markdown>
                             {analysis.rule_signal?.reasons?.length ? (
@@ -563,6 +571,20 @@ function FundamentalsPanel({ fundamentals }) {
             </p>
         </section>
     );
+}
+
+function formatDateTime(value) {
+    if (!value) {
+        return '';
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    return date.toLocaleString('zh-TW', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 /** 股 → 張（台股慣例，1 張 = 1000 股）。資料層一律存股，只在顯示時換算。 */
