@@ -24,3 +24,5 @@ __pycache__
 Homestead.json
 Homestead.yaml
 Thumbs.db
+stock_laravel.zip
+*.zip
