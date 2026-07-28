@@ -17,6 +17,24 @@ const stanceLabels = {
     insufficient_data: '資料不足',
 };
 
+const chipStanceLabels = {
+    accumulating: '買超',
+    distributing: '賣超',
+    neutral: '中性',
+};
+
+// 借用既有 status-pill 的多空配色，不另外定義一套語意色。
+const chipStanceTone = {
+    accumulating: 'bullish',
+    distributing: 'bearish',
+    neutral: 'neutral',
+};
+
+const alignmentLabels = {
+    confirm: '技術與籌碼同向',
+    diverge: '技術與籌碼背離',
+};
+
 // 副圖開關：預設開 KD/MACD，RSI/OBV 預設關（spec 決策）。選擇存 localStorage。
 const PANE_OPTIONS = [
     { key: 'kd', label: 'KD' },
@@ -406,19 +424,39 @@ function AnalysisHistory({ analyses }) {
             <div className="analysis-list">
                 {analyses.map((analysis) => {
                     const stance = analysis.rule_signal?.stance ?? 'watch';
+                    // chip / alignment 只在有籌碼資料時存在（台股且抓取成功）。
+                    const chip = analysis.rule_signal?.chip ?? null;
+                    const alignment = analysis.rule_signal?.alignment ?? null;
 
                     return (
                         <article className="analysis-item" key={analysis.id}>
                             <div className="analysis-item__head">
                                 <span className={`status-pill status-pill--${stance}`}>
-                                    {stanceLabels[stance] ?? stance}
+                                    技術 {stanceLabels[stance] ?? stance}
                                 </span>
+                                {chip ? (
+                                    <span className={`status-pill status-pill--${chipStanceTone[chip.stance] ?? 'neutral'}`}>
+                                        籌碼 {chipStanceLabels[chip.stance] ?? chip.stance}
+                                    </span>
+                                ) : null}
+                                {alignment && alignment !== 'none' ? (
+                                    <span className={`chip-alignment chip-alignment--${alignment}`}>
+                                        {alignmentLabels[alignment]}
+                                    </span>
+                                ) : null}
                                 <small>{analysis.provider_type} · {analysis.model}</small>
                             </div>
                             <Markdown>{analysis.llm_output?.content ?? '尚未保存 LLM 參考文字。'}</Markdown>
                             {analysis.rule_signal?.reasons?.length ? (
                                 <ul>
                                     {analysis.rule_signal.reasons.map((reason) => (
+                                        <li key={reason}>{reason}</li>
+                                    ))}
+                                </ul>
+                            ) : null}
+                            {chip?.reasons?.length ? (
+                                <ul className="analysis-item__chip-reasons">
+                                    {chip.reasons.map((reason) => (
                                         <li key={reason}>{reason}</li>
                                     ))}
                                 </ul>
@@ -527,6 +565,103 @@ function FundamentalsPanel({ fundamentals }) {
     );
 }
 
+/** 股 → 張（台股慣例，1 張 = 1000 股）。資料層一律存股，只在顯示時換算。 */
+function fmtLots(shares) {
+    if (shares === null || shares === undefined) {
+        return '—';
+    }
+
+    const lots = Math.round(Number(shares) / 1000);
+
+    return `${lots > 0 ? '+' : ''}${lots.toLocaleString('en-US')}`;
+}
+
+function ChipPanel({ chipFlows }) {
+    if (!chipFlows || chipFlows.length === 0) {
+        return null;
+    }
+
+    const window = chipFlows.slice(-5);
+    const sum = (key) => window.reduce((total, row) => total + Number(row[key] ?? 0), 0);
+    const foreign = sum('foreign_net');
+
+    // 外資連續同向天數：與後端 SignalEngine::foreignStreak 同規則，
+    // 淨額 0 視為中斷。
+    let streak = 0;
+    const lastForeign = Number(chipFlows[chipFlows.length - 1].foreign_net ?? 0);
+    if (lastForeign !== 0) {
+        for (let i = chipFlows.length - 1; i >= 0; i -= 1) {
+            const net = Number(chipFlows[i].foreign_net ?? 0);
+            if (net === 0 || net > 0 !== lastForeign > 0) {
+                break;
+            }
+            streak += 1;
+        }
+    }
+
+    const recent = [...chipFlows].slice(-10).reverse();
+
+    return (
+        <section className="stock-panel chip-panel">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">籌碼面</p>
+                    <h2>三大法人買賣超</h2>
+                </div>
+                <span className="field-hint">資料日 {chipFlows[chipFlows.length - 1].date}</span>
+            </div>
+
+            <div className="fundamentals-grid">
+                <div className="fundamentals-cell">
+                    <span>外資（近 {window.length} 日）</span>
+                    <strong className={changeClass(foreign)}>{fmtLots(foreign)} 張</strong>
+                </div>
+                <div className="fundamentals-cell">
+                    <span>投信（近 {window.length} 日）</span>
+                    <strong className={changeClass(sum('trust_net'))}>{fmtLots(sum('trust_net'))} 張</strong>
+                </div>
+                <div className="fundamentals-cell">
+                    <span>自營商（近 {window.length} 日）</span>
+                    <strong className={changeClass(sum('dealer_net'))}>{fmtLots(sum('dealer_net'))} 張</strong>
+                </div>
+                <div className="fundamentals-cell">
+                    <span>外資連續{lastForeign > 0 ? '買超' : '賣超'}</span>
+                    <strong>{streak === 0 ? '—' : `${streak} 日`}</strong>
+                </div>
+            </div>
+
+            <div className="chip-table-scroll">
+                <table className="chip-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">日期</th>
+                            <th scope="col">外資</th>
+                            <th scope="col">投信</th>
+                            <th scope="col">自營商</th>
+                            <th scope="col">合計</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {recent.map((row) => (
+                            <tr key={row.date}>
+                                <td>{row.date}</td>
+                                <td className={changeClass(row.foreign_net)}>{fmtLots(row.foreign_net)}</td>
+                                <td className={changeClass(row.trust_net)}>{fmtLots(row.trust_net)}</td>
+                                <td className={changeClass(row.dealer_net)}>{fmtLots(row.dealer_net)}</td>
+                                <td className={changeClass(row.total_net)}>{fmtLots(row.total_net)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            <p className="fundamentals-disclaimer">
+                單位為張（1 張 = 1000 股），正值買超、負值賣超。資料來自 FinMind，收盤後公佈，當日資料可能延遲。僅供參考，非投資建議。
+            </p>
+        </section>
+    );
+}
+
 export default function StockSearch({
     symbol = null,
     instrument = null,
@@ -535,6 +670,7 @@ export default function StockSearch({
     analyses = [],
     llmProviders = [],
     fundamentals = null,
+    chipFlows = [],
 }) {
     return (
         <AppShell title="個股搜尋">
@@ -553,6 +689,7 @@ export default function StockSearch({
                         <QuotePanel instrument={instrument} quote={quote} />
                         {instrument ? <ChartSection instrument={instrument} /> : null}
                         <FundamentalsPanel fundamentals={fundamentals} />
+                        <ChipPanel chipFlows={chipFlows} />
                         <NewsList news={news} />
                     </div>
                     <aside className="stock-workspace__side">

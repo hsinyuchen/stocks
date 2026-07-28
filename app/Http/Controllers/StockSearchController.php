@@ -4,12 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
+use App\Data\ChipFlowData;
 use App\Enums\AssetType;
 use App\Enums\MarketRegion;
 use App\Models\Instrument;
 use App\Models\LlmProviderSetting;
 use App\Models\StockAnalysis;
 use App\Models\User;
+use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
 use App\Services\Llm\LlmProviderFactory;
 use App\Services\News\SymbolNewsService;
@@ -61,6 +63,9 @@ class StockSearchController extends Controller
         // 台股才有基本面（best-effort，service 內已容錯且有快取節流）。
         $fundamentals = app(FundamentalsService::class)->forInstrument($instrument);
 
+        // 台股才有籌碼。頁面只顯示最近 20 個交易日，快取本身仍保留較長歷史。
+        $chipFlows = app(ChipDataService::class)->forInstrument($instrument);
+
         // 首載瘦身：不再輸出 prices/indicators，前端掛載後另打 stocks.chart endpoint
         // 取 5 年日/週/月 K 與完整指標序列，避免首頁 payload 過大。
         return Inertia::render('Stocks/Search', [
@@ -76,6 +81,13 @@ class StockSearchController extends Controller
                 'revenue' => $fundamentals->revenue, 'revenue_month' => $fundamentals->revenueMonth, 'revenue_yoy' => $fundamentals->revenueYoy,
                 'data_as_of' => $fundamentals->dataAsOf,
             ],
+            'chipFlows' => array_map(fn (ChipFlowData $flow): array => [
+                'date' => $flow->date,
+                'foreign_net' => $flow->foreignNet,
+                'trust_net' => $flow->trustNet,
+                'dealer_net' => $flow->dealerNet,
+                'total_net' => $flow->totalNet,
+            ], array_slice($chipFlows, -20)),
         ]);
     }
 
@@ -105,9 +117,12 @@ class StockSearchController extends Controller
         $setting = $this->resolveSetting($user, $data['llm_provider_setting_id'] ?? null);
         $model = trim((string) ($data['model'] ?? '')) ?: ($setting->model ?? 'reference-model');
 
+        // 台股才有籌碼（service 內已判斷市場、容錯並節流）。
+        $chipFlows = app(ChipDataService::class)->forInstrument($instrument);
+
         $result = $setting !== null
-            ? $this->stockAnalysis->analyze($instrument->symbol, $model, $this->llmFactory->make($setting))
-            : $this->stockAnalysis->analyze($instrument->symbol, $model);
+            ? $this->stockAnalysis->analyze($instrument->symbol, $model, $this->llmFactory->make($setting), $chipFlows)
+            : $this->stockAnalysis->analyze($instrument->symbol, $model, null, $chipFlows);
 
         $user->stockAnalyses()->create([
             'instrument_id' => $instrument->id,
@@ -144,6 +159,7 @@ class StockSearchController extends Controller
             'news' => [],
             'analyses' => [],
             'llmProviders' => [],
+            'chipFlows' => [],
         ];
     }
 
