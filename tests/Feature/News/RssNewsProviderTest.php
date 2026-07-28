@@ -48,7 +48,7 @@ class RssNewsProviderTest extends TestCase
             'example.test/*' => Http::response($rss, 200, ['Content-Type' => 'application/rss+xml']),
         ]);
 
-        $items = (new RssNewsProvider())->fetch($this->feed());
+        $items = (new RssNewsProvider)->fetch($this->feed());
 
         $this->assertCount(2, $items);
         $this->assertContainsOnlyInstancesOf(NewsItemData::class, $items);
@@ -91,7 +91,7 @@ class RssNewsProviderTest extends TestCase
             'example.test/*' => Http::response($atom, 200, ['Content-Type' => 'application/atom+xml']),
         ]);
 
-        $items = (new RssNewsProvider())->fetch($this->feed());
+        $items = (new RssNewsProvider)->fetch($this->feed());
 
         $this->assertCount(2, $items);
 
@@ -111,7 +111,7 @@ class RssNewsProviderTest extends TestCase
 
         $this->expectException(RequestException::class);
 
-        (new RssNewsProvider())->fetch($this->feed());
+        (new RssNewsProvider)->fetch($this->feed());
     }
 
     public function test_empty_body_returns_empty_array(): void
@@ -120,7 +120,7 @@ class RssNewsProviderTest extends TestCase
             'example.test/*' => Http::response('', 200),
         ]);
 
-        $this->assertSame([], (new RssNewsProvider())->fetch($this->feed()));
+        $this->assertSame([], (new RssNewsProvider)->fetch($this->feed()));
     }
 
     public function test_garbage_xml_returns_empty_array(): void
@@ -129,7 +129,7 @@ class RssNewsProviderTest extends TestCase
             'example.test/*' => Http::response('<<not xml at all >>>', 200),
         ]);
 
-        $this->assertSame([], (new RssNewsProvider())->fetch($this->feed()));
+        $this->assertSame([], (new RssNewsProvider)->fetch($this->feed()));
     }
 
     public function test_missing_fields_are_tolerated(): void
@@ -149,7 +149,7 @@ class RssNewsProviderTest extends TestCase
             'example.test/*' => Http::response($rss, 200),
         ]);
 
-        $items = (new RssNewsProvider())->fetch($this->feed());
+        $items = (new RssNewsProvider)->fetch($this->feed());
 
         $this->assertCount(1, $items);
         $this->assertSame('Only a title here', $items[0]->title);

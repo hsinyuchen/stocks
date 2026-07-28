@@ -35,7 +35,7 @@ class YoutubeIngestionServiceTest extends TestCase
 
     private function makeService(YoutubeWorkerRunner $runner): YoutubeIngestionService
     {
-        return new YoutubeIngestionService($runner, new NewsClassifier());
+        return new YoutubeIngestionService($runner, new NewsClassifier);
     }
 
     /**

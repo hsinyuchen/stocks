@@ -117,7 +117,7 @@ class LlmProviderSettingController extends Controller
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function settingAttributes(array $data, ?LlmProviderSetting $existing = null): array

@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\News;
 
-use App\Models\NewsAnalysis;
 use App\Models\NewsItem;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;

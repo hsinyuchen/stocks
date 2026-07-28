@@ -5,7 +5,7 @@ namespace App\Data;
 final readonly class NewsItemData
 {
     /**
-     * @param list<string> $relatedSymbols
+     * @param  list<string>  $relatedSymbols
      */
     public function __construct(
         public string $source,

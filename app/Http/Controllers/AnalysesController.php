@@ -6,6 +6,7 @@ use App\Models\NewsAnalysis;
 use App\Models\StockAnalysis;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -41,9 +42,9 @@ class AnalysesController extends Controller
     }
 
     /**
-     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     * @return Collection<int, array<string, mixed>>
      */
-    private function stockRows(User $user, string $type): \Illuminate\Support\Collection
+    private function stockRows(User $user, string $type): Collection
     {
         if (! in_array($type, ['all', 'stock'], true)) {
             return collect();
@@ -70,9 +71,9 @@ class AnalysesController extends Controller
     }
 
     /**
-     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     * @return Collection<int, array<string, mixed>>
      */
-    private function newsRows(User $user, string $type): \Illuminate\Support\Collection
+    private function newsRows(User $user, string $type): Collection
     {
         // news -> item analyses; daily -> daily_summary analyses; all -> both.
         $newsTypes = match ($type) {

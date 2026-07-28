@@ -4,8 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\LlmProviderSetting;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Database\QueryException;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
@@ -282,7 +282,7 @@ class LlmSettingsTest extends TestCase
     }
 
     /**
-     * @param array<string, mixed> $overrides
+     * @param  array<string, mixed>  $overrides
      */
     private function validPayload(array $overrides = []): array
     {
@@ -300,7 +300,7 @@ class LlmSettingsTest extends TestCase
     }
 
     /**
-     * @param array<string, mixed> $overrides
+     * @param  array<string, mixed>  $overrides
      */
     private function createSetting(User $user, array $overrides = []): LlmProviderSetting
     {

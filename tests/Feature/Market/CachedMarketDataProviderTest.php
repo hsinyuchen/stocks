@@ -6,10 +6,10 @@ use App\Contracts\MarketDataProvider;
 use App\Data\DailyPriceData;
 use App\Data\MarketQuoteData;
 use App\Models\DailyPrice;
-use App\Models\Instrument;
 use App\Services\Market\CachedMarketDataProvider;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class CachedMarketDataProviderTest extends TestCase
@@ -18,7 +18,7 @@ class CachedMarketDataProviderTest extends TestCase
 
     public function test_first_call_fetches_upstream_and_persists_rows(): void
     {
-        $upstream = new CountingMarketProvider();
+        $upstream = new CountingMarketProvider;
         $cache = new CachedMarketDataProvider($upstream, 720);
 
         $prices = $cache->dailyPrices('2330.TW', 3);
@@ -35,7 +35,7 @@ class CachedMarketDataProviderTest extends TestCase
      */
     public function test_rebased_upstream_purges_stale_basis_rows_instead_of_mixing_them(): void
     {
-        $upstream = new RebasingMarketProvider();
+        $upstream = new RebasingMarketProvider;
         // ttl 0：每次呼叫都視為過期，強制重新抓取。
         $cache = new CachedMarketDataProvider($upstream, 0);
 
@@ -70,7 +70,7 @@ class CachedMarketDataProviderTest extends TestCase
      */
     public function test_single_bar_revision_does_not_purge_long_history(): void
     {
-        $upstream = new PartialRevisionMarketProvider();
+        $upstream = new PartialRevisionMarketProvider;
         $cache = new CachedMarketDataProvider($upstream, 0);
 
         $cache->dailyPrices('NVDA', 250);
@@ -86,7 +86,7 @@ class CachedMarketDataProviderTest extends TestCase
     /** 真正的拆股會讓所有重疊日期以同一比例改變，此時才該清空重寫。 */
     public function test_uniform_rescale_across_bars_still_purges(): void
     {
-        $upstream = new PartialRevisionMarketProvider();
+        $upstream = new PartialRevisionMarketProvider;
         $cache = new CachedMarketDataProvider($upstream, 0);
 
         $cache->dailyPrices('NVDA', 250);
@@ -101,7 +101,7 @@ class CachedMarketDataProviderTest extends TestCase
     /** 正常的日常波動不得觸發清空重寫，否則每次抓取都會退化成全量重抓。 */
     public function test_ordinary_price_movement_does_not_purge_history(): void
     {
-        $upstream = new RebasingMarketProvider();
+        $upstream = new RebasingMarketProvider;
         $cache = new CachedMarketDataProvider($upstream, 0);
 
         $cache->dailyPrices('NVDA', 10);
@@ -115,7 +115,7 @@ class CachedMarketDataProviderTest extends TestCase
 
     public function test_second_call_is_served_from_db_without_hitting_upstream(): void
     {
-        $upstream = new CountingMarketProvider();
+        $upstream = new CountingMarketProvider;
         $cache = new CachedMarketDataProvider($upstream, 720);
 
         $cache->dailyPrices('2330.TW', 3);
@@ -127,7 +127,7 @@ class CachedMarketDataProviderTest extends TestCase
 
     public function test_quote_is_served_from_short_shared_cache(): void
     {
-        $upstream = new CountingMarketProvider();
+        $upstream = new CountingMarketProvider;
         $cache = new CachedMarketDataProvider($upstream, 720);
 
         $first = $cache->quote('NVDA');
@@ -142,7 +142,7 @@ class CachedMarketDataProviderTest extends TestCase
     public function test_restore_over_existing_rows_updates_in_place_without_unique_violation(): void
     {
         // ttl 0 => every call is stale => re-fetch + re-store over the same dates.
-        $upstream = new CountingMarketProvider();
+        $upstream = new CountingMarketProvider;
         $cache = new CachedMarketDataProvider($upstream, 0);
 
         $cache->dailyPrices('2330.TW', 3);
@@ -159,9 +159,9 @@ class CachedMarketDataProviderTest extends TestCase
         // (database/file/redis) round-trips them. Force a serializing store so
         // a cached DTO would surface as __PHP_Incomplete_Class if mishandled.
         config(['cache.default' => 'database']);
-        \Illuminate\Support\Facades\Cache::flush();
+        Cache::flush();
 
-        $upstream = new CountingMarketProvider();
+        $upstream = new CountingMarketProvider;
         $cache = new CachedMarketDataProvider($upstream, 720);
 
         $first = $cache->quote('AAPL');   // miss -> writes to the serializing store

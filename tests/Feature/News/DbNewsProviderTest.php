@@ -33,7 +33,7 @@ class DbNewsProviderTest extends TestCase
     {
         $this->makeItem();
 
-        $provider = new DbNewsProvider();
+        $provider = new DbNewsProvider;
 
         $this->assertSame([], $provider->latestMarketNews('US', 0));
         $this->assertSame([], $provider->latestMarketNews('US', -1));
@@ -45,7 +45,7 @@ class DbNewsProviderTest extends TestCase
         $this->makeItem(['source' => 'US New', 'market' => 'US', 'published_at' => now()->subDay()]);
         $this->makeItem(['source' => 'TW One', 'market' => 'TW', 'published_at' => now()]);
 
-        $provider = new DbNewsProvider();
+        $provider = new DbNewsProvider;
 
         $items = $provider->latestMarketNews('US', 10);
 
@@ -61,7 +61,7 @@ class DbNewsProviderTest extends TestCase
         $this->makeItem(['market' => 'US']);
         $this->makeItem(['market' => 'TW']);
 
-        $provider = new DbNewsProvider();
+        $provider = new DbNewsProvider;
 
         $this->assertCount(2, $provider->latestMarketNews('', 10));
     }
@@ -72,7 +72,7 @@ class DbNewsProviderTest extends TestCase
         $this->makeItem(['market' => 'US', 'published_at' => now()->subDays(2)]);
         $this->makeItem(['market' => 'US', 'published_at' => now()->subDay()]);
 
-        $provider = new DbNewsProvider();
+        $provider = new DbNewsProvider;
 
         $this->assertCount(2, $provider->latestMarketNews('US', 2));
     }
@@ -81,7 +81,7 @@ class DbNewsProviderTest extends TestCase
     {
         $this->makeItem(['related_symbols' => ['NVDA']]);
 
-        $provider = new DbNewsProvider();
+        $provider = new DbNewsProvider;
 
         $this->assertSame([], $provider->relatedNews('NVDA', 0));
         $this->assertSame([], $provider->relatedNews('NVDA', -1));
@@ -93,7 +93,7 @@ class DbNewsProviderTest extends TestCase
         $this->makeItem(['source' => 'NVDA New', 'related_symbols' => ['NVDA', 'AMD'], 'published_at' => now()->subDay()]);
         $this->makeItem(['source' => 'AAPL Only', 'related_symbols' => ['AAPL'], 'published_at' => now()]);
 
-        $provider = new DbNewsProvider();
+        $provider = new DbNewsProvider;
 
         $items = $provider->relatedNews('NVDA', 10);
 
@@ -110,7 +110,7 @@ class DbNewsProviderTest extends TestCase
         $this->makeItem(['related_symbols' => ['NVDA'], 'published_at' => now()->subDays(2)]);
         $this->makeItem(['related_symbols' => ['NVDA'], 'published_at' => now()->subDay()]);
 
-        $provider = new DbNewsProvider();
+        $provider = new DbNewsProvider;
 
         $this->assertCount(2, $provider->relatedNews('NVDA', 2));
     }

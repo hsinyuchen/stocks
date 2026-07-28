@@ -9,7 +9,7 @@ class NewsClassifierTest extends TestCase
 {
     private function classifier(): NewsClassifier
     {
-        return new NewsClassifier();
+        return new NewsClassifier;
     }
 
     public function test_tech_keyword_maps_to_tech_domain(): void

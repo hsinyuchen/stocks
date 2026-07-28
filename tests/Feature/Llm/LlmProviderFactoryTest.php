@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\Llm;
 
-use App\Models\LlmProviderSetting;
 use App\Models\User;
 use App\Services\Llm\AnthropicLlmProvider;
 use App\Services\Llm\GeminiLlmProvider;
@@ -32,7 +31,7 @@ class LlmProviderFactoryTest extends TestCase
             'default_marker' => true,
         ]);
 
-        $provider = (new LlmProviderFactory())->make($setting);
+        $provider = (new LlmProviderFactory)->make($setting);
 
         $this->assertInstanceOf(OpenAiCompatibleLlmProvider::class, $provider);
     }
@@ -53,7 +52,7 @@ class LlmProviderFactoryTest extends TestCase
             'default_marker' => true,
         ]);
 
-        $this->assertInstanceOf(GeminiLlmProvider::class, (new LlmProviderFactory())->make($setting));
+        $this->assertInstanceOf(GeminiLlmProvider::class, (new LlmProviderFactory)->make($setting));
     }
 
     public function test_builds_anthropic_provider_for_claude(): void
@@ -72,7 +71,7 @@ class LlmProviderFactoryTest extends TestCase
             'default_marker' => true,
         ]);
 
-        $this->assertInstanceOf(AnthropicLlmProvider::class, (new LlmProviderFactory())->make($setting));
+        $this->assertInstanceOf(AnthropicLlmProvider::class, (new LlmProviderFactory)->make($setting));
     }
 
     public function test_throws_when_openai_compatible_has_no_base_url(): void
@@ -92,7 +91,7 @@ class LlmProviderFactoryTest extends TestCase
         ]);
 
         $this->expectException(InvalidArgumentException::class);
-        (new LlmProviderFactory())->make($setting);
+        (new LlmProviderFactory)->make($setting);
     }
 
     public function test_default_llm_setting_prefers_marked_default_then_first(): void

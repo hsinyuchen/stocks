@@ -140,14 +140,14 @@ class AlertEvaluatorTest extends TestCase
         $daily = [];
         for ($i = 0; $i < 30; $i++) {
             $close = 100 + $i;
-            $daily[] = new \App\Data\DailyPriceData('SIG.TW', sprintf('2026-01-%02d', $i + 1), $close, $close + 1, $close - 1, $close, 1000);
+            $daily[] = new DailyPriceData('SIG.TW', sprintf('2026-01-%02d', $i + 1), $close, $close + 1, $close - 1, $close, 1000);
         }
         // quote() throws for SIG.TW, but dailyPrices succeeds
         $this->bindProvider([], failing: ['SIG.TW'], daily: ['SIG.TW' => $daily]);
-        $user = \App\Models\User::factory()->create();
+        $user = User::factory()->create();
         $alert = $this->alert($user, 'SIG.TW', 'signal', signalKey: 'above_ma20');
 
-        $this->assertSame(1, app(\App\Services\Alerts\AlertEvaluator::class)->evaluate($user));
+        $this->assertSame(1, app(AlertEvaluator::class)->evaluate($user));
         $alert->refresh();
         $this->assertSame('triggered', $alert->status);
         $this->assertNull($alert->triggered_price);   // 報價失敗 → 觸發價為 null

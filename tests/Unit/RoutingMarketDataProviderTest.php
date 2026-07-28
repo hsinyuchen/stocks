@@ -38,7 +38,7 @@ class RoutingMarketDataProviderTest extends TestCase
     public function test_falls_back_when_primary_throws(): void
     {
         $routing = new RoutingMarketDataProvider(
-            taiwan: new ThrowingMarketProvider(),
+            taiwan: new ThrowingMarketProvider,
             unitedStates: new StubMarketProvider('US'),
             fallback: new StubMarketProvider('FALLBACK'),
         );

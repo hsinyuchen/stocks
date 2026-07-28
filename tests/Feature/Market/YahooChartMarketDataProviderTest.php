@@ -37,7 +37,7 @@ class YahooChartMarketDataProviderTest extends TestCase
     {
         Http::fake(['*query2.finance.yahoo.com*' => Http::response($this->payload(), 200)]);
 
-        $prices = (new YahooChartMarketDataProvider())->dailyPrices('AAPL', 2);
+        $prices = (new YahooChartMarketDataProvider)->dailyPrices('AAPL', 2);
 
         $this->assertCount(2, $prices);
         $this->assertSame('2026-06-18', $prices[0]->date);
@@ -52,7 +52,7 @@ class YahooChartMarketDataProviderTest extends TestCase
 
         Http::fake(['*query2.finance.yahoo.com*' => Http::response($payload, 200)]);
 
-        $prices = (new YahooChartMarketDataProvider())->dailyPrices('AAPL', 10);
+        $prices = (new YahooChartMarketDataProvider)->dailyPrices('AAPL', 10);
 
         $this->assertCount(2, $prices);
     }
@@ -69,7 +69,7 @@ class YahooChartMarketDataProviderTest extends TestCase
 
         Http::fake(['*query2.finance.yahoo.com*' => Http::response($payload, 200)]);
 
-        $quote = (new YahooChartMarketDataProvider())->quote('AAPL');
+        $quote = (new YahooChartMarketDataProvider)->quote('AAPL');
 
         $this->assertSame('AAPL', $quote->symbol);
         $this->assertSame(112.5, $quote->price);
@@ -88,7 +88,7 @@ class YahooChartMarketDataProviderTest extends TestCase
 
         Http::fake(['*query2.finance.yahoo.com*' => Http::response($payload, 200)]);
 
-        $quote = (new YahooChartMarketDataProvider())->quote('AAPL');
+        $quote = (new YahooChartMarketDataProvider)->quote('AAPL');
 
         $this->assertSame(112.0, $quote->price);
         $this->assertSame(12.0, $quote->change);
@@ -101,7 +101,7 @@ class YahooChartMarketDataProviderTest extends TestCase
 
         Http::fake(['*query2.finance.yahoo.com*' => Http::response($payload, 200)]);
 
-        $quote = (new YahooChartMarketDataProvider())->quote('AAPL');
+        $quote = (new YahooChartMarketDataProvider)->quote('AAPL');
 
         $this->assertSame(110.0, $quote->price);
         $this->assertSame(3.0, $quote->change);

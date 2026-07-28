@@ -20,7 +20,7 @@ class StooqMarketDataProviderTest extends TestCase
     {
         Http::fake(['*stooq.com*' => Http::response($this->csv(), 200)]);
 
-        $prices = (new StooqMarketDataProvider())->dailyPrices('NVDA', 2);
+        $prices = (new StooqMarketDataProvider)->dailyPrices('NVDA', 2);
 
         $this->assertCount(2, $prices);
         $this->assertSame('NVDA', $prices[0]->symbol);
@@ -36,7 +36,7 @@ class StooqMarketDataProviderTest extends TestCase
     {
         Http::fake(['*stooq.com*' => Http::response($this->csv(), 200)]);
 
-        $quote = (new StooqMarketDataProvider())->quote('NVDA');
+        $quote = (new StooqMarketDataProvider)->quote('NVDA');
 
         $this->assertSame('NVDA', $quote->symbol);
         $this->assertSame(110.0, $quote->price);
@@ -48,6 +48,6 @@ class StooqMarketDataProviderTest extends TestCase
     {
         Http::fake(['*stooq.com*' => Http::response("Date,Open,High,Low,Close,Volume\n", 200)]);
 
-        $this->assertSame([], (new StooqMarketDataProvider())->dailyPrices('NVDA', 5));
+        $this->assertSame([], (new StooqMarketDataProvider)->dailyPrices('NVDA', 5));
     }
 }

@@ -73,7 +73,7 @@ class NewsIngestionServiceTest extends TestCase
 
     private function makeService(): NewsIngestionService
     {
-        return new NewsIngestionService(new RssNewsProvider(), new NewsClassifier());
+        return new NewsIngestionService(new RssNewsProvider, new NewsClassifier);
     }
 
     public function test_ingest_persists_classified_items(): void

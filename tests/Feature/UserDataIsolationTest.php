@@ -2,14 +2,14 @@
 
 namespace Tests\Feature;
 
-use App\Models\Instrument;
 use App\Models\DailyPrice;
+use App\Models\Instrument;
 use App\Models\LlmProviderSetting;
 use App\Models\User;
 use App\Models\Watchlist;
 use Carbon\CarbonInterface;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Database\QueryException;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -33,7 +33,7 @@ class UserDataIsolationTest extends TestCase
     {
         Instrument::factory()->create(['symbol' => '2330.TW']);
 
-        $this->expectException(\Illuminate\Database\QueryException::class);
+        $this->expectException(QueryException::class);
         Instrument::factory()->create(['symbol' => '2330.TW']);
     }
 

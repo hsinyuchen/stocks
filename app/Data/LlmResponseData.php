@@ -5,7 +5,7 @@ namespace App\Data;
 final readonly class LlmResponseData
 {
     /**
-     * @param array<string, mixed> $metadata
+     * @param  array<string, mixed>  $metadata
      */
     public function __construct(
         public string $provider,
