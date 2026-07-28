@@ -12,7 +12,7 @@ use App\Data\NewsItemData;
 use App\Services\SignalEngine;
 use App\Services\StockAnalysisService;
 use App\Services\TechnicalIndicatorService;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 class StockAnalysisServiceTest extends TestCase
 {
@@ -34,7 +34,7 @@ class StockAnalysisServiceTest extends TestCase
                 publishedAt: '2026-06-20T08:00:00+00:00',
             ),
         ]);
-        $llm = new TrackingLlmProvider();
+        $llm = new TrackingLlmProvider;
         $technicalSnapshot = [
             'k' => 55.1,
             'd' => 51.4,
@@ -117,13 +117,13 @@ class StockAnalysisServiceTest extends TestCase
             ),
         ];
         $news = new TrackingNewsProvider($newsItems);
-        $llm = new TrackingLlmProvider();
+        $llm = new TrackingLlmProvider;
 
         $service = new StockAnalysisService(
             $marketData,
             $news,
-            new TechnicalIndicatorService(),
-            new SignalEngine(),
+            new TechnicalIndicatorService,
+            new SignalEngine,
         );
 
         $analysis = $service->analyze('NVDA', 'requested-model', $llm);
@@ -194,7 +194,7 @@ class StockAnalysisServiceTest extends TestCase
             new StubSignalEngine(['stance' => 'watch', 'score' => 1, 'reasons' => ['r']]),
         );
 
-        $analysis = $service->analyze('NVDA', 'm', new ThrowingStockAnalysisLlmProvider());
+        $analysis = $service->analyze('NVDA', 'm', new ThrowingStockAnalysisLlmProvider);
 
         $this->assertSame('error', $analysis['llm']['provider']);
         $this->assertStringContainsString('AI 分析暫時無法使用', $analysis['llm']['content']);

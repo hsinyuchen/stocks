@@ -3,7 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\TechnicalIndicatorService;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 class TechnicalIndicatorSeriesExtensionTest extends TestCase
 {

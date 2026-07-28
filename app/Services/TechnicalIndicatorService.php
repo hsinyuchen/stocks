@@ -33,6 +33,10 @@ class TechnicalIndicatorService
         $d = end($kdSeries['d']);
         [$macd, $signal] = $this->macd($closes);
 
+        // 額外欄位供 SignalEngine 判讀趨勢、波動率與量價背離。純新增，既有鍵的
+        // 語意不變——stance 被 alerts、dashboard 與既存分析共用，不可動。
+        $n = $count - 1;
+
         return [
             'k' => round($k, 4),
             'd' => round($d, 4),
@@ -41,6 +45,15 @@ class TechnicalIndicatorService
             'macd_histogram' => ($macd === null || $signal === null) ? null : round($macd - $signal, 4),
             'ma5' => $ma5 === null ? null : round($ma5, 4),
             'ma20' => $ma20 === null ? null : round($ma20, 4),
+            'close' => round($closes[$n], 4),
+            'ma60' => $kdSeries['ma60'][$n] ?? null,
+            'ma60_prev' => $kdSeries['ma60'][max(0, $n - 20)] ?? null,
+            'rsi' => $kdSeries['rsi'][$n] ?? null,
+            'boll_upper' => $kdSeries['boll_upper'][$n] ?? null,
+            'boll_lower' => $kdSeries['boll_lower'][$n] ?? null,
+            'obv' => $kdSeries['obv'][$n] ?? null,
+            'obv_prev' => $kdSeries['obv'][max(0, $n - 20)] ?? null,
+            'close_prev' => $closes[max(0, $n - 20)] ?? null,
         ];
     }
 

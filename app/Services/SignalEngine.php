@@ -32,34 +32,48 @@ class SignalEngine
         $score = 0;
         $reasons = [];
 
-        if ($k > $d) {
+        // 強度門檻取代純方向判斷。
+        //
+        // 原本 K 高於 D 0.01 與高於 20 同樣計 +1，把雜訊當成訊號。三個計分項
+        // 各自用該指標自身的尺度設門檻：KD 是 0-100 的量，用絕對差；均線與
+        // MACD 柱的絕對值隨股價量級變動，改用相對於價格的比例。
+        $kdGap = $k - $d;
+        $kdThreshold = (float) config('signals.kd_gap', 2.0);
+
+        if ($kdGap > $kdThreshold) {
             $score++;
-            $reasons[] = 'KD 偏多，因為 K 值高於 D 值。';
-        } elseif ($k < $d) {
+            $reasons[] = sprintf('KD 偏多，K 高於 D %.1f 點。', $kdGap);
+        } elseif ($kdGap < -$kdThreshold) {
             $score--;
-            $reasons[] = 'KD 偏謹慎，因為 K 值低於 D 值。';
+            $reasons[] = sprintf('KD 偏謹慎，K 低於 D %.1f 點。', abs($kdGap));
         } else {
-            $reasons[] = 'KD 中性，因為 K 值等於 D 值。';
+            $reasons[] = 'KD 差距未達門檻，視為中性。';
         }
 
-        if ($macdHistogram > 0) {
+        $close = (float) ($snapshot['close'] ?? 0);
+        $histogramThreshold = $close > 0 ? $close * (float) config('signals.macd_pct', 0.001) : 0.0;
+
+        if ($macdHistogram > $histogramThreshold) {
             $score++;
-            $reasons[] = 'MACD 柱狀體為正，動能偏多。';
-        } elseif ($macdHistogram < 0) {
+            $reasons[] = 'MACD 柱狀體明確為正，動能偏多。';
+        } elseif ($macdHistogram < -$histogramThreshold) {
             $score--;
-            $reasons[] = 'MACD 柱狀體為負，動能偏弱。';
+            $reasons[] = 'MACD 柱狀體明確為負，動能偏弱。';
         } else {
-            $reasons[] = 'MACD 柱狀體接近中性。';
+            $reasons[] = 'MACD 柱狀體接近零軸，動能不明。';
         }
 
-        if ($ma5 > $ma20) {
+        $maBias = $ma20 > 0 ? ($ma5 / $ma20 - 1) * 100 : 0.0;
+        $maThreshold = (float) config('signals.ma_bias_pct', 0.5);
+
+        if ($maBias > $maThreshold) {
             $score++;
-            $reasons[] = '短期均線高於中期均線，趨勢結構偏多。';
-        } elseif ($ma5 < $ma20) {
+            $reasons[] = sprintf('短期均線高於中期均線 %.2f%%，趨勢結構偏多。', $maBias);
+        } elseif ($maBias < -$maThreshold) {
             $score--;
-            $reasons[] = '短期均線低於中期均線，趨勢結構偏弱。';
+            $reasons[] = sprintf('短期均線低於中期均線 %.2f%%，趨勢結構偏弱。', abs($maBias));
         } else {
-            $reasons[] = '短期均線與中期均線相同，趨勢結構暫時中性。';
+            $reasons[] = '短中期均線糾結，趨勢結構不明。';
         }
 
         $stance = match (true) {
@@ -69,11 +83,168 @@ class SignalEngine
             default => 'neutral',
         };
 
-        return $this->withChip([
+        return $this->withChip($this->withDimensions([
             'stance' => $stance,
             'score' => $score,
             'reasons' => $reasons,
-        ], $chipFlows);
+        ], $snapshot), $chipFlows);
+    }
+
+    /**
+     * 三個與動能正交的維度。
+     *
+     * stance 的三個計分項（KD、MACD 柱、MA5 對 MA20）全是收盤價的一階衍生，
+     * 彼此高度共線——多頭時三項齊亮，等於同一個判斷數了三次。加更多動能指標
+     * 只會加劇這件事，真正該補的是不同性質的資訊：
+     *
+     *   trend       價格相對 MA60 的位置與 MA60 斜率。空頭排列中的 KD 黃金交叉
+     *               是反彈不是反轉，而 stance 無法區分這兩者。
+     *   volatility  布林帶寬。盤整期的 MACD 交叉是雜訊，趨勢期才有意義；
+     *               同一個訊號在兩種狀態下的含意完全不同。
+     *   divergence  價格與 OBV 的方向是否一致。價創新高但量能不跟＝背離。
+     *
+     * 這些不併入 score，理由與籌碼相同：它們是獨立維度而非同一個方向的加權，
+     * 且 stance 已被 alerts、dashboard 與既存 stock_analyses 共用，不可改語意。
+     * 缺少所需欄位時整個區塊不輸出，呼叫端行為與過去一致。
+     *
+     * @param  array<string, mixed>  $result
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>
+     */
+    private function withDimensions(array $result, array $snapshot): array
+    {
+        $dimensions = array_filter([
+            'trend' => $this->trend($snapshot),
+            'volatility' => $this->volatility($snapshot),
+            'divergence' => $this->divergence($snapshot),
+        ], static fn ($value): bool => $value !== null);
+
+        if ($dimensions !== []) {
+            $result['dimensions'] = $dimensions;
+        }
+
+        return $result;
+    }
+
+    /**
+     * 趨勢過濾器：價格相對 MA60 的位置，以及 MA60 過去 20 根的斜率。
+     *
+     * 用途是「這個動能訊號值不值得看」，不是再給一次方向。空頭排列（價格在
+     * MA60 之下且 MA60 下彎）中出現 KD 黃金交叉，多半是反彈而非反轉。
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>|null
+     */
+    private function trend(array $snapshot): ?array
+    {
+        $close = $snapshot['close'] ?? null;
+        $ma60 = $snapshot['ma60'] ?? null;
+        $ma60Prev = $snapshot['ma60_prev'] ?? null;
+
+        if (! is_numeric($close) || ! is_numeric($ma60) || (float) $ma60 <= 0) {
+            return null;
+        }
+
+        $bias = ((float) $close / (float) $ma60 - 1) * 100;
+        $slope = (is_numeric($ma60Prev) && (float) $ma60Prev > 0)
+            ? ((float) $ma60 / (float) $ma60Prev - 1) * 100
+            : null;
+
+        $direction = match (true) {
+            $bias > 0 && ($slope ?? 0) > 0 => 'up',
+            $bias < 0 && ($slope ?? 0) < 0 => 'down',
+            default => 'mixed',
+        };
+
+        return [
+            'direction' => $direction,
+            'bias_pct' => round($bias, 2),
+            'slope_pct' => $slope === null ? null : round($slope, 2),
+            'note' => match ($direction) {
+                'up' => '價格在季線之上且季線上彎，多頭結構。',
+                'down' => '價格在季線之下且季線下彎，空頭結構；此時的多方訊號多為反彈。',
+                default => '價格與季線方向不一致，趨勢未定。',
+            },
+        ];
+    }
+
+    /**
+     * 波動率狀態：布林帶寬（上下軌距離佔中軌的比例）。
+     *
+     * 帶寬收斂代表盤整，此時的交叉訊號大多是雜訊；帶寬擴張代表趨勢成形。
+     * 門檻是通用起點，未經回測驗證。
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>|null
+     */
+    private function volatility(array $snapshot): ?array
+    {
+        $upper = $snapshot['boll_upper'] ?? null;
+        $lower = $snapshot['boll_lower'] ?? null;
+        $ma20 = $snapshot['ma20'] ?? null;
+
+        if (! is_numeric($upper) || ! is_numeric($lower) || ! is_numeric($ma20) || (float) $ma20 <= 0) {
+            return null;
+        }
+
+        $width = ((float) $upper - (float) $lower) / (float) $ma20 * 100;
+        $squeeze = (float) config('signals.squeeze_pct', 8.0);
+        $expansion = (float) config('signals.expansion_pct', 20.0);
+
+        $regime = match (true) {
+            $width < $squeeze => 'squeeze',
+            $width > $expansion => 'expansion',
+            default => 'normal',
+        };
+
+        return [
+            'regime' => $regime,
+            'bandwidth_pct' => round($width, 2),
+            'note' => match ($regime) {
+                'squeeze' => '布林帶寬收斂，盤整格局；此時的交叉訊號多為雜訊。',
+                'expansion' => '布林帶寬擴張，波動放大；訊號較有延續性但風險同步升高。',
+                default => '波動率處於中性區間。',
+            },
+        ];
+    }
+
+    /**
+     * 量價背離：價格與 OBV 在過去 20 根的方向是否一致。
+     *
+     * 價創新高但 OBV 沒跟上，代表推升缺乏成交量支撐。這是 series() 早就算好
+     * 卻從未被使用的資訊。
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>|null
+     */
+    private function divergence(array $snapshot): ?array
+    {
+        $close = $snapshot['close'] ?? null;
+        $closePrev = $snapshot['close_prev'] ?? null;
+        $obv = $snapshot['obv'] ?? null;
+        $obvPrev = $snapshot['obv_prev'] ?? null;
+
+        if (! is_numeric($close) || ! is_numeric($closePrev) || ! is_numeric($obv) || ! is_numeric($obvPrev)) {
+            return null;
+        }
+
+        $priceUp = (float) $close > (float) $closePrev;
+        $obvUp = (float) $obv > (float) $obvPrev;
+
+        $state = match (true) {
+            $priceUp && ! $obvUp => 'bearish_divergence',
+            ! $priceUp && $obvUp => 'bullish_divergence',
+            default => 'aligned',
+        };
+
+        return [
+            'state' => $state,
+            'note' => match ($state) {
+                'bearish_divergence' => '價格走高但 OBV 未同步，推升缺乏量能支撐。',
+                'bullish_divergence' => '價格走低但 OBV 未同步下滑，賣壓可能減弱。',
+                default => '價格與量能方向一致。',
+            },
+        ];
     }
 
     /**

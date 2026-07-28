@@ -7,7 +7,7 @@ use App\Data\DailyPriceData;
 use App\Data\LlmResponseData;
 use App\Data\MarketQuoteData;
 use App\Services\StockAnalysisService;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 class StockAnalysisPromptGuideTest extends TestCase
 {

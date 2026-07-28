@@ -6,15 +6,15 @@ use App\Data\DailyPriceData;
 use App\Services\Fake\FakeMarketDataProvider;
 use App\Services\TechnicalIndicatorService;
 use InvalidArgumentException;
-use PHPUnit\Framework\TestCase;
 use stdClass;
+use Tests\TestCase;
 
 class TechnicalIndicatorServiceTest extends TestCase
 {
     public function test_calculates_latest_indicator_snapshot(): void
     {
-        $prices = (new FakeMarketDataProvider())->dailyPrices('AAPL', 60);
-        $snapshot = (new TechnicalIndicatorService())->calculate($prices);
+        $prices = (new FakeMarketDataProvider)->dailyPrices('AAPL', 60);
+        $snapshot = (new TechnicalIndicatorService)->calculate($prices);
 
         $this->assertArrayHasKey('k', $snapshot);
         $this->assertArrayHasKey('d', $snapshot);
@@ -31,7 +31,7 @@ class TechnicalIndicatorServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('At least one price is required to calculate indicators.');
 
-        (new TechnicalIndicatorService())->calculate([]);
+        (new TechnicalIndicatorService)->calculate([]);
     }
 
     /**
@@ -40,7 +40,7 @@ class TechnicalIndicatorServiceTest extends TestCase
      */
     public function test_one_day_price_history_yields_null_period_indicators(): void
     {
-        $snapshot = (new TechnicalIndicatorService())->calculate([
+        $snapshot = (new TechnicalIndicatorService)->calculate([
             $this->price(close: 123.45, high: 126.0, low: 121.0, open: 122.0),
         ]);
 
@@ -57,7 +57,7 @@ class TechnicalIndicatorServiceTest extends TestCase
 
     public function test_flat_prices_produce_neutral_kd_values(): void
     {
-        $snapshot = (new TechnicalIndicatorService())->calculate([
+        $snapshot = (new TechnicalIndicatorService)->calculate([
             $this->price(close: 100.0, high: 100.0, low: 100.0, open: 100.0),
             $this->price(close: 100.0, high: 100.0, low: 100.0, open: 100.0, date: '2026-06-19'),
             $this->price(close: 100.0, high: 100.0, low: 100.0, open: 100.0, date: '2026-06-20'),
@@ -72,8 +72,8 @@ class TechnicalIndicatorServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Price item at index 0 must contain numeric open, high, low, close, and volume values.');
 
-        (new TechnicalIndicatorService())->calculate([
-            new stdClass(),
+        (new TechnicalIndicatorService)->calculate([
+            new stdClass,
         ]);
     }
 
@@ -82,7 +82,7 @@ class TechnicalIndicatorServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Price item at index 0 has invalid range: high must be greater than or equal to low.');
 
-        (new TechnicalIndicatorService())->calculate([
+        (new TechnicalIndicatorService)->calculate([
             $this->price(close: 100.0, high: 95.0, low: 96.0),
         ]);
     }
@@ -92,7 +92,7 @@ class TechnicalIndicatorServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Price item at index 0 has invalid close: close must be within the low/high range.');
 
-        (new TechnicalIndicatorService())->calculate([
+        (new TechnicalIndicatorService)->calculate([
             $this->price(close: 105.0, high: 102.0, low: 98.0),
         ]);
     }
@@ -102,7 +102,7 @@ class TechnicalIndicatorServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Price item at index 0 has invalid open: open must be within the low/high range.');
 
-        (new TechnicalIndicatorService())->calculate([
+        (new TechnicalIndicatorService)->calculate([
             $this->price(close: 100.0, high: 102.0, low: 98.0, open: 103.0),
         ]);
     }
@@ -112,14 +112,14 @@ class TechnicalIndicatorServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Price item at index 0 has invalid volume: volume must be zero or greater.');
 
-        (new TechnicalIndicatorService())->calculate([
+        (new TechnicalIndicatorService)->calculate([
             $this->price(close: 100.0, volume: -1),
         ]);
     }
 
     public function test_calculates_indicators_for_array_price_items(): void
     {
-        $snapshot = (new TechnicalIndicatorService())->calculate([
+        $snapshot = (new TechnicalIndicatorService)->calculate([
             [
                 'open' => 9.0,
                 'high' => 11.0,
@@ -160,7 +160,7 @@ class TechnicalIndicatorServiceTest extends TestCase
             );
         }
 
-        $snapshot = (new TechnicalIndicatorService())->calculate($prices);
+        $snapshot = (new TechnicalIndicatorService)->calculate($prices);
 
         // 尾五根 25..29 平均 27；全 20 根 10..29 平均 19.5。
         $this->assertSame(27.0, $snapshot['ma5']);
@@ -189,7 +189,7 @@ class TechnicalIndicatorServiceTest extends TestCase
             );
         }
 
-        $snapshot = (new TechnicalIndicatorService())->calculate($prices);
+        $snapshot = (new TechnicalIndicatorService)->calculate($prices);
 
         // MACD 持續走高時，其 EMA9 signal 落後於 MACD，histogram 為正。
         $this->assertGreaterThan(0, $snapshot['macd']);
@@ -209,8 +209,8 @@ class TechnicalIndicatorServiceTest extends TestCase
 
     public function test_series_returns_aligned_arrays_for_charting(): void
     {
-        $prices = (new FakeMarketDataProvider())->dailyPrices('AAPL', 60);
-        $service = new TechnicalIndicatorService();
+        $prices = (new FakeMarketDataProvider)->dailyPrices('AAPL', 60);
+        $service = new TechnicalIndicatorService;
         $series = $service->series($prices);
 
         $keys = ['dates', 'close', 'volume', 'ma5', 'ma20', 'k', 'd', 'macd', 'signal', 'histogram'];
@@ -226,8 +226,8 @@ class TechnicalIndicatorServiceTest extends TestCase
 
     public function test_series_last_values_match_calculate(): void
     {
-        $prices = (new FakeMarketDataProvider())->dailyPrices('AAPL', 60);
-        $service = new TechnicalIndicatorService();
+        $prices = (new FakeMarketDataProvider)->dailyPrices('AAPL', 60);
+        $service = new TechnicalIndicatorService;
 
         $snapshot = $service->calculate($prices);
         $series = $service->series($prices);
@@ -242,8 +242,8 @@ class TechnicalIndicatorServiceTest extends TestCase
 
     public function test_series_moving_averages_are_null_until_enough_points(): void
     {
-        $prices = (new FakeMarketDataProvider())->dailyPrices('AAPL', 60);
-        $series = (new TechnicalIndicatorService())->series($prices);
+        $prices = (new FakeMarketDataProvider)->dailyPrices('AAPL', 60);
+        $series = (new TechnicalIndicatorService)->series($prices);
 
         // MA5 needs 5 points: indices 0..3 are null, index 4 onward is a float.
         $this->assertNull($series['ma5'][0]);
@@ -260,7 +260,7 @@ class TechnicalIndicatorServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('At least one price is required to calculate indicators.');
 
-        (new TechnicalIndicatorService())->series([]);
+        (new TechnicalIndicatorService)->series([]);
     }
 
     public function test_series_throws_for_invalid_price_item(): void
@@ -268,8 +268,8 @@ class TechnicalIndicatorServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Price item at index 0 must contain numeric open, high, low, close, and volume values.');
 
-        (new TechnicalIndicatorService())->series([
-            new stdClass(),
+        (new TechnicalIndicatorService)->series([
+            new stdClass,
         ]);
     }
 

@@ -4,7 +4,8 @@ namespace Tests\Unit;
 
 use App\Data\ChipFlowData;
 use App\Services\SignalEngine;
-use PHPUnit\Framework\TestCase;
+// SignalEngine 的強度門檻讀 config('signals.*')，需要 Laravel 容器。
+use Tests\TestCase;
 
 class SignalEngineChipTest extends SignalEngineChipTestCase
 {
