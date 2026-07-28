@@ -43,6 +43,58 @@ class ScreenerServiceTest extends TestCase
         $this->assertIsFloat($row['close']);
     }
 
+    /**
+     * 掃描股池含使用者自選股，因此掃描結果可反推自選內容。他人自選股絕不可
+     * 進入本人的掃描範圍，否則等同洩漏對方持股關注清單。
+     */
+    public function test_scan_pool_excludes_other_users_watchlist_symbols(): void
+    {
+        // 清空內建股池，讓掃描範圍完全等於「使用者自選股」，隔離失效即可見。
+        config(['screener.universe' => []]);
+
+        $owner = User::factory()->create();
+        $other = User::factory()->create();
+
+        $ownInstrument = Instrument::factory()->create(['symbol' => 'MINE.TW', 'name' => '我的']);
+        $ownerWatchlist = $owner->watchlists()->create(['name' => '我的清單']);
+        $ownerWatchlist->items()->create(['instrument_id' => $ownInstrument->id, 'sort_order' => 0]);
+
+        $otherInstrument = Instrument::factory()->create(['symbol' => 'THEIRS.TW', 'name' => '別人的']);
+        $otherWatchlist = $other->watchlists()->create(['name' => '別人的清單']);
+        $otherWatchlist->items()->create(['instrument_id' => $otherInstrument->id, 'sort_order' => 0]);
+
+        $result = app(ScreenerService::class)->scan($owner, ['above_ma20']);
+
+        $this->assertSame(1, $result['scanned'], '掃描支數應僅含本人自選股。');
+
+        $touched = array_merge(
+            array_column($result['results'], 'symbol'),
+            array_column($result['failures'], 'symbol'),
+            $result['skipped'],
+        );
+
+        $this->assertContains('MINE.TW', $touched);
+        $this->assertNotContains('THEIRS.TW', $touched, '他人自選股不得進入掃描範圍。');
+    }
+
+    /** 沒有自選股的使用者，掃描範圍不得因他人自選股而變得非空。 */
+    public function test_user_without_watchlists_scans_nothing_when_universe_is_empty(): void
+    {
+        config(['screener.universe' => []]);
+
+        $owner = User::factory()->create();
+        $other = User::factory()->create();
+
+        $otherInstrument = Instrument::factory()->create(['symbol' => 'THEIRS.TW']);
+        $otherWatchlist = $other->watchlists()->create(['name' => '別人的清單']);
+        $otherWatchlist->items()->create(['instrument_id' => $otherInstrument->id, 'sort_order' => 0]);
+
+        $result = app(ScreenerService::class)->scan($owner, ['above_ma20']);
+
+        $this->assertSame(0, $result['scanned']);
+        $this->assertSame([], $result['results']);
+    }
+
     public function test_and_semantics_all_rules_must_match(): void
     {
         config(['screener.universe' => [['symbol' => 'AAA', 'name' => 'Alpha']]]);

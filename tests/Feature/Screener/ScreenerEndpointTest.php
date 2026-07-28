@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Screener;
 
+use App\Models\Instrument;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -32,6 +33,44 @@ class ScreenerEndpointTest extends TestCase
                 ->has('watchlists', 1)
                 ->where('watchlists.0.name', '核心')
                 ->has('universeCount'));
+    }
+
+    /** /screener 的 watchlists prop 只能有本人的清單。 */
+    public function test_index_does_not_expose_other_users_watchlists(): void
+    {
+        $user = User::factory()->create();
+        $user->watchlists()->create(['name' => '我的清單']);
+
+        $other = User::factory()->create();
+        $other->watchlists()->create(['name' => '別人的清單']);
+
+        $this->actingAs($user)
+            ->get('/screener')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('watchlists', 1)
+                ->where('watchlists.0.name', '我的清單'));
+    }
+
+    /** 掃描結果可反推自選股內容，故 endpoint 層也需鎖定隔離，不只服務層。 */
+    public function test_scan_does_not_include_other_users_watchlist_symbols(): void
+    {
+        config(['screener.universe' => []]);
+
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+
+        $otherInstrument = Instrument::factory()->create(['symbol' => 'THEIRS.TW']);
+        $otherWatchlist = $other->watchlists()->create(['name' => '別人的清單']);
+        $otherWatchlist->items()->create(['instrument_id' => $otherInstrument->id, 'sort_order' => 0]);
+
+        $response = $this->actingAs($user)
+            ->postJson('/screener/scan', ['rules' => ['above_ma20']])
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(0, $response['scanned']);
+        $this->assertStringNotContainsString('THEIRS.TW', json_encode($response, JSON_THROW_ON_ERROR));
     }
 
     public function test_scan_rejects_unknown_rule_and_empty_rules(): void
