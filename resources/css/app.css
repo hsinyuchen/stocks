@@ -2515,6 +2515,68 @@ select:focus-visible {
     margin: 12px 0 0;
 }
 
+.valuation-percentiles {
+    border-top: 1px solid var(--border);
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+    padding-top: 14px;
+}
+
+.valuation-row {
+    align-items: center;
+    display: grid;
+    /* 標籤 / 軌道 / 現值 / 區間：軌道吃掉剩餘寬度，其餘依內容。 */
+    grid-template-columns: auto minmax(80px, 1fr) auto;
+    gap: 6px 10px;
+}
+
+.valuation-label {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+.valuation-track {
+    background: linear-gradient(90deg, var(--up-soft, #1c3b2e), var(--down-soft, #4a2230));
+    border-radius: 999px;
+    height: 6px;
+    position: relative;
+}
+
+.valuation-marker {
+    background: var(--text);
+    border-radius: 999px;
+    height: 12px;
+    position: absolute;
+    top: -3px;
+    /* left 用百分比定位，位移半個寬度讓標記中心對齊分位。 */
+    transform: translateX(-50%);
+    width: 3px;
+}
+
+.valuation-figure {
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.valuation-range {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    grid-column: 2 / -1;
+}
+
+@media (max-width: 640px) {
+    .valuation-row {
+        grid-template-columns: 1fr;
+    }
+
+    .valuation-range {
+        grid-column: 1;
+    }
+}
+
 /* 籌碼表在窄螢幕自行捲動，不讓頁面產生水平捲軸。 */
 .chip-table-scroll {
     margin-top: 12px;

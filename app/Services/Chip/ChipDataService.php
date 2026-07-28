@@ -65,7 +65,7 @@ class ChipDataService
      * - 否則看最新一列的 updated_at 是否在 ttl_hours 內。
      *
      * 失敗標記放 Cache 而非資料表：籌碼是時間序列，沒有「全 null 列」可以
-     * 當負快取用（fundamentals 是單列快照才做得到）。
+     * 當負快取用（fundamentals 另以刪除舊空列的方式維持單一負快取列）。
      */
     private function isFresh(Instrument $instrument): bool
     {

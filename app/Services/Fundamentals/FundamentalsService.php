@@ -23,7 +23,12 @@ class FundamentalsService
             return null;
         }
 
-        $row = Fundamental::query()->where('instrument_id', $instrument->id)->first();
+        // 改為保留歷史後，同一檔會有多列；新鮮度一律看最新那筆。
+        $row = Fundamental::query()
+            ->where('instrument_id', $instrument->id)
+            ->orderByDesc('data_as_of')
+            ->orderByDesc('id')
+            ->first();
 
         if ($row !== null && ! $this->isStale($row)) {
             return $this->toData($row);
@@ -51,6 +56,56 @@ class FundamentalsService
     }
 
     /**
+     * 估值分位：目前 PER / PBR 落在該檔自身歷史的哪個位置。
+     *
+     * 只用本檔自己的歷史比較，不跨股比較——不同產業的合理本益比差距太大，
+     * 跨股分位沒有解讀價值。樣本不足時回 null，不輸出看似精確的假分位。
+     *
+     * @return array<string, array{value: float, percentile: float, min: float, median: float, max: float, samples: int}>|null
+     */
+    public function valuationPercentiles(Instrument $instrument): ?array
+    {
+        $minSamples = (int) config('fundamentals.percentile_min_samples', 20);
+
+        $rows = Fundamental::query()
+            ->where('instrument_id', $instrument->id)
+            ->orderBy('data_as_of')
+            ->get(['per', 'pbr', 'data_as_of']);
+
+        $out = [];
+
+        foreach (['per', 'pbr'] as $metric) {
+            $values = $rows->pluck($metric)
+                ->filter(fn ($v): bool => $v !== null && (float) $v > 0)
+                ->map(fn ($v): float => (float) $v)
+                ->values();
+
+            if ($values->count() < $minSamples) {
+                continue;
+            }
+
+            $current = (float) $values->last();
+            $sorted = $values->sort()->values()->all();
+            $count = count($sorted);
+            // 低於或等於現值的樣本比例：0 = 歷史最低（最便宜），100 = 歷史最高。
+            $below = count(array_filter($sorted, static fn (float $v): bool => $v <= $current));
+
+            $out[$metric] = [
+                'value' => round($current, 2),
+                'percentile' => round($below / $count * 100, 1),
+                'min' => round($sorted[0], 2),
+                'median' => round($count % 2 === 1
+                    ? $sorted[intdiv($count, 2)]
+                    : ($sorted[$count / 2 - 1] + $sorted[$count / 2]) / 2, 2),
+                'max' => round($sorted[$count - 1], 2),
+                'samples' => $count,
+            ];
+        }
+
+        return $out === [] ? null : $out;
+    }
+
+    /**
      * 抓取失敗時：
      * - 既有非空列：保留 last-known-good 指標與原 fetched_at，只刷新 failed_at 節流重試，回傳既有資料。
      * - 無既有非空列：寫全 null 負快取列（failure_ttl 節流），回傳 null。
@@ -62,6 +117,16 @@ class FundamentalsService
 
             return $this->toData($row);
         }
+
+        // 負快取列只是重試節流，不是歷史觀測值。改為保留歷史後，若不先清掉
+        // 舊的全 null 列，抓不到的標的每天都會多一列空資料，污染分位統計。
+        $stale = Fundamental::query()->where('instrument_id', $instrument->id);
+
+        foreach (Fundamental::METRIC_COLUMNS as $col) {
+            $stale->whereNull($col);
+        }
+
+        $stale->delete();
 
         $this->persist($instrument, new FundamentalsData);
 
@@ -96,14 +161,25 @@ class FundamentalsService
 
     private function persist(Instrument $instrument, FundamentalsData $data, ?\DateTimeInterface $failedAt = null): void
     {
+        // 唯一鍵改為 (instrument_id, data_as_of)：同一資料日重抓仍是就地更新，
+        // 跨日則新增一列，累積成可算分位的序列。data_as_of 缺漏時以今天代替，
+        // 否則所有缺值的抓取都會擠在同一列互相覆蓋。
+        //
+        // 必須傳 Carbon 而非 'Y-m-d' 字串：date cast 寫入時會展開成
+        // 'Y-m-d H:i:s'，用字串查詢比不中既有列，會撞上唯一鍵而拋例外。
+        $key = CarbonImmutable::parse($data->dataAsOf ?? now()->toDateString())->startOfDay();
+
         Fundamental::query()->updateOrCreate(
-            ['instrument_id' => $instrument->id],
+            [
+                'instrument_id' => $instrument->id,
+                'data_as_of' => $key,
+            ],
             [
                 'per' => $data->per, 'pbr' => $data->pbr, 'dividend_yield' => $data->dividendYield,
                 'eps' => $data->eps, 'roe' => $data->roe,
                 'revenue' => $data->revenue, 'revenue_yoy' => $data->revenueYoy,
                 'eps_quarter' => $data->epsQuarter, 'revenue_month' => $data->revenueMonth,
-                'data_as_of' => $data->dataAsOf,
+                'data_as_of' => $key,
                 'fetched_at' => now(),
                 'failed_at' => $failedAt,
             ],

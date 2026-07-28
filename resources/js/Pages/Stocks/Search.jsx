@@ -566,10 +566,46 @@ function FundamentalsPanel({ fundamentals }) {
                 </div>
             )}
 
+            <ValuationPercentiles percentiles={f.percentiles} />
+
             <p className="fundamentals-disclaimer">
                 基本面數據來自 FinMind，可能延遲或與官方財報有出入，僅供參考，非投資建議。
             </p>
         </section>
+    );
+}
+
+const PERCENTILE_LABELS = { per: '本益比', pbr: '股價淨值比' };
+
+/**
+ * 估值在自身歷史中的位置。分位低不等於便宜（可能是基本面轉壞），
+ * 因此只呈現區間與分位，不下多空結論。
+ */
+function ValuationPercentiles({ percentiles }) {
+    const entries = Object.entries(percentiles ?? {});
+
+    if (entries.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="valuation-percentiles">
+            <p className="section-kicker">歷史估值分位</p>
+            {entries.map(([metric, p]) => (
+                <div className="valuation-row" key={metric}>
+                    <span className="valuation-label">{PERCENTILE_LABELS[metric] ?? metric}</span>
+                    <div className="valuation-track">
+                        <div className="valuation-marker" style={{ left: `${p.percentile}%` }} />
+                    </div>
+                    <span className="valuation-figure">
+                        {p.value}（{p.percentile}% 分位）
+                    </span>
+                    <span className="valuation-range">
+                        低 {p.min} ／ 中位 {p.median} ／ 高 {p.max}．{p.samples} 筆
+                    </span>
+                </div>
+            ))}
+        </div>
     );
 }
 

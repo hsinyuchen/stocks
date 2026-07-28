@@ -61,7 +61,10 @@ class StockSearchController extends Controller
         $news = $this->news->relatedNews($symbol, 5);
 
         // 台股才有基本面（best-effort，service 內已容錯且有快取節流）。
-        $fundamentals = app(FundamentalsService::class)->forInstrument($instrument);
+        $fundamentalsService = app(FundamentalsService::class);
+        $fundamentals = $fundamentalsService->forInstrument($instrument);
+        // 分位需先累積足夠觀測日，樣本不足時為 null（前端不顯示該區塊）。
+        $valuation = $fundamentals === null ? null : $fundamentalsService->valuationPercentiles($instrument);
 
         // 台股才有籌碼。頁面只顯示最近 20 個交易日，快取本身仍保留較長歷史。
         $chipFlows = app(ChipDataService::class)->forInstrument($instrument);
@@ -80,6 +83,7 @@ class StockSearchController extends Controller
                 'eps' => $fundamentals->eps, 'eps_quarter' => $fundamentals->epsQuarter, 'roe' => $fundamentals->roe,
                 'revenue' => $fundamentals->revenue, 'revenue_month' => $fundamentals->revenueMonth, 'revenue_yoy' => $fundamentals->revenueYoy,
                 'data_as_of' => $fundamentals->dataAsOf,
+                'percentiles' => $valuation,
             ],
             'chipFlows' => array_map(fn (ChipFlowData $flow): array => [
                 'date' => $flow->date,
