@@ -2496,3 +2496,196 @@ select:focus-visible {
     line-height: 1.5;
     margin: 12px 0 0;
 }
+
+/* 籌碼表在窄螢幕自行捲動，不讓頁面產生水平捲軸。 */
+.chip-table-scroll {
+    margin-top: 12px;
+    overflow-x: auto;
+}
+
+.chip-table {
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    min-width: 420px;
+    width: 100%;
+}
+
+.chip-table th,
+.chip-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.chip-table th:first-child,
+.chip-table td:first-child {
+    text-align: left;
+}
+
+.chip-table th {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 500;
+}
+
+.chip-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* 數字欄用等寬字，讓逐日金額縱向對齊。 */
+.chip-table td {
+    font-variant-numeric: tabular-nums;
+}
+
+.chip-alignment {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    padding: 2px 10px;
+}
+
+.chip-alignment--diverge {
+    border-color: var(--warning, var(--border));
+    color: var(--warning, var(--text));
+    font-weight: 600;
+}
+
+/* 傳導鏈：預設收合，因為它是延伸推論而非新聞事實。 */
+.news-transmission {
+    border-top: 1px dashed var(--border);
+    margin-top: 10px;
+    padding-top: 8px;
+}
+
+.news-transmission__toggle {
+    align-items: center;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 0.8rem;
+    gap: 5px;
+    padding: 0;
+    text-align: left;
+}
+
+.news-transmission__body {
+    margin-top: 8px;
+}
+
+.news-transmission__chain + .news-transmission__chain {
+    border-top: 1px solid var(--border);
+    margin-top: 10px;
+    padding-top: 10px;
+}
+
+.news-transmission__path {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin: 0 0 8px;
+    padding-left: 18px;
+}
+
+.news-transmission__sector {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.84rem;
+    gap: 6px;
+    margin-bottom: 5px;
+}
+
+.news-transmission__dir {
+    border-radius: 999px;
+    font-size: 0.72rem;
+    padding: 1px 7px;
+}
+
+.news-transmission__dir.is-positive {
+    background: color-mix(in srgb, var(--positive) 18%, transparent);
+    color: var(--positive);
+}
+
+.news-transmission__dir.is-negative {
+    background: color-mix(in srgb, var(--neg) 18%, transparent);
+    color: var(--neg);
+}
+
+.news-transmission__note {
+    color: var(--muted);
+    font-size: 0.74rem;
+    line-height: 1.5;
+    margin: 10px 0 0;
+}
+
+/* 資料來源清單：預設只顯示失效者，展開才列出全部，避免佔用新聞流版面。 */
+.feed-sources {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 16px;
+    padding: 10px 12px;
+}
+
+.feed-sources__head {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: space-between;
+}
+
+.feed-sources__toggle {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.82rem;
+    padding: 0;
+}
+
+.feed-sources__alert {
+    align-items: center;
+    color: var(--warning, var(--neg));
+    display: inline-flex;
+    font-size: 0.8rem;
+    font-weight: 600;
+    gap: 4px;
+}
+
+.feed-sources__list {
+    display: grid;
+    gap: 6px 14px;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    list-style: none;
+    margin: 10px 0 0;
+    padding: 0;
+}
+
+.feed-sources__list li {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.84rem;
+    gap: 6px;
+}
+
+.feed-sources__list li small {
+    color: var(--muted);
+    font-size: 0.74rem;
+}
+
+.feed-sources__list li.is-broken {
+    color: var(--warning, var(--neg));
+}
+
+.feed-sources__reason {
+    flex-basis: 100%;
+}
+
+.analysis-item__chip-reasons {
+    border-top: 1px dashed var(--border);
+    margin-top: 8px;
+    padding-top: 8px;
+}

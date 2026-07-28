@@ -1,13 +1,19 @@
 import { Link, router, useForm } from '@inertiajs/react';
-import { Bot, Newspaper, Settings, Sparkles, Video } from 'lucide-react';
+import { AlertTriangle, Bot, GitBranch, Newspaper, Settings, Sparkles, Video } from 'lucide-react';
 import { useState } from 'react';
 import AppShell from '../../Layouts/AppShell';
 import Markdown from '../../Components/Markdown';
 
+// 需與 config/news.php 的 domains 鍵一致；缺對應時前端會直接顯示英文鍵值。
 const domainLabels = {
     tech: '科技',
     defense: '國防',
+    geopolitics: '地緣政治',
+    energy: '能源',
     finance: '金融',
+    currency: '匯率',
+    supply_chain: '供應鏈',
+    market: '市場',
     other: '其他',
 };
 
@@ -338,6 +344,8 @@ function NewsCard({ item, providers }) {
                 </div>
             ) : null}
 
+            <TransmissionChains chains={item.transmission} />
+
             <div className="news-card-ai">
                 {providers.length === 0 ? (
                     <p className="news-settings-prompt">
@@ -377,6 +385,119 @@ function Pagination({ links }) {
     );
 }
 
+/**
+ * 事件 → 產業 → 個股的傳導鏈。
+ *
+ * 與 related_symbols 分開呈現：後者是「新聞提到這檔股票」，這裡是「這個事件
+ * 可能影響這檔股票」。合併會讓人誤以為新聞直接談到了該公司。預設收合，因為
+ * 它是延伸推論而非新聞事實。
+ */
+function TransmissionChains({ chains }) {
+    const [open, setOpen] = useState(false);
+
+    if (!chains || chains.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="news-transmission">
+            <button className="news-transmission__toggle" onClick={() => setOpen((v) => !v)} type="button">
+                <GitBranch aria-hidden="true" size={13} />
+                可能影響的板塊（{chains.map((c) => c.label).join('、')}）{open ? '　收合' : '　展開'}
+            </button>
+
+            {open ? (
+                <div className="news-transmission__body">
+                    {chains.map((chain) => (
+                        <div className="news-transmission__chain" key={chain.key}>
+                            <ol className="news-transmission__path">
+                                {chain.chain.map((step) => (
+                                    <li key={step}>{step}</li>
+                                ))}
+                            </ol>
+                            {chain.sectors.map((sector) => (
+                                <div className="news-transmission__sector" key={sector.name}>
+                                    <span className={`news-transmission__dir is-${sector.direction}`}>
+                                        {sector.direction === 'positive' ? '正向' : sector.direction === 'negative' ? '負向' : '中性'}
+                                    </span>
+                                    <strong>{sector.name}</strong>
+                                    <span className="news-symbols">
+                                        {sector.symbols.map((symbol) => (
+                                            <a
+                                                className="news-symbol-chip"
+                                                href={`/stocks/search?symbol=${encodeURIComponent(symbol)}`}
+                                                key={symbol}
+                                            >
+                                                {symbol}
+                                            </a>
+                                        ))}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                    <p className="news-transmission__note">
+                        依規則推導的可能影響路徑，非新聞事實，也不是投資建議。方向僅描述事件對板塊的影響方向，不保證後續走勢。
+                    </p>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+/**
+ * 資料來源清單與健康度。
+ *
+ * 來源失效在後端是靜默的（回 200 但內容凍結，插入即被 prune），使用者只會
+ * 發現某個媒體的新聞不見了卻不知原因。這裡把失效攤開，並提供可點的來源連結。
+ */
+function FeedSourcePanel({ sources }) {
+    const [open, setOpen] = useState(false);
+
+    if (!sources || sources.length === 0) {
+        return null;
+    }
+
+    const broken = sources.filter((s) => s.healthy === false);
+    const visible = open ? sources : broken;
+
+    return (
+        <section className="feed-sources">
+            <div className="feed-sources__head">
+                <button className="feed-sources__toggle" onClick={() => setOpen((v) => !v)} type="button">
+                    資料來源（{sources.length}）{open ? '　收合' : '　展開'}
+                </button>
+                {broken.length > 0 ? (
+                    <span className="feed-sources__alert">
+                        <AlertTriangle aria-hidden="true" size={14} /> {broken.length} 個來源目前沒有新內容
+                    </span>
+                ) : null}
+            </div>
+
+            {visible.length > 0 ? (
+                <ul className="feed-sources__list">
+                    {visible.map((s) => (
+                        <li className={s.healthy === false ? 'is-broken' : undefined} key={s.key}>
+                            {s.site ? (
+                                <a href={s.site} rel="noopener noreferrer" target="_blank">{s.name}</a>
+                            ) : (
+                                <span>{s.name}</span>
+                            )}
+                            <small>{s.market}</small>
+                            {s.healthy === false ? (
+                                <small className="feed-sources__reason">
+                                    連續 {s.stale_runs} 次無新內容
+                                    {s.last_fresh_at ? `・最後更新 ${formatDateTime(s.last_fresh_at)}` : ''}
+                                </small>
+                            ) : null}
+                        </li>
+                    ))}
+                </ul>
+            ) : null}
+        </section>
+    );
+}
+
 export default function NewsIndex({
     items = { data: [], links: [] },
     filters = {},
@@ -385,6 +506,7 @@ export default function NewsIndex({
     nextUpdateTimes = [],
     llmProviders = [],
     latestDailySummary = null,
+    feedSources = [],
 }) {
     const data = items.data ?? [];
     const providers = llmProviders ?? [];
@@ -401,6 +523,8 @@ export default function NewsIndex({
                         {nextUpdateTimes.length > 0 ? ` ・ 下次更新：${nextUpdateTimes.join(' / ')} (台北時間)` : ''}
                     </p>
                 </header>
+
+                <FeedSourcePanel sources={feedSources} />
 
                 <DailySummaryPanel providers={providers} summary={latestDailySummary} />
 
