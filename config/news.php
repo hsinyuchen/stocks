@@ -24,13 +24,15 @@ return [
     |
     | Items older than this many days are pruned during ingestion.
     |
-    | 保留一年：新聞的價值不只在當下，回顧「某個事件當時市場怎麼報導」對事後
-    | 檢討與回測都有用。代價是 news_items 會成長到十萬筆等級，查詢依賴
-    | published_at 索引。
+    | 保留 90 天。依實測約 300 則/日推算，穩定後約 2.7 萬筆、20 MB 上下。
+    |
+    | 取捨要講明：舊新聞不進任何分析 prompt，縮短保留期不影響當前判讀。但過期
+    | 就再也抓不回來——各家 RSS 只暴露最近的窗口，這是不可逆的資料流失。若日後
+    | 要做「事件當時市場怎麼報導」的回顧或訊號回測，缺的那段補不回來。
     |
     */
 
-    'retention_days' => (int) env('NEWS_RETENTION_DAYS', 365),
+    'retention_days' => (int) env('NEWS_RETENTION_DAYS', 90),
 
     /*
     |--------------------------------------------------------------------------
@@ -272,7 +274,7 @@ return [
         // 「新鮮」的定義刻意與 retention_days 脫鉤。
         //
         // 早期版本用保留窗口當判定基準，在 retention 只有 30 天時剛好堪用；
-        // 改成保留一年後就失效了——一個停止更新兩百天的 feed 仍會被算成有新鮮
+        // 但保留窗口是可調的（曾設為一年），拉長後就失效——停止更新兩百天的 feed 仍會被算成有新鮮
         // 內容。保留窗口回答「要存多久」，健康度回答「上游還活著嗎」，是兩件事。
         'fresh_within_days' => (int) env('NEWS_FEED_FRESH_WITHIN_DAYS', 7),
 

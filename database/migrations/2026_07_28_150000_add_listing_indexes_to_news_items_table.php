@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::table('news_items', function (Blueprint $table): void {
             // 新聞列表固定是 WHERE relevant = 1 ORDER BY published_at DESC。
             // 原本 published_at 完全沒有索引，在保留窗口只有 30 天時資料量小、
-            // 全表掃描還撐得住；改成保留一年後資料會成長到十萬筆等級，每次開頁
+            // 全表掃描還撐得住；保留窗口拉長後資料會成長到數萬筆等級，每次開頁
             // 都會變成全表掃描加排序。複合索引的欄位順序對應查詢：先等值過濾
             // relevant，再依 published_at 排序。
             $table->index(['relevant', 'published_at'], 'news_items_relevant_published_index');
