@@ -2,11 +2,14 @@
 
 namespace App\Providers;
 
+use App\Contracts\ChipDataProvider;
 use App\Contracts\FundamentalsProvider;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Contracts\SymbolNewsProvider;
 use App\Contracts\YoutubeWorkerRunner;
+use App\Services\Chip\FinMindChipDataProvider;
+use App\Services\Fake\FakeChipDataProvider;
 use App\Services\Fake\FakeFundamentalsProvider;
 use App\Services\Fake\FakeMarketDataProvider;
 use App\Services\Fake\FakeNewsProvider;
@@ -77,6 +80,13 @@ class AppServiceProvider extends ServiceProvider
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeFundamentalsProvider::class)
                 : new FinMindFundamentalsProvider(config('services.finmind.token'));
+        });
+
+        // 台股籌碼面（三大法人買賣超）：同樣沿用 market_data.driver 開關。
+        $this->app->bind(ChipDataProvider::class, function ($app): ChipDataProvider {
+            return config('services.market_data.driver') === 'fake'
+                ? $app->make(FakeChipDataProvider::class)
+                : new FinMindChipDataProvider(config('services.finmind.token'));
         });
 
         // YouTube captions worker (2C). The real runner shells out to the Python
