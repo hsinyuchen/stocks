@@ -7,8 +7,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class NewsAnalysis extends Model
 {
+    /**
+     * user_id 刻意排除在外，與其他 user-owned 模型一致（Watchlist、Holding、
+     * Alert、StockAnalysis、LlmProviderSetting）。
+     *
+     * 目前呼叫點都是關聯 create()，本來就不會塞 user_id；但少了這道護欄，日後
+     * 有人寫 NewsAnalysis::create($request->all()) 就能直接指定他人的 user_id。
+     */
     protected $fillable = [
-        'user_id',
         'news_item_id',
         'type',
         'provider_type',

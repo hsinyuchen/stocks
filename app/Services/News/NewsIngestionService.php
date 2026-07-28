@@ -226,8 +226,13 @@ class NewsIngestionService
 
         $classification = $this->classifier->classify($item->title, $item->summary);
 
-        $hash = sha1($item->url !== ''
-            ? $item->url
+        // 連結協定過濾：url 直接來自外部 RSS 的 <link>，全程原樣入庫再輸出到
+        // <a href>。上游若被劫持而給出 javascript: 或 data:text/html，React 對
+        // href 只會在 dev console 警告，production 仍會渲染成可點擊的 XSS。
+        $url = $this->safeUrl($item->url);
+
+        $hash = sha1($url !== ''
+            ? $url
             : $item->source.'|'.$item->title);
 
         $existing = NewsItem::query()->where('url_hash', $hash)->first();
@@ -246,7 +251,7 @@ class NewsIngestionService
                 'source' => $item->source,
                 'title' => $item->title,
                 'summary' => $item->summary,
-                'url' => $item->url,
+                'url' => $url,
                 'published_at' => $item->publishedAt !== '' ? $item->publishedAt : null,
                 'language' => $item->language,
                 'market' => $item->market,
@@ -280,5 +285,24 @@ class NewsIngestionService
                     });
             })
             ->delete();
+    }
+
+    /**
+     * 只放行 http/https 的連結，其餘一律清空。
+     *
+     * 清空而非整筆丟棄：新聞內容本身仍有價值，只是連結不可信；前端對空 url
+     * 已有處理（不渲染成連結）。
+     */
+    private function safeUrl(string $url): string
+    {
+        $url = trim($url);
+
+        if ($url === '') {
+            return '';
+        }
+
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+
+        return in_array($scheme, ['http', 'https'], true) ? $url : '';
     }
 }

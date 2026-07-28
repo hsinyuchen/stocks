@@ -142,4 +142,31 @@ class FeedSourcesUiTest extends TestCase
         $this->assertFalse($service->isBlocked('CNBC'));
         $this->assertFalse($service->isBlocked(''));
     }
+
+    /**
+     * 外部 RSS 的 <link> 全程原樣入庫再輸出到 <a href>。上游若被劫持而給出
+     * javascript: 或 data:text/html，React 對 href 只會在 dev console 警告，
+     * production 仍會渲染成可點擊的 XSS。
+     */
+    public function test_non_http_urls_are_stripped_at_ingestion(): void
+    {
+        $service = app(NewsIngestionService::class);
+
+        foreach (['javascript:alert(1)', 'data:text/html,<script>x</script>', 'file:///etc/passwd'] as $i => $url) {
+            $service->upsert($this->item('Reuters', "Headline {$i}", $url));
+        }
+
+        $this->assertSame(3, NewsItem::query()->count(), '新聞本身仍保留，只清掉連結。');
+        $this->assertSame(0, NewsItem::query()->where('url', '!=', '')->count());
+    }
+
+    public function test_http_and_https_urls_are_preserved(): void
+    {
+        $service = app(NewsIngestionService::class);
+
+        $service->upsert($this->item('Reuters', 'Plain', 'http://plain.test/1'));
+        $service->upsert($this->item('Reuters', 'Secure', 'https://secure.test/1'));
+
+        $this->assertSame(2, NewsItem::query()->where('url', '!=', '')->count());
+    }
 }
