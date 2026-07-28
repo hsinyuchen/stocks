@@ -15,10 +15,21 @@ class NewsIngestionServiceTest extends TestCase
     use RefreshDatabase;
 
     /**
+     * 發布時間相對於「現在」，因為 ingest() 會依 news.retention_days 立刻 prune。
+     * 寫死日期會讓整份測試在該日期超出保留窗口後集體失敗（時間炸彈）。
+     */
+    private function freshPubDate(int $hoursAgo = 2): string
+    {
+        return now()->subHours($hoursAgo)->toRfc2822String();
+    }
+
+    /**
      * A minimal RSS body whose first item links Nvidia (US tech).
      */
     private function nvidiaRss(string $url = 'https://feed-us.test/articles/1'): string
     {
+        $pubDate = $this->freshPubDate();
+
         return <<<XML
         <?xml version="1.0" encoding="UTF-8"?>
         <rss version="2.0">
@@ -28,7 +39,7 @@ class NewsIngestionServiceTest extends TestCase
               <title>Nvidia hits record high on AI demand</title>
               <link>{$url}</link>
               <description>Chip demand surges as the data center buildout accelerates.</description>
-              <pubDate>Wed, 24 Jun 2026 12:00:00 +0000</pubDate>
+              <pubDate>{$pubDate}</pubDate>
             </item>
           </channel>
         </rss>
@@ -37,6 +48,8 @@ class NewsIngestionServiceTest extends TestCase
 
     private function tsmcRss(string $url = 'https://feed-tw.test/articles/9'): string
     {
+        $pubDate = $this->freshPubDate(8);
+
         return <<<XML
         <?xml version="1.0" encoding="UTF-8"?>
         <rss version="2.0">
@@ -46,7 +59,7 @@ class NewsIngestionServiceTest extends TestCase
               <title>台積電擴大資本支出 加碼先進製程</title>
               <link>{$url}</link>
               <description>半導體龍頭看好人工智慧需求。</description>
-              <pubDate>Wed, 24 Jun 2026 06:00:00 +0000</pubDate>
+              <pubDate>{$pubDate}</pubDate>
             </item>
           </channel>
         </rss>

@@ -202,15 +202,19 @@ class DashboardTest extends TestCase
             ],
         ]);
 
+        // 發布時間相對於「現在」：ingest() 會依 news.retention_days 立刻 prune，
+        // 寫死日期會在超出保留窗口後讓測試失敗。
+        $pubDate = now()->subHours(2)->toRfc2822String();
+
         Http::fake([
-            'feed-us.test/*' => Http::response(<<<'XML'
+            'feed-us.test/*' => Http::response(<<<XML
             <?xml version="1.0" encoding="UTF-8"?>
             <rss version="2.0"><channel><title>US Feed</title>
               <item>
                 <title>Nvidia hits record high on AI demand</title>
                 <link>https://feed-us.test/articles/1</link>
                 <description>Chip demand surges.</description>
-                <pubDate>Wed, 24 Jun 2026 12:00:00 +0000</pubDate>
+                <pubDate>{$pubDate}</pubDate>
               </item>
             </channel></rss>
             XML, 200),

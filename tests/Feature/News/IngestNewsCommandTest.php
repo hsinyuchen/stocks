@@ -13,6 +13,10 @@ class IngestNewsCommandTest extends TestCase
 
     private function nvidiaRss(string $url = 'https://feed-us.test/articles/1'): string
     {
+        // 發布時間相對於「現在」：ingest() 會依 news.retention_days 立刻 prune，
+        // 寫死日期會在超出保留窗口後讓測試集體失敗。
+        $pubDate = now()->subHours(2)->toRfc2822String();
+
         return <<<XML
         <?xml version="1.0" encoding="UTF-8"?>
         <rss version="2.0">
@@ -22,7 +26,7 @@ class IngestNewsCommandTest extends TestCase
               <title>Nvidia hits record high on AI demand</title>
               <link>{$url}</link>
               <description>Chip demand surges as the data center buildout accelerates.</description>
-              <pubDate>Wed, 24 Jun 2026 12:00:00 +0000</pubDate>
+              <pubDate>{$pubDate}</pubDate>
             </item>
           </channel>
         </rss>
