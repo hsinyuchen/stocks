@@ -16,15 +16,29 @@ class NewsConfigTest extends TestCase
 
         foreach ($feeds as $feed) {
             $this->assertIsArray($feed);
-            foreach (['key', 'name', 'url', 'market', 'language'] as $field) {
+
+            // 所有 driver 共通的欄位。
+            foreach (['key', 'name', 'market', 'language'] as $field) {
                 $this->assertArrayHasKey($field, $feed);
                 $this->assertIsString($feed[$field]);
                 $this->assertNotSame('', $feed[$field]);
             }
+
             $this->assertContains($feed['market'], ['TW', 'US', 'INTL']);
+
+            // driver 專屬欄位：rss（含 Atom / YouTube 頻道）靠 url，
+            // cnyes 走 JSON API，位址由 category 決定。
+            $driver = $feed['driver'] ?? 'rss';
+            $this->assertContains($driver, ['rss', 'cnyes']);
+
+            $required = $driver === 'cnyes' ? 'category' : 'url';
+            $this->assertArrayHasKey($required, $feed, "driver={$driver} 的 feed 需有 {$required}");
+            $this->assertIsString($feed[$required]);
+            $this->assertNotSame('', $feed[$required]);
         }
     }
 
+    /** key 是 feed_healths 的唯一鍵，重複會讓兩個 feed 互相覆寫健康度紀錄。 */
     public function test_feed_keys_are_unique(): void
     {
         $keys = array_column(config('news.feeds'), 'key');

@@ -94,7 +94,7 @@ class RssNewsProvider
                 // Atom entry 無此欄位，故僅 RSS 路徑解析。
                 source: ! $atom && ($itemSource = $this->text($node->source)) !== '' ? $itemSource : $source,
                 title: $this->plainText($node->title),
-                summary: $atom ? $this->plainText($node->summary) : $this->plainText($node->description),
+                summary: $atom ? $this->atomSummary($node) : $this->plainText($node->description),
                 topic: 'macro',
                 relatedSymbols: [],
                 publishedAt: $atom
@@ -107,6 +107,33 @@ class RssNewsProvider
         }
 
         return $items;
+    }
+
+    /**
+     * Atom entry 的摘要，缺 <summary> 時退回 Media RSS 的 media:group/media:description。
+     *
+     * YouTube 頻道 feed 是 Atom，但影片描述放在 media:description，<summary> 不存在。
+     * 沒有這段退路的話，所有 YouTube 影片入庫時摘要都是空的，分類器只剩標題可用。
+     */
+    private function atomSummary(SimpleXMLElement $node): string
+    {
+        $summary = $this->plainText($node->summary);
+
+        if ($summary !== '') {
+            return $summary;
+        }
+
+        $media = $node->children('http://search.yahoo.com/mrss/');
+
+        if (isset($media->group->description)) {
+            return $this->plainText($media->group->description);
+        }
+
+        if (isset($media->description)) {
+            return $this->plainText($media->description);
+        }
+
+        return '';
     }
 
     private function text(?SimpleXMLElement $node): string
