@@ -1,6 +1,6 @@
 import { Link, router } from '@inertiajs/react';
 import { lazy, Suspense, useState } from 'react';
-import { Bell, Bot, LineChart, Newspaper, RefreshCw, Star } from 'lucide-react';
+import { Bell, Bot, LineChart, Newspaper, RefreshCw, Star, Waypoints } from 'lucide-react';
 import AppShell from '../Layouts/AppShell';
 
 // Sparkline 建立獨立的 Lightweight Charts 實例，按需載入讓首屏 bundle 保持精簡。
@@ -19,6 +19,46 @@ const sentimentLabels = {
     bearish: '偏空',
     neutral: '中性',
 };
+
+const chipStanceLabels = {
+    accumulating: '外資買超',
+    distributing: '外資賣超',
+    neutral: '籌碼中性',
+};
+
+const alignmentLabels = {
+    confirm: '價量同向',
+    diverge: '價量背離',
+};
+
+/** forward 沿用 sectors 宣告方向、reverse 整組翻轉、unknown 一律降為中性。 */
+const polarityLabels = {
+    forward: '正向觸發',
+    reverse: '反向觸發',
+    unknown: '方向不明',
+};
+
+const directionLabels = {
+    positive: '偏正面',
+    negative: '偏負面',
+    neutral: '中性',
+};
+
+function polarityClass(polarity) {
+    if (polarity === 'unknown') {
+        return 'neutral';
+    }
+
+    return polarity === 'forward' ? 'accumulating' : 'distributing';
+}
+
+function directionClass(direction) {
+    if (direction === 'positive') {
+        return 'is-up';
+    }
+
+    return direction === 'negative' ? 'is-down' : '';
+}
 
 const analysisTypeLabels = {
     stock: '個股',
@@ -144,11 +184,122 @@ function WatchlistMovers({ items }) {
                                         ({formatPercent(mover.change_percent)})
                                     </span>
                                 </p>
+                                <ChipBadge chip={mover.chip} alignment={mover.alignment} />
                             </Link>
                         );
                     })}
                 </div>
             )}
+        </section>
+    );
+}
+
+/**
+ * 自選股的籌碼摘要。只有台股有資料，非台股時 chip 為 null 不顯示整列。
+ * 張數以 1 張 = 1000 股換算，與個股頁一致。
+ */
+function ChipBadge({ chip, alignment }) {
+    if (!chip || !chip.days) {
+        return null;
+    }
+
+    const lots = Math.round(chip.foreign_net / 1000);
+    const sign = lots > 0 ? '+' : '';
+
+    return (
+        <p className="signal-row__chip">
+            <span className={`chip-tag chip-tag--${chip.stance}`}>
+                {chipStanceLabels[chip.stance] ?? chip.stance}
+            </span>
+            <span className={changeClass(chip.foreign_net)}>
+                外資 {chip.days} 日 {sign}{lots.toLocaleString('zh-TW')} 張
+            </span>
+            {chip.foreign_streak > 0 ? (
+                <span className="chip-streak">連 {chip.foreign_streak} 日</span>
+            ) : null}
+            {alignment && alignment !== 'none' ? (
+                <span className={`chip-align chip-align--${alignment}`}>
+                    {alignmentLabels[alignment] ?? alignment}
+                </span>
+            ) : null}
+        </p>
+    );
+}
+
+/**
+ * 事件 → 產業 → 個股的傳導鏈。
+ *
+ * 這是觀察起點而非訊號：規則只說明「這類事件通常影響哪些板塊」，
+ * 不表示個股必然跟隨，因此不給多空分數，只標方向與命中的自選股。
+ */
+function TransmissionFocus({ items }) {
+    if (items.length === 0) {
+        return null;
+    }
+
+    return (
+        <section className="table-panel">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">
+                        <Waypoints aria-hidden="true" size={16} /> 事件傳導
+                    </p>
+                    <h2>傳導鏈焦點</h2>
+                </div>
+                <Link className="panel-link" href="/news">查看新聞</Link>
+            </div>
+            <ul className="transmission-list">
+                {items.map((chain) => (
+                    <li className="transmission-item" key={chain.key}>
+                        <div className="transmission-item__head">
+                            <strong>{chain.label}</strong>
+                            <span className={`chip-tag chip-tag--${polarityClass(chain.polarity)}`}>
+                                {polarityLabels[chain.polarity] ?? chain.polarity}
+                            </span>
+                            <small>近期 {chain.count} 則</small>
+                        </div>
+
+                        <p className="transmission-path">{chain.chain.join(' → ')}</p>
+
+                        <div className="transmission-sectors">
+                            {chain.sectors.map((sector) => (
+                                <span className="transmission-sector" key={sector.name}>
+                                    {sector.name}
+                                    <em className={directionClass(sector.direction)}>
+                                        {directionLabels[sector.direction] ?? sector.direction}
+                                    </em>
+                                </span>
+                            ))}
+                        </div>
+
+                        {chain.hits.length > 0 ? (
+                            <p className="transmission-hits">
+                                <span>打到自選：</span>
+                                {chain.hits.map((symbol) => (
+                                    <Link
+                                        href={`/stocks/search?symbol=${encodeURIComponent(symbol)}`}
+                                        key={symbol}
+                                    >
+                                        {symbol}
+                                    </Link>
+                                ))}
+                            </p>
+                        ) : null}
+
+                        {chain.latest ? (
+                            <a
+                                className="transmission-latest"
+                                href={chain.latest.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                <span className="news-source">{chain.latest.source}</span>
+                                {chain.latest.title}
+                            </a>
+                        ) : null}
+                    </li>
+                ))}
+            </ul>
         </section>
     );
 }
@@ -231,6 +382,7 @@ export default function Dashboard({
     marketSnapshot = [],
     watchlistMovers = [],
     latestNews = [],
+    transmissionFocus = [],
     recentAnalyses = [],
     disclaimer = '',
     generatedAt = null,
@@ -323,6 +475,7 @@ export default function Dashboard({
                 <MarketSnapshot items={marketSnapshot} />
                 <WatchlistMovers items={watchlistMovers} />
                 <LatestNews items={latestNews} />
+                <TransmissionFocus items={transmissionFocus} />
                 <RecentAnalyses items={recentAnalyses} />
 
                 {disclaimer ? <p className="dashboard-disclaimer">{disclaimer}</p> : null}

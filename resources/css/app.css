@@ -2631,6 +2631,126 @@ select:focus-visible {
     font-weight: 600;
 }
 
+/* 儀表板自選列的籌碼摘要：跨滿整列另起一行，不擠壓既有四欄格線。 */
+.signal-row__chip {
+    align-items: center;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.75rem;
+    gap: 6px;
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+.chip-tag {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.72rem;
+    padding: 1px 8px;
+    white-space: nowrap;
+}
+
+.chip-tag--accumulating {
+    border-color: var(--up, var(--border));
+    color: var(--up, var(--text));
+}
+
+.chip-tag--distributing {
+    border-color: var(--down, var(--border));
+    color: var(--down, var(--text));
+}
+
+.chip-streak {
+    font-variant-numeric: tabular-nums;
+}
+
+.chip-align--diverge {
+    color: var(--warning, var(--text));
+    font-weight: 600;
+}
+
+/* 事件 → 產業 → 個股的傳導鏈。 */
+.transmission-list {
+    display: grid;
+    gap: 12px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.transmission-item {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: grid;
+    gap: 8px;
+    padding: 12px 14px;
+}
+
+.transmission-item__head {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.transmission-item__head small {
+    color: var(--muted);
+    margin-left: auto;
+}
+
+.transmission-path {
+    color: var(--muted);
+    font-size: 0.82rem;
+    margin: 0;
+}
+
+.transmission-sectors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.transmission-sector {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.78rem;
+    padding: 2px 8px;
+}
+
+.transmission-sector em {
+    font-style: normal;
+    margin-left: 6px;
+}
+
+.transmission-hits {
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    gap: 8px;
+    margin: 0;
+}
+
+.transmission-hits > span {
+    color: var(--muted);
+}
+
+.transmission-latest {
+    color: var(--muted);
+    display: block;
+    font-size: 0.8rem;
+    /* 標題可能很長，限一行避免整張卡片被撐開。 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.transmission-latest .news-source {
+    margin-right: 6px;
+}
+
 /* 自選清單 → 投資組合：展開後填股數與成本才能加入。 */
 .instrument-row__add {
     align-items: center;

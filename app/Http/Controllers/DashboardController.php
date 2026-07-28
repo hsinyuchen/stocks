@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Contracts\MarketDataProvider;
+use App\Data\ChipFlowData;
 use App\Models\Alert;
 use App\Models\Instrument;
 use App\Models\NewsAnalysis;
@@ -10,7 +11,9 @@ use App\Models\NewsItem;
 use App\Models\StockAnalysis;
 use App\Models\User;
 use App\Services\Alerts\AlertEvaluator;
+use App\Services\Chip\ChipDataService;
 use App\Services\News\NewsIngestionService;
+use App\Services\News\TransmissionMapper;
 use App\Services\SignalEngine;
 use App\Services\TechnicalIndicatorService;
 use Carbon\CarbonImmutable;
@@ -139,6 +142,7 @@ class DashboardController extends Controller
             'marketSnapshot' => $this->marketSnapshot(),
             'watchlistMovers' => $this->watchlistMovers($watchlistInstruments),
             'latestNews' => $this->latestNews($watchlistSymbols),
+            'transmissionFocus' => $this->transmissionFocus($watchlistSymbols),
             'recentAnalyses' => $this->recentAnalyses($user),
             'disclaimer' => self::DISCLAIMER,
             'generatedAt' => CarbonImmutable::now()->toIso8601String(),
@@ -215,7 +219,7 @@ class DashboardController extends Controller
                 }
 
                 $snapshot = $this->indicators->calculate($prices);
-                $signal = $this->signals->evaluate($snapshot);
+                $signal = $this->signals->evaluate($snapshot, $this->chipFlows($instrument));
                 $quote = $this->marketData->quote($instrument->symbol);
 
                 $spark = array_map(
@@ -230,6 +234,15 @@ class DashboardController extends Controller
                     'price' => $quote->price,
                     'change_percent' => $quote->changePercent,
                     'stance' => $signal['stance'] ?? 'neutral',
+                    // 籌碼只有台股有；非台股與抓取失敗時為 null，前端不顯示該列。
+                    'chip' => isset($signal['chip']) ? [
+                        'stance' => $signal['chip']['stance'],
+                        'days' => $signal['chip']['days'],
+                        'foreign_net' => $signal['chip']['foreign_net'],
+                        'foreign_streak' => $signal['chip']['foreign_streak'],
+                        'as_of' => $signal['chip']['as_of'],
+                    ] : null,
+                    'alignment' => $signal['alignment'] ?? null,
                     'spark' => $spark,
                 ];
             } catch (\Throwable) {
@@ -238,6 +251,109 @@ class DashboardController extends Controller
         }
 
         return $out;
+    }
+
+    /**
+     * 該檔的近期籌碼流向。best-effort：非台股回 []，抓取失敗也不擋整張卡片。
+     *
+     * @return list<ChipFlowData>
+     */
+    private function chipFlows(Instrument $instrument): array
+    {
+        try {
+            return app(ChipDataService::class)->forInstrument($instrument);
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * 近期新聞命中的傳導鏈，依命中則數排序。
+     *
+     * 個人化的價值在 hits：把「這條鏈點名的個股」與使用者自選清單求交集，
+     * 讓使用者一眼看出事件是否打到自己的持股。沒有交集的鏈仍會顯示——沒打到
+     * 自選股不代表不重要，但排序上不特別加權，避免變成同溫層。
+     *
+     * @param  list<string>  $watchlistSymbols
+     * @return list<array<string, mixed>>
+     */
+    private function transmissionFocus(array $watchlistSymbols): array
+    {
+        $mapper = app(TransmissionMapper::class);
+        $since = CarbonImmutable::now()->subHours((int) config('dashboard.transmission_lookback_hours', 48));
+
+        $news = NewsItem::query()
+            ->where('published_at', '>=', $since)
+            ->where('relevant', true)
+            ->orderByDesc('published_at')
+            ->limit((int) config('dashboard.transmission_scan_limit', 200))
+            ->get(['id', 'title', 'summary', 'url', 'source', 'domains', 'published_at']);
+
+        /** @var array<string, array<string, mixed>> $chains */
+        $chains = [];
+
+        foreach ($news as $item) {
+            foreach ($mapper->map((string) $item->title, (string) $item->summary, (array) ($item->domains ?? [])) as $chain) {
+                $key = $chain['key'];
+
+                $chains[$key] ??= [
+                    'key' => $key,
+                    'label' => $chain['label'],
+                    'chain' => $chain['chain'],
+                    'sectors' => $chain['sectors'],
+                    'polarities' => [],
+                    'count' => 0,
+                    'symbols' => [],
+                    'latest' => null,
+                ];
+
+                $chains[$key]['count']++;
+                $chains[$key]['polarities'][] = $chain['polarity'];
+                $chains[$key]['symbols'] = array_values(array_unique(array_merge(
+                    $chains[$key]['symbols'],
+                    $mapper->symbols([$chain]),
+                )));
+
+                // 掃描已依 published_at 遞減排序，第一筆即為最新。
+                $chains[$key]['latest'] ??= [
+                    'title' => $item->title,
+                    'url' => $item->url,
+                    'source' => $item->source,
+                    'published_at' => $item->published_at?->toIso8601String(),
+                ];
+            }
+        }
+
+        $watchlist = array_flip($watchlistSymbols);
+
+        return collect($chains)
+            ->sortByDesc('count')
+            ->take((int) config('dashboard.transmission_limit', 4))
+            ->map(function (array $chain) use ($watchlist): array {
+                $chain['hits'] = array_values(array_filter(
+                    $chain['symbols'],
+                    static fn (string $symbol): bool => isset($watchlist[$symbol]),
+                ));
+                // 方向以多數決呈現：同一條鏈在不同新聞可能被正反向觸發，
+                // 直接取第一則會讓整條鏈的方向隨機翻面。
+                $chain['polarity'] = $this->dominantPolarity($chain['polarities']);
+                unset($chain['polarities']);
+
+                return $chain;
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  list<string>  $polarities
+     */
+    private function dominantPolarity(array $polarities): string
+    {
+        $counts = array_count_values($polarities);
+        arsort($counts);
+
+        return (string) array_key_first($counts);
     }
 
     /**
