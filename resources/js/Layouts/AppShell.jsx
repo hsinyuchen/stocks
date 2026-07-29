@@ -11,9 +11,11 @@ import {
     Search,
     Settings,
     Star,
+    UserCog,
     Users,
     Wallet,
 } from 'lucide-react';
+import BusyOverlay from '../Components/BusyOverlay';
 import HamburgerButton from '../Components/HamburgerButton';
 import ThemeToggle from '../Components/ThemeToggle';
 
@@ -26,6 +28,7 @@ const baseMenuItems = [
     { href: '/portfolio', label: '投資組合', icon: Wallet },
     { href: '/alerts', label: '價格警報', icon: Bell },
     { href: '/analyses', label: 'AI 分析紀錄', icon: Bot },
+    { href: '/profile', label: '個人資料', icon: UserCog },
     { href: '/settings', label: '系統設定', icon: Settings },
 ];
 
@@ -91,6 +94,8 @@ export default function AppShell({ children, title = '市場儀表板' }) {
     return (
         <>
             <Head title={title} />
+            {/* 放在 shell 外層：遮罩要蓋住側欄與內容，且不受任何頁面的排版影響。 */}
+            <BusyOverlay />
             <div className="app-shell">
                 <aside className={`sidebar ${isMenuOpen ? 'sidebar--open' : ''}`} aria-label="主要導覽">
                     <div className="brand">

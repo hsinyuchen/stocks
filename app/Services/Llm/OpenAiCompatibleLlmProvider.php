@@ -4,9 +4,10 @@ namespace App\Services\Llm;
 
 use App\Contracts\LlmProvider;
 use App\Data\LlmResponseData;
+use App\Exceptions\LlmRequestException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Psr\Http\Message\ResponseInterface;
-use RuntimeException;
 
 class OpenAiCompatibleLlmProvider implements LlmProvider
 {
@@ -43,12 +44,7 @@ class OpenAiCompatibleLlmProvider implements LlmProvider
         $length = (int) ($response->getHeaderLine('Content-Length') ?: 0);
 
         if ($length > self::MAX_RESPONSE_BYTES) {
-            throw new RuntimeException(sprintf(
-                'LLM response from %s exceeds the %d byte limit (%d).',
-                $this->providerType,
-                self::MAX_RESPONSE_BYTES,
-                $length,
-            ));
+            throw LlmRequestException::oversized($this->providerType, self::MAX_RESPONSE_BYTES, $length);
         }
     }
 
@@ -71,17 +67,23 @@ class OpenAiCompatibleLlmProvider implements LlmProvider
             $request = $request->withToken($this->apiKey);
         }
 
-        $response = $request->post($endpoint, [
-            'model' => $model,
-            'messages' => [
-                ['role' => 'user', 'content' => $prompt],
-            ],
-            'temperature' => $this->temperature,
-            'max_tokens' => $this->maxTokens,
-        ]);
+        // 連線層失敗（逾時、DNS、拒絕連線）與 HTTP 錯誤碼要分開歸因，使用者
+        // 該做的事完全不同：前者是等或改 base_url，後者是改金鑰或模型名。
+        try {
+            $response = $request->post($endpoint, [
+                'model' => $model,
+                'messages' => [
+                    ['role' => 'user', 'content' => $prompt],
+                ],
+                'temperature' => $this->temperature,
+                'max_tokens' => $this->maxTokens,
+            ]);
+        } catch (ConnectionException $exception) {
+            throw LlmRequestException::fromConnection($this->providerType, $exception);
+        }
 
         if ($response->failed()) {
-            throw new RuntimeException("LLM request to {$this->providerType} failed with status {$response->status()}.");
+            throw LlmRequestException::fromStatus($this->providerType, $response->status());
         }
 
         $content = $response->json('choices.0.message.content');
@@ -99,7 +101,7 @@ class OpenAiCompatibleLlmProvider implements LlmProvider
         }
 
         if (! is_string($content) || trim($content) === '') {
-            throw new RuntimeException("LLM response from {$this->providerType} did not contain message content.");
+            throw LlmRequestException::emptyContent($this->providerType);
         }
 
         return new LlmResponseData(

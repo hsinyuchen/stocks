@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AnalysisStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -20,6 +21,7 @@ class NewsAnalysis extends Model
         'provider_type',
         'model',
         'prompt_version',
+        'status',
         'sentiment',
         'impact_score',
         'related_symbols',
@@ -32,6 +34,7 @@ class NewsAnalysis extends Model
     protected function casts(): array
     {
         return [
+            'status' => AnalysisStatus::class,
             'related_symbols' => 'array',
             'raw_output' => 'array',
             'data_as_of' => 'datetime',

@@ -2,28 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\AnalysisStatus;
+use App\Jobs\RunNewsDailySummary;
+use App\Jobs\RunNewsItemAnalysis;
 use App\Models\LlmProviderSetting;
 use App\Models\NewsItem;
-use App\Services\Llm\LlmProviderFactory;
-use App\Services\News\NewsAnalysisService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
 class NewsAnalysisController extends Controller
 {
-    /**
-     * 每日摘要的候選新聞數（聚類前）。
-     *
-     * 聚類後才是實際進入 prompt 的事件數，因此這裡要取遠多於期望事件數的量。
-     */
-    private const DAILY_SUMMARY_CANDIDATES = 150;
-
-    public function __construct(
-        private readonly NewsAnalysisService $service,
-        private readonly LlmProviderFactory $factory,
-    ) {}
-
     public function store(Request $request, NewsItem $newsItem): RedirectResponse
     {
         $data = $request->validate([
@@ -38,23 +27,22 @@ class NewsAnalysisController extends Controller
         }
 
         $model = trim((string) ($data['model'] ?? '')) ?: (string) $setting->model;
-        $llm = $this->factory->make($setting);
-        $result = $this->service->analyzeItem($newsItem, $llm, $model);
 
-        $request->user()->newsAnalyses()->create([
+        // 只落地骨架就回應，LLM 呼叫交給 RunNewsItemAnalysis：實測單則分析要 47 秒，
+        // 上游塞住時更會卡滿 120 秒逾時，留在 request 內等於讓整站停擺。
+        $analysis = $request->user()->newsAnalyses()->create([
             'news_item_id' => $newsItem->id,
             'type' => 'item',
-            'provider_type' => (string) ($result['provider'] ?? 'unknown'),
-            'model' => (string) ($result['model'] ?? $model),
+            'provider_type' => 'pending',
+            'model' => $model,
             'prompt_version' => 'v1',
-            'sentiment' => $result['sentiment'] ?? null,
-            'impact_score' => $result['impact'] ?? null,
-            'related_symbols' => $result['symbols'] ?? [],
-            'summary' => $result['summary'] ?? null,
-            'reasoning' => $result['reasoning'] ?? null,
-            'raw_output' => $result['raw'] ?? [],
-            'data_as_of' => $this->parseDataAsOf($result['data_as_of'] ?? null),
+            'status' => AnalysisStatus::Pending,
+            'related_symbols' => [],
+            'raw_output' => [],
+            'data_as_of' => CarbonImmutable::now(),
         ]);
+
+        RunNewsItemAnalysis::dispatch($analysis->id, $setting->id, $model);
 
         return redirect()->back();
     }
@@ -73,43 +61,25 @@ class NewsAnalysisController extends Controller
         }
 
         $model = trim((string) ($data['model'] ?? '')) ?: (string) $setting->model;
-        $llm = $this->factory->make($setting);
 
-        // 取遠多於最終需要的候選量：dailySummary 會先把同一事件的多家報導聚成
-        // 一組，若在這裡就砍到 30 則，當日若有大事件被十家媒體報導，其餘事件會
-        // 直接被擠出查詢，聚類再怎麼壓縮也補不回來，摘要會只剩單一主題。
-        // 另外排除與投資無關的雜訊，避免佔用候選名額。
-        $items = NewsItem::query()
-            ->where('relevant', true)
-            ->where('published_at', '>=', now()->subDay())
-            ->orderByDesc('published_at')
-            ->limit(self::DAILY_SUMMARY_CANDIDATES)
-            ->get();
-
-        if ($items->isEmpty()) {
-            $items = NewsItem::query()
-                ->where('relevant', true)
-                ->orderByDesc('created_at')
-                ->limit(self::DAILY_SUMMARY_CANDIDATES)
-                ->get();
-        }
-
-        $result = $this->service->dailySummary($items->all(), $llm, $model);
-
-        $request->user()->newsAnalyses()->create([
+        // 候選新聞的查詢與聚類都搬進 job：這是最重的一種分析，prompt 涵蓋數十個
+        // 事件，同步跑必定拖垮 request。
+        $analysis = $request->user()->newsAnalyses()->create([
             'news_item_id' => null,
             'type' => 'daily_summary',
-            'provider_type' => (string) ($result['provider'] ?? 'unknown'),
-            'model' => (string) ($result['model'] ?? $model),
+            'provider_type' => 'pending',
+            'model' => $model,
             'prompt_version' => 'v1',
+            'status' => AnalysisStatus::Pending,
             'sentiment' => null,
             'impact_score' => null,
-            'related_symbols' => $result['symbols'] ?? [],
-            'summary' => $result['summary'] ?? null,
+            'related_symbols' => [],
             'reasoning' => null,
-            'raw_output' => $result['raw'] ?? [],
-            'data_as_of' => $this->parseDataAsOf($result['data_as_of'] ?? null),
+            'raw_output' => [],
+            'data_as_of' => CarbonImmutable::now(),
         ]);
+
+        RunNewsDailySummary::dispatch($analysis->id, $setting->id, $model);
 
         return redirect()->back();
     }
@@ -130,14 +100,5 @@ class NewsAnalysisController extends Controller
         }
 
         return $user->defaultLlmSetting();
-    }
-
-    private function parseDataAsOf(mixed $value): CarbonImmutable
-    {
-        if (is_string($value) && $value !== '') {
-            return CarbonImmutable::parse($value);
-        }
-
-        return CarbonImmutable::now();
     }
 }

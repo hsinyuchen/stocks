@@ -3,6 +3,7 @@ import { AlertTriangle, Bot, ChevronDown, GitBranch, Newspaper, Settings, Slider
 import { useEffect, useState } from 'react';
 import AppShell from '../../Layouts/AppShell';
 import Markdown from '../../Components/Markdown';
+import useAnalysisPolling from '../../hooks/useAnalysisPolling';
 
 // 需與 config/news.php 的 domains 鍵一致；缺對應時前端會直接顯示英文鍵值。
 const domainLabels = {
@@ -278,13 +279,23 @@ function DailySummaryPanel({ providers, summary, providerId, onProviderChange })
                 </form>
             )}
 
-            {summary ? (
+            {summary?.status === 'pending' ? (
+                <PendingAnalysis createdAt={summary.created_at} model={summary.model} />
+            ) : null}
+
+            {summary && summary.status !== 'pending' ? (
                 <article className="analysis-item news-daily-summary__result">
                     <div className="analysis-item__head">
-                        <span className="status-pill status-pill--neutral">今日總經</span>
+                        <span className={`status-pill status-pill--${summary.status === 'failed' ? 'failed' : 'neutral'}`}>
+                            {summary.status === 'failed' ? 'AI 未完成' : '今日總經'}
+                        </span>
                         <small>{summary.provider_type} · {summary.model} · {formatDateTime(summary.created_at)}</small>
                     </div>
-                    <Markdown>{summary.summary}</Markdown>
+                    {summary.status === 'failed' && summary.failure ? (
+                        <FailureNote failure={summary.failure} />
+                    ) : (
+                        <Markdown>{summary.summary}</Markdown>
+                    )}
                     {points.length > 0 ? (
                         <ul>
                             {points.map((point, index) => (
@@ -316,6 +327,27 @@ function AnalysisResult({ analysis }) {
         return null;
     }
 
+    if (analysis.status === 'pending') {
+        return <PendingAnalysis createdAt={analysis.created_at} model={analysis.model} />;
+    }
+
+    // 失敗時 sentiment / summary 是 service 的降級佔位值，不能當成模型判斷呈現。
+    if (analysis.status === 'failed') {
+        return (
+            <article className="analysis-item news-analysis-result">
+                <div className="analysis-item__head">
+                    <span className="status-pill status-pill--failed">AI 未完成</span>
+                    <small>{analysis.model} · {formatDateTime(analysis.created_at)}</small>
+                </div>
+                {analysis.failure ? (
+                    <FailureNote failure={analysis.failure} />
+                ) : (
+                    <p className="analysis-item__pending-note">分析未成功，可重新送出。</p>
+                )}
+            </article>
+        );
+    }
+
     const sentiment = analysis.sentiment ?? 'neutral';
     const label = sentimentLabels[sentiment] ?? sentimentLabels.neutral;
 
@@ -330,6 +362,34 @@ function AnalysisResult({ analysis }) {
             </div>
             <Markdown>{analysis.summary}</Markdown>
             {analysis.reasoning ? <Markdown className="news-analysis-reasoning">{analysis.reasoning}</Markdown> : null}
+        </article>
+    );
+}
+
+/**
+ * AI 失敗的原因與下一步，分類由後端 LlmFailureReason 提供。
+ */
+function FailureNote({ failure }) {
+    return (
+        <div className="analysis-failure">
+            <strong>{failure.message}</strong>
+            <span>{failure.hint}</span>
+        </div>
+    );
+}
+
+/**
+ * 等待佇列完成的骨架。新聞分析實測約 47 秒，每日總結更久，所以要明確說明
+ * 「還在跑」而不是留白讓使用者以為按鈕沒反應。
+ */
+function PendingAnalysis({ createdAt, model }) {
+    return (
+        <article className="analysis-item analysis-item--pending news-analysis-result">
+            <div className="analysis-item__head">
+                <span className="status-pill status-pill--pending">分析中</span>
+                <small>{model} · {formatDateTime(createdAt)}</small>
+            </div>
+            <p className="analysis-item__pending-note">已排入佇列，完成後會自動顯示。</p>
         </article>
     );
 }
@@ -585,6 +645,11 @@ export default function NewsIndex({
         (provider) => String(provider.id) === String(selectedProviderId),
     )?.display_name ?? null;
 
+    // 分析在佇列執行，送出後畫面上會先出現 pending 骨架，靠輪詢補上結果。
+    const hasPending = latestDailySummary?.status === 'pending'
+        || data.some((item) => item.latest_analysis?.status === 'pending');
+    const stalled = useAnalysisPolling(hasPending, ['items', 'latestDailySummary']);
+
     return (
         <AppShell title="即時新聞">
             <section className="news-panel">
@@ -599,6 +664,14 @@ export default function NewsIndex({
                 </header>
 
                 <FeedSourcePanel sources={feedSources} />
+
+                {stalled ? (
+                    <p className="queue-stalled-hint">
+                        分析排隊超過 10 分鐘仍未完成，已停止等待。請確認佇列處理程序有在執行
+                        （<code>composer dev</code> 會一併啟動，或另開終端機執行 <code>php artisan queue:work</code>），
+                        重新整理後即可看到結果。
+                    </p>
+                ) : null}
 
                 <DailySummaryPanel
                     onProviderChange={setSelectedProviderId}

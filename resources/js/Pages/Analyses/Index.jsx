@@ -56,7 +56,11 @@ function StanceChip({ value }) {
 }
 
 function AnalysisRow({ item }) {
-    const stance = item.kind === 'stock' ? item.stance : item.sentiment;
+    // pending / failed 的 stance 與 summary 都還不是模型判斷，不能照常呈現，
+    // 否則排隊中的紀錄看起來像一則「中性」結論。
+    const stance = item.status === 'completed'
+        ? (item.kind === 'stock' ? item.stance : item.sentiment)
+        : null;
 
     return (
         <article className="analysis-history-row">
@@ -64,6 +68,12 @@ function AnalysisRow({ item }) {
                 <span className="dashboard-analysis-item__type">
                     {kindLabels[item.kind] ?? item.kind}
                 </span>
+                {item.status === 'pending' ? (
+                    <span className="status-pill status-pill--pending">分析中</span>
+                ) : null}
+                {item.status === 'failed' ? (
+                    <span className="status-pill status-pill--failed">AI 未完成</span>
+                ) : null}
                 <strong className="analysis-history-row__label">
                     {item.link ? (
                         item.kind === 'stock' ? (
@@ -80,7 +90,9 @@ function AnalysisRow({ item }) {
                 <StanceChip value={stance} />
                 {item.impact ? <span className="news-impact">影響 {item.impact}/5</span> : null}
             </div>
-            {item.summary ? <Markdown className="analysis-history-row__summary">{item.summary}</Markdown> : null}
+            {item.status === 'completed' && item.summary
+                ? <Markdown className="analysis-history-row__summary">{item.summary}</Markdown>
+                : null}
             <small className="analysis-history-row__meta">
                 {item.provider_type ? `${item.provider_type} · ` : ''}
                 {item.model}

@@ -161,6 +161,9 @@ class NewsController extends Controller
             'published_at' => $item->published_at?->toIso8601String(),
             'latest_analysis' => $analysis === null ? null : [
                 'id' => $analysis->id,
+                'status' => $analysis->status->value,
+                // 失敗原因存在 raw_output，讓畫面能說清楚是逾時、金鑰失效還是模型名錯。
+                'failure' => $analysis->raw_output['failure'] ?? null,
                 'sentiment' => $analysis->sentiment,
                 'impact_score' => $analysis->impact_score,
                 'summary' => $analysis->summary,
@@ -207,6 +210,8 @@ class NewsController extends Controller
         return [
             'id' => $summary->id,
             'type' => $summary->type,
+            'status' => $summary->status->value,
+            'failure' => $summary->raw_output['failure'] ?? null,
             'provider_type' => $summary->provider_type,
             'model' => $summary->model,
             'summary' => $summary->summary,

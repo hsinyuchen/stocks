@@ -9,6 +9,7 @@ use App\Data\DailyPriceData;
 use App\Data\LlmResponseData;
 use App\Data\MarketQuoteData;
 use App\Data\NewsItemData;
+use App\Enums\LlmFailureReason;
 use App\Services\SignalEngine;
 use App\Services\StockAnalysisService;
 use App\Services\TechnicalIndicatorService;
@@ -197,8 +198,13 @@ class StockAnalysisServiceTest extends TestCase
         $analysis = $service->analyze('NVDA', 'm', new ThrowingStockAnalysisLlmProvider);
 
         $this->assertSame('error', $analysis['llm']['provider']);
-        $this->assertStringContainsString('AI 分析暫時無法使用', $analysis['llm']['content']);
         $this->assertTrue($analysis['llm']['metadata']['error']);
+        // 未經 provider 分類的例外歸 unknown，且文案要同時說明原因與下一步。
+        $failure = $analysis['llm']['metadata']['failure'];
+        $this->assertSame(LlmFailureReason::Unknown->value, $failure['reason']);
+        $this->assertStringContainsString($failure['message'], $analysis['llm']['content']);
+        $this->assertStringContainsString($failure['hint'], $analysis['llm']['content']);
+        $this->assertStringContainsString('已保留規則訊號供參考', $analysis['llm']['content']);
         $this->assertSame($snapshot, $analysis['technical_snapshot']);
         $this->assertSame('watch', $analysis['rule_signal']['stance']);
     }

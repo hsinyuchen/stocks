@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Contracts\MarketDataProvider;
 use App\Data\ChipFlowData;
+use App\Enums\AnalysisStatus;
 use App\Models\Alert;
 use App\Models\Instrument;
 use App\Models\NewsAnalysis;
@@ -425,8 +426,11 @@ class DashboardController extends Controller
     {
         $limit = (int) config('dashboard.recent_analyses_limit', 6);
 
+        // 排除排隊中的紀錄：儀表板列的是「最近的分析結果」，尚未跑完的沒有 stance
+        // 也沒有摘要，列出來只會是一列空白，還會把真正有內容的分析擠掉。
         $stock = $user->stockAnalyses()
             ->with('instrument')
+            ->where('status', '!=', AnalysisStatus::Pending->value)
             ->latest()
             ->limit($limit)
             ->get()
@@ -441,6 +445,7 @@ class DashboardController extends Controller
 
         $news = $user->newsAnalyses()
             ->with('newsItem')
+            ->where('status', '!=', AnalysisStatus::Pending->value)
             ->latest()
             ->limit($limit)
             ->get()

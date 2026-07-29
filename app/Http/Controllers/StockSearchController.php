@@ -5,18 +5,18 @@ namespace App\Http\Controllers;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
+use App\Enums\AnalysisStatus;
 use App\Enums\AssetType;
 use App\Enums\MarketRegion;
+use App\Jobs\RunStockAnalysis;
 use App\Models\Instrument;
 use App\Models\LlmProviderSetting;
 use App\Models\StockAnalysis;
 use App\Models\User;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
-use App\Services\Llm\LlmProviderFactory;
 use App\Services\News\SymbolNewsService;
 use App\Services\Search\StockSearchService;
-use App\Services\StockAnalysisService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -29,8 +29,6 @@ class StockSearchController extends Controller
     public function __construct(
         private readonly MarketDataProvider $marketData,
         private readonly NewsProvider $news,
-        private readonly StockAnalysisService $stockAnalysis,
-        private readonly LlmProviderFactory $llmFactory,
     ) {}
 
     public function index(Request $request): Response|RedirectResponse
@@ -121,25 +119,43 @@ class StockSearchController extends Controller
         $setting = $this->resolveSetting($user, $data['llm_provider_setting_id'] ?? null);
         $model = trim((string) ($data['model'] ?? '')) ?: ($setting->model ?? 'reference-model');
 
-        // 台股才有籌碼（service 內已判斷市場、容錯並節流）。
-        $chipFlows = app(ChipDataService::class)->forInstrument($instrument);
-
-        $result = $setting !== null
-            ? $this->stockAnalysis->analyze($instrument->symbol, $model, $this->llmFactory->make($setting), $chipFlows)
-            : $this->stockAnalysis->analyze($instrument->symbol, $model, null, $chipFlows);
-
-        $user->stockAnalyses()->create([
+        // 只落地骨架就回應：行情抓取與 LLM 呼叫加起來可能耗上數分鐘，留在 request
+        // 內會讓整個站台停止回應。內容由 RunStockAnalysis 補完，前端輪詢 status。
+        $analysis = $user->stockAnalyses()->create([
             'instrument_id' => $instrument->id,
             'technical_snapshot_id' => null,
-            'provider_type' => (string) ($result['llm']['provider'] ?? 'unknown'),
-            'model' => (string) ($result['llm']['model'] ?? $model),
+            'provider_type' => 'pending',
+            'model' => $model,
             'prompt_version' => 'v1',
-            'rule_signal' => $result['rule_signal'] ?? [],
-            'llm_output' => $result['llm'] ?? [],
-            'data_as_of' => CarbonImmutable::parse($result['data_as_of']),
+            'status' => AnalysisStatus::Pending,
+            'rule_signal' => [],
+            'llm_output' => [],
+            'data_as_of' => CarbonImmutable::now(),
         ]);
 
+        RunStockAnalysis::dispatch($analysis->id, $setting?->id, $model);
+
         return redirect()->route('stocks.search', ['symbol' => $instrument->symbol]);
+    }
+
+    /**
+     * 刪除單筆參考分析。
+     *
+     * 失敗的分析（上游逾時、金鑰失效）會在歷史裡累積成沒有內容的雜訊，且每檔只
+     * 顯示最近 5 筆，廢資料會把真正有用的分析擠掉，所以要能逐筆清掉。
+     */
+    public function destroyAnalysis(Request $request, StockAnalysis $stockAnalysis): RedirectResponse
+    {
+        abort_unless($stockAnalysis->user_id === $request->user()->id, 403);
+
+        $symbol = $stockAnalysis->instrument?->symbol;
+
+        $stockAnalysis->delete();
+
+        // 刪完留在原本那檔股票的頁面；查不到標的（理論上不會）才退回搜尋首頁。
+        return $symbol === null
+            ? redirect()->route('stocks.search')
+            : redirect()->route('stocks.search', ['symbol' => $symbol]);
     }
 
     private function resolveSetting(User $user, ?int $settingId): ?LlmProviderSetting
@@ -263,6 +279,7 @@ class StockSearchController extends Controller
                 'provider_type' => $analysis->provider_type,
                 'model' => $analysis->model,
                 'prompt_version' => $analysis->prompt_version,
+                'status' => $analysis->status->value,
                 'rule_signal' => $analysis->rule_signal,
                 'llm_output' => $analysis->llm_output,
                 'data_as_of' => $analysis->data_as_of?->toIso8601String(),

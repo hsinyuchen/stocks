@@ -4,9 +4,10 @@ namespace App\Services\Llm;
 
 use App\Contracts\LlmProvider;
 use App\Data\LlmResponseData;
+use App\Exceptions\LlmRequestException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Psr\Http\Message\ResponseInterface;
-use RuntimeException;
 
 class AnthropicLlmProvider implements LlmProvider
 {
@@ -36,7 +37,7 @@ class AnthropicLlmProvider implements LlmProvider
 
         // 關閉 redirect：baseUrl 使用者可控，且此請求帶著 x-api-key。
         // 跟隨跳轉會把金鑰送到跳轉目標，等於憑證外洩原語。
-        $response = Http::timeout($this->timeoutSeconds)
+        $request = Http::timeout($this->timeoutSeconds)
             ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
             ->withOptions([
                 'allow_redirects' => false,
@@ -47,8 +48,11 @@ class AnthropicLlmProvider implements LlmProvider
             ->withHeaders([
                 'x-api-key' => (string) $this->apiKey,
                 'anthropic-version' => self::ANTHROPIC_VERSION,
-            ])
-            ->post($endpoint, [
+            ]);
+
+        // 連線層失敗與 HTTP 錯誤碼分開歸因，兩者的處理方式不同。
+        try {
+            $response = $request->post($endpoint, [
                 'model' => $model,
                 'max_tokens' => $this->maxTokens,
                 'temperature' => $this->temperature,
@@ -56,15 +60,18 @@ class AnthropicLlmProvider implements LlmProvider
                     ['role' => 'user', 'content' => $prompt],
                 ],
             ]);
+        } catch (ConnectionException $exception) {
+            throw LlmRequestException::fromConnection('anthropic', $exception);
+        }
 
         if ($response->failed()) {
-            throw new RuntimeException("Anthropic request failed with status {$response->status()}.");
+            throw LlmRequestException::fromStatus('anthropic', $response->status());
         }
 
         $content = $response->json('content.0.text');
 
         if (! is_string($content) || $content === '') {
-            throw new RuntimeException('Anthropic response did not contain text content.');
+            throw LlmRequestException::emptyContent('anthropic');
         }
 
         return new LlmResponseData(
@@ -84,7 +91,7 @@ class AnthropicLlmProvider implements LlmProvider
         $length = (int) ($response->getHeaderLine('Content-Length') ?: 0);
 
         if ($length > self::MAX_RESPONSE_BYTES) {
-            throw new RuntimeException('LLM response exceeds the allowed size limit.');
+            throw LlmRequestException::oversized('anthropic', self::MAX_RESPONSE_BYTES, $length);
         }
     }
 }

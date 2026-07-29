@@ -548,6 +548,131 @@ button {
     color: var(--warning);
 }
 
+/* 佇列狀態：pending 需要看得出「還在動」，failed 借用警示色但不用多空語意色，
+   避免和 bullish/bearish 混淆——分析失敗不是一種市場判斷。 */
+.status-pill--pending {
+    animation: analysis-pending-pulse 1.6s ease-in-out infinite;
+    background: var(--neutral-soft);
+    color: var(--muted);
+}
+
+.status-pill--failed {
+    background: var(--warning-soft);
+    color: var(--warning);
+}
+
+@keyframes analysis-pending-pulse {
+    50% {
+        opacity: 0.55;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .status-pill--pending {
+        animation: none;
+    }
+}
+
+.analysis-item--pending {
+    border-style: dashed;
+}
+
+/* 前景請求進行中的全域遮罩。z-index 要高過側欄與所有面板；本身即是 pointer
+   事件的攔截層，底層連結與按鈕因此點不到。 */
+.busy-overlay {
+    align-items: center;
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    backdrop-filter: blur(2px);
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    position: fixed;
+    z-index: 999;
+}
+
+.busy-overlay__box {
+    align-items: center;
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    display: grid;
+    gap: 8px;
+    justify-items: center;
+    padding: 22px 28px;
+    text-align: center;
+}
+
+.busy-overlay__note {
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+.busy-overlay__spinner {
+    animation: busy-spin 720ms linear infinite;
+    border: 3px solid var(--border);
+    border-radius: 50%;
+    border-top-color: var(--accent);
+    height: 26px;
+    width: 26px;
+}
+
+@keyframes busy-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 動畫關閉時仍要看得出「正在等待」，改用透明度脈動而不是完全靜止。 */
+@media (prefers-reduced-motion: reduce) {
+    .busy-overlay__spinner {
+        animation: analysis-pending-pulse 1.6s ease-in-out infinite;
+    }
+}
+
+/* 失敗原因：第一行說發生什麼，第二行說怎麼辦。兩行的視覺權重要分開，
+   否則使用者只會讀到「失敗」而錯過可執行的下一步。 */
+.analysis-failure {
+    display: grid;
+    gap: 4px;
+}
+
+.analysis-failure strong {
+    color: var(--warning);
+    font-size: 0.9rem;
+}
+
+.analysis-failure span {
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+
+.analysis-item__pending-note {
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    margin: 0;
+}
+
+/* 只在輪詢逾時才出現，多半代表 queue worker 沒啟動，語氣要像操作指引。 */
+.queue-stalled-hint {
+    background: var(--warning-soft);
+    border-radius: var(--radius-sm);
+    color: var(--warning);
+    font-size: 0.85rem;
+    line-height: 1.7;
+    margin: 0;
+    padding: 12px 14px;
+}
+
+.queue-stalled-hint code {
+    background: var(--surface-strong);
+    border-radius: 4px;
+    font-size: 0.82em;
+    padding: 1px 5px;
+}
+
 .watchlists-page,
 .watchlists-stack,
 .watchlist-card,
@@ -3348,6 +3473,49 @@ select:focus-visible {
     color: var(--accent);
     font-size: 0.72rem;
     padding: 1px 8px;
+}
+
+/* 刪除鈕：低調到不會誤點，但 hover / focus 時明確變成破壞性操作的紅色。
+   .analysis-item__time 已有 margin-left:auto，這顆接在它後面自然貼齊右側。 */
+.analysis-item__delete {
+    align-items: center;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    cursor: pointer;
+    display: inline-flex;
+    justify-content: center;
+    padding: 4px;
+}
+
+.analysis-item__delete:hover,
+.analysis-item__delete:focus-visible {
+    border-color: var(--border);
+    color: var(--neg);
+}
+
+.analysis-item__confirm {
+    align-items: center;
+    display: inline-flex;
+    gap: 6px;
+}
+
+.analysis-item__confirm button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.76rem;
+    padding: 3px 9px;
+}
+
+.analysis-item__confirm-yes {
+    background: var(--neg-soft);
+    border-color: transparent;
+    color: var(--neg);
+    font-weight: 700;
 }
 
 .analysis-item__chip-reasons {

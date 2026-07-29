@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AnalysisStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -13,6 +14,7 @@ class StockAnalysis extends Model
         'provider_type',
         'model',
         'prompt_version',
+        'status',
         'rule_signal',
         'llm_output',
         'data_as_of',
@@ -21,6 +23,7 @@ class StockAnalysis extends Model
     protected function casts(): array
     {
         return [
+            'status' => AnalysisStatus::class,
             'rule_signal' => 'array',
             'llm_output' => 'array',
             'data_as_of' => 'datetime',

@@ -4,13 +4,18 @@ namespace Tests\Unit;
 
 use App\Contracts\LlmProvider;
 use App\Data\LlmResponseData;
+use App\Enums\LlmFailureReason;
+use App\Exceptions\LlmRequestException;
 use App\Models\NewsItem;
 use App\Services\News\NewsAnalysisService;
 use RuntimeException;
-// 服務需要 config('news.symbols') 驗證 LLM 回傳的代號，故用 Laravel 基底
-// （同 tests/Unit/NewsConfigTest 的作法）。
 use Tests\TestCase;
+use Throwable;
 
+/**
+ * 服務需要 config('news.symbols') 驗證 LLM 回傳的代號，故用 Laravel 基底
+ * （同 tests/Unit/NewsConfigTest 的作法）。
+ */
 class NewsAnalysisServiceTest extends TestCase
 {
     public function test_analyze_item_parses_valid_json_into_structured_block(): void
@@ -91,11 +96,26 @@ class NewsAnalysisServiceTest extends TestCase
 
         $this->assertSame('item', $result['type']);
         $this->assertSame('error', $result['provider']);
-        $this->assertSame('neutral', $result['sentiment']);
+        // 不能給 'neutral'：那看起來像模型判斷，但這裡根本沒有判斷。
+        $this->assertNull($result['sentiment']);
         $this->assertNull($result['impact']);
         $this->assertSame([], $result['symbols']);
-        $this->assertSame('AI 分析暫時無法使用，請稍後再試或檢查模型設定。', $result['summary']);
-        $this->assertSame(['error' => true], $result['raw']);
+        $this->assertTrue($result['raw']['error']);
+        // 未分類的例外歸 unknown，不猜原因。
+        $this->assertSame(LlmFailureReason::Unknown->value, $result['raw']['failure']['reason']);
+        $this->assertStringContainsString($result['raw']['failure']['message'], $result['summary']);
+    }
+
+    public function test_analyze_item_reports_the_classified_failure_reason(): void
+    {
+        $llm = new ThrowingLlmProvider(new LlmRequestException('boom', LlmFailureReason::Timeout));
+        $item = new NewsItem(['title' => 'T', 'summary' => 'S']);
+
+        $result = (new NewsAnalysisService)->analyzeItem($item, $llm, 'm');
+
+        $this->assertSame(LlmFailureReason::Timeout->value, $result['raw']['failure']['reason']);
+        $this->assertSame(LlmFailureReason::Timeout->message(), $result['raw']['failure']['message']);
+        $this->assertSame(LlmFailureReason::Timeout->hint(), $result['raw']['failure']['hint']);
     }
 
     public function test_daily_summary_parses_summary_points_and_symbols(): void
@@ -133,8 +153,9 @@ class NewsAnalysisServiceTest extends TestCase
         $this->assertSame('error', $result['provider']);
         $this->assertSame([], $result['points']);
         $this->assertSame([], $result['symbols']);
-        $this->assertSame('AI 分析暫時無法使用，請稍後再試或檢查模型設定。', $result['summary']);
-        $this->assertSame(['error' => true], $result['raw']);
+        $this->assertTrue($result['raw']['error']);
+        $this->assertSame(LlmFailureReason::Unknown->value, $result['raw']['failure']['reason']);
+        $this->assertStringContainsString($result['raw']['failure']['hint'], $result['summary']);
     }
 }
 
@@ -177,8 +198,10 @@ final class RecordingLlmProvider implements LlmProvider
 
 final class ThrowingLlmProvider implements LlmProvider
 {
+    public function __construct(private readonly ?Throwable $exception = null) {}
+
     public function complete(string $model, string $prompt): LlmResponseData
     {
-        throw new RuntimeException('boom');
+        throw $this->exception ?? new RuntimeException('boom');
     }
 }

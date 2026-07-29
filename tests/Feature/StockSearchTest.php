@@ -3,9 +3,15 @@
 namespace Tests\Feature;
 
 use App\Contracts\SymbolNewsProvider;
+use App\Enums\AnalysisStatus;
+use App\Enums\LlmFailureReason;
+use App\Jobs\RunStockAnalysis;
 use App\Models\Instrument;
 use App\Models\StockAnalysis;
 use App\Models\User;
+use App\Services\Chip\ChipDataService;
+use App\Services\Llm\LlmProviderFactory;
+use App\Services\StockAnalysisService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia;
@@ -260,7 +266,15 @@ class StockSearchTest extends TestCase
 
         $analysis = StockAnalysis::query()->whereBelongsTo($user)->firstOrFail();
         $this->assertSame('error', $analysis->provider_type);
-        $this->assertStringContainsString('AI 分析暫時無法使用', $analysis->llm_output['content']);
+        // 上游 5xx 要歸成 server_error，使用者才知道是對方掛了而不是自己設定錯。
+        $this->assertSame(
+            LlmFailureReason::ServerError->value,
+            $analysis->llm_output['metadata']['failure']['reason'],
+        );
+        $this->assertStringContainsString(
+            LlmFailureReason::ServerError->message(),
+            $analysis->llm_output['content'],
+        );
     }
 
     public function test_cannot_analyze_with_another_users_provider_setting(): void
@@ -284,6 +298,87 @@ class StockSearchTest extends TestCase
         $this->actingAs($user)
             ->post("/stocks/{$instrument->id}/analyses", ['llm_provider_setting_id' => $otherSetting->id])
             ->assertForbidden();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function analysisAttributes(Instrument $instrument): array
+    {
+        return [
+            'instrument_id' => $instrument->id,
+            'provider_type' => 'ollama',
+            'model' => 'llama3.1',
+            'prompt_version' => 'v1',
+            'rule_signal' => ['stance' => 'watch'],
+            'llm_output' => ['content' => 'x'],
+            'data_as_of' => now(),
+        ];
+    }
+
+    public function test_user_can_delete_one_of_their_own_analyses(): void
+    {
+        $user = User::factory()->create();
+        $instrument = Instrument::factory()->create(['symbol' => 'NVDA']);
+        $keep = $user->stockAnalyses()->create($this->analysisAttributes($instrument));
+        $remove = $user->stockAnalyses()->create($this->analysisAttributes($instrument));
+
+        $this->actingAs($user)
+            ->delete("/stocks/analyses/{$remove->id}")
+            ->assertRedirect('/stocks/search?symbol=NVDA');
+
+        $this->assertDatabaseMissing('stock_analyses', ['id' => $remove->id]);
+        $this->assertDatabaseHas('stock_analyses', ['id' => $keep->id]);
+    }
+
+    public function test_user_cannot_delete_another_users_analysis(): void
+    {
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+        $instrument = Instrument::factory()->create(['symbol' => 'NVDA']);
+        $analysis = $other->stockAnalyses()->create($this->analysisAttributes($instrument));
+
+        $this->actingAs($user)
+            ->delete("/stocks/analyses/{$analysis->id}")
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('stock_analyses', ['id' => $analysis->id]);
+    }
+
+    public function test_guest_cannot_delete_an_analysis(): void
+    {
+        $user = User::factory()->create();
+        $instrument = Instrument::factory()->create(['symbol' => 'NVDA']);
+        $analysis = $user->stockAnalyses()->create($this->analysisAttributes($instrument));
+
+        $this->delete("/stocks/analyses/{$analysis->id}")->assertRedirect('/login');
+
+        $this->assertDatabaseHas('stock_analyses', ['id' => $analysis->id]);
+    }
+
+    public function test_deleting_a_pending_analysis_cancels_the_queued_job(): void
+    {
+        $user = User::factory()->create();
+        $instrument = Instrument::factory()->create(['symbol' => 'NVDA']);
+        $analysis = $user->stockAnalyses()->create([
+            ...$this->analysisAttributes($instrument),
+            'provider_type' => 'pending',
+            'status' => AnalysisStatus::Pending,
+            'rule_signal' => [],
+            'llm_output' => [],
+        ]);
+
+        $this->actingAs($user)->delete("/stocks/analyses/{$analysis->id}")->assertRedirect();
+
+        // job 之後才被 worker 取出：紀錄不在了就直接結束，不得復活成一筆孤兒資料。
+        Http::preventStrayRequests();
+        (new RunStockAnalysis($analysis->id, null, 'llama3.1'))->handle(
+            app(StockAnalysisService::class),
+            app(LlmProviderFactory::class),
+            app(ChipDataService::class),
+        );
+
+        $this->assertSame(0, StockAnalysis::query()->count());
     }
 
     public function test_search_page_exposes_user_llm_providers(): void

@@ -4,9 +4,10 @@ namespace App\Services\Llm;
 
 use App\Contracts\LlmProvider;
 use App\Data\LlmResponseData;
+use App\Exceptions\LlmRequestException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Psr\Http\Message\ResponseInterface;
-use RuntimeException;
 
 class GeminiLlmProvider implements LlmProvider
 {
@@ -34,15 +35,18 @@ class GeminiLlmProvider implements LlmProvider
 
         // 關閉 redirect：baseUrl 使用者可控，且金鑰帶在 query string 上，
         // 跟隨跳轉會把整條含金鑰的 URL 交給跳轉目標。
-        $response = Http::timeout($this->timeoutSeconds)
+        $request = Http::timeout($this->timeoutSeconds)
             ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
             ->withOptions([
                 'allow_redirects' => false,
                 'on_headers' => $this->rejectOversizedResponse(...),
             ])
             ->acceptJson()
-            ->asJson()
-            ->post($endpoint, [
+            ->asJson();
+
+        // 連線層失敗與 HTTP 錯誤碼分開歸因，兩者的處理方式不同。
+        try {
+            $response = $request->post($endpoint, [
                 'contents' => [
                     ['parts' => [['text' => $prompt]]],
                 ],
@@ -51,15 +55,18 @@ class GeminiLlmProvider implements LlmProvider
                     'maxOutputTokens' => $this->maxTokens,
                 ],
             ]);
+        } catch (ConnectionException $exception) {
+            throw LlmRequestException::fromConnection('gemini', $exception);
+        }
 
         if ($response->failed()) {
-            throw new RuntimeException("Gemini request failed with status {$response->status()}.");
+            throw LlmRequestException::fromStatus('gemini', $response->status());
         }
 
         $content = $response->json('candidates.0.content.parts.0.text');
 
         if (! is_string($content) || $content === '') {
-            throw new RuntimeException('Gemini response did not contain candidate text.');
+            throw LlmRequestException::emptyContent('gemini');
         }
 
         return new LlmResponseData(
@@ -79,7 +86,7 @@ class GeminiLlmProvider implements LlmProvider
         $length = (int) ($response->getHeaderLine('Content-Length') ?: 0);
 
         if ($length > self::MAX_RESPONSE_BYTES) {
-            throw new RuntimeException('LLM response exceeds the allowed size limit.');
+            throw LlmRequestException::oversized('gemini', self::MAX_RESPONSE_BYTES, $length);
         }
     }
 }

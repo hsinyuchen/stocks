@@ -6,6 +6,8 @@ use App\Contracts\LlmProvider;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
+use App\Enums\LlmFailureReason;
+use App\Exceptions\LlmRequestException;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 
 class StockAnalysisService
@@ -89,11 +91,18 @@ class StockAnalysisService
             if (app()->bound(ExceptionHandler::class)) {
                 report($exception);
             }
+
+            // 失敗原因要能傳到畫面：逾時、金鑰失效、模型名稱錯誤原本都收斂成
+            // 同一句話，使用者無從判斷該重試還是該改設定。
+            $failure = $exception instanceof LlmRequestException
+                ? $exception->toArray()
+                : LlmFailureReason::Unknown->toArray();
+
             $llmBlock = [
                 'provider' => 'error',
                 'model' => $model,
-                'content' => 'AI 分析暫時無法使用，已保留規則訊號供參考。請稍後再試或檢查模型設定。',
-                'metadata' => ['error' => true, 'exception' => $exception::class],
+                'content' => $failure['message'].'已保留規則訊號供參考。'.$failure['hint'],
+                'metadata' => ['error' => true, 'exception' => $exception::class, 'failure' => $failure],
             ];
         }
 

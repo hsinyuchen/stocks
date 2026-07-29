@@ -1,13 +1,14 @@
 import { Link, router, useForm } from '@inertiajs/react';
 import axios from 'axios';
 import { useCallback, useEffect, useState } from 'react';
-import { Bot, LineChart, Newspaper, RotateCcw, Sparkles } from 'lucide-react';
+import { Bot, LineChart, Newspaper, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 import StockSearchBox from '../../Components/StockSearchBox';
 import Markdown from '../../Components/Markdown';
 import StockChart from '../../Components/charts/StockChart';
 import CompareBox from '../../Components/charts/CompareBox';
 import TimeframeSwitcher from '../../Components/charts/TimeframeSwitcher';
+import useAnalysisPolling from '../../hooks/useAnalysisPolling';
 
 const stanceLabels = {
     bullish: '偏多',
@@ -410,7 +411,94 @@ function NewsList({ news }) {
     );
 }
 
-function AnalysisHistory({ analyses }) {
+/**
+ * 刪除單筆分析。
+ *
+ * 刻意不用 window.confirm：那是阻塞式對話框，且和整體介面風格斷裂。改成就地
+ * 二次確認，誤點一次不會直接刪掉東西。
+ */
+function DeleteAnalysisButton({ analysisId }) {
+    const [armed, setArmed] = useState(false);
+    const form = useForm();
+
+    if (!armed) {
+        return (
+            <button
+                aria-label="刪除這筆分析"
+                className="analysis-item__delete"
+                onClick={() => setArmed(true)}
+                title="刪除這筆分析"
+                type="button"
+            >
+                <Trash2 aria-hidden="true" size={15} />
+            </button>
+        );
+    }
+
+    return (
+        <span className="analysis-item__confirm">
+            <button
+                className="analysis-item__confirm-yes"
+                disabled={form.processing}
+                onClick={() => form.delete(`/stocks/analyses/${analysisId}`, { preserveScroll: true })}
+                type="button"
+            >
+                確認刪除
+            </button>
+            <button onClick={() => setArmed(false)} type="button">取消</button>
+        </span>
+    );
+}
+
+function PendingAnalysisItem({ analysis }) {
+    return (
+        <article className="analysis-item analysis-item--pending">
+            <div className="analysis-item__head">
+                <span className="status-pill status-pill--pending">分析中</span>
+                <small className="analysis-item__time">
+                    {formatDateTime(analysis.created_at)}
+                    <span>{analysis.model}</span>
+                </small>
+                {/* 排隊中也能刪：job 找不到紀錄就直接結束，等於取消這次分析。 */}
+                <DeleteAnalysisButton analysisId={analysis.id} />
+            </div>
+            <p className="analysis-item__pending-note">
+                已排入佇列，完成後會自動顯示。個股分析含行情抓取與 AI 產文，通常需要數十秒。
+            </p>
+        </article>
+    );
+}
+
+/**
+ * AI 失敗的原因與下一步。
+ *
+ * 逾時、金鑰失效、模型名稱錯誤原本都顯示同一句話，使用者無從判斷該重試還是
+ * 該去改設定；分類由後端 LlmFailureReason 提供，前端只負責呈現。
+ */
+function FailureNote({ failure }) {
+    return (
+        <div className="analysis-failure">
+            <strong>{failure.message}</strong>
+            <span>{failure.hint}</span>
+        </div>
+    );
+}
+
+/**
+ * 只在輪詢等到逾時才出現。最常見的原因是開發環境只啟動了 web server，
+ * 沒有 queue worker，job 因此永遠不會被取出執行。
+ */
+function QueueStalledHint() {
+    return (
+        <p className="queue-stalled-hint">
+            分析排隊超過 10 分鐘仍未完成，已停止等待。請確認佇列處理程序有在執行
+            （<code>composer dev</code> 會一併啟動，或另開終端機執行 <code>php artisan queue:work</code>），
+            重新整理後即可看到結果。
+        </p>
+    );
+}
+
+function AnalysisHistory({ analyses, stalled = false }) {
     if (analyses.length === 0) {
         return (
             <section className="stock-panel empty-state">
@@ -429,8 +517,13 @@ function AnalysisHistory({ analyses }) {
                 </div>
                 <Bot aria-hidden="true" size={22} />
             </div>
+            {stalled ? <QueueStalledHint /> : null}
             <div className="analysis-list">
                 {analyses.map((analysis, index) => {
+                    if (analysis.status === 'pending') {
+                        return <PendingAnalysisItem analysis={analysis} key={analysis.id} />;
+                    }
+
                     const stance = analysis.rule_signal?.stance ?? 'watch';
                     // chip / alignment 只在有籌碼資料時存在（台股且抓取成功）。
                     const chip = analysis.rule_signal?.chip ?? null;
@@ -452,6 +545,11 @@ function AnalysisHistory({ analyses }) {
                                         {alignmentLabels[alignment]}
                                     </span>
                                 ) : null}
+                                {/* 技術與籌碼是本地計算，AI 失敗時仍然有效；標出來讓
+                                    使用者知道缺的是哪一段，而不是整筆分析都不可信。 */}
+                                {analysis.status === 'failed' ? (
+                                    <span className="status-pill status-pill--failed">AI 未完成</span>
+                                ) : null}
                                 {/* 時間必須顯示：同一檔股票的多筆分析，provider 與
                                     model 往往相同，沒有時間就完全無法區分，五筆疊在
                                     一起看起來像同一筆。created_at 本來就在 payload 裡
@@ -461,8 +559,13 @@ function AnalysisHistory({ analyses }) {
                                     {formatDateTime(analysis.created_at)}
                                     <span>{analysis.provider_type} · {analysis.model}</span>
                                 </small>
+                                <DeleteAnalysisButton analysisId={analysis.id} />
                             </div>
-                            <Markdown>{analysis.llm_output?.content ?? '尚未保存 LLM 參考文字。'}</Markdown>
+                            {analysis.status === 'failed' && analysis.llm_output?.metadata?.failure ? (
+                                <FailureNote failure={analysis.llm_output.metadata.failure} />
+                            ) : (
+                                <Markdown>{analysis.llm_output?.content ?? '尚未保存 LLM 參考文字。'}</Markdown>
+                            )}
                             {analysis.rule_signal?.reasons?.length ? (
                                 <ul>
                                     {analysis.rule_signal.reasons.map((reason) => (
@@ -738,6 +841,10 @@ export default function StockSearch({
     fundamentals = null,
     chipFlows = [],
 }) {
+    // 分析在佇列執行，頁面回來時多半還是 pending，靠輪詢把結果補上。
+    const hasPending = analyses.some((analysis) => analysis.status === 'pending');
+    const stalled = useAnalysisPolling(hasPending, ['analyses']);
+
     return (
         <AppShell title="個股搜尋">
             <div className="stock-search-page">
@@ -760,7 +867,7 @@ export default function StockSearch({
                     </div>
                     <aside className="stock-workspace__side">
                         <AnalyzeForm instrument={instrument} llmProviders={llmProviders} />
-                        <AnalysisHistory analyses={analyses} />
+                        <AnalysisHistory analyses={analyses} stalled={stalled} />
                     </aside>
                 </div>
             </div>

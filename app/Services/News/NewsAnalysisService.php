@@ -3,20 +3,35 @@
 namespace App\Services\News;
 
 use App\Contracts\LlmProvider;
+use App\Enums\LlmFailureReason;
+use App\Exceptions\LlmRequestException;
 use App\Models\NewsItem;
 use Carbon\CarbonImmutable;
 use Throwable;
 
 class NewsAnalysisService
 {
-    private const ERROR_MESSAGE = 'AI 分析暫時無法使用，請稍後再試或檢查模型設定。';
-
     private const SENTIMENTS = ['bullish', 'bearish', 'neutral'];
 
     /** 每日摘要 prompt 最多納入的「事件」數（聚類後）。 */
     private const DAILY_SUMMARY_EVENTS = 30;
 
     public function __construct(private readonly NewsEventClusterer $clusterer = new NewsEventClusterer) {}
+
+    /**
+     * 把例外翻成使用者看得懂的失敗原因。
+     *
+     * 只有 provider 主動分類過的例外有原因可用；其餘（JSON 解析、序列化等）
+     * 一律歸 Unknown，不要猜。
+     *
+     * @return array{reason: string, message: string, hint: string}
+     */
+    private function failureOf(Throwable $exception): array
+    {
+        return $exception instanceof LlmRequestException
+            ? $exception->toArray()
+            : LlmFailureReason::Unknown->toArray();
+    }
 
     /**
      * @return array<string, mixed>
@@ -27,17 +42,21 @@ class NewsAnalysisService
 
         try {
             $response = $llm->complete($model, $prompt);
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            $failure = $this->failureOf($exception);
+
             return [
                 'type' => 'item',
                 'provider' => 'error',
                 'model' => $model,
-                'sentiment' => 'neutral',
+                // sentiment 不能給 'neutral'：那是一個看起來像模型判斷的值，
+                // 而這裡根本沒有判斷。留 null 讓下游知道沒有結論。
+                'sentiment' => null,
                 'impact' => null,
                 'symbols' => [],
-                'summary' => self::ERROR_MESSAGE,
+                'summary' => $failure['message'].$failure['hint'],
                 'reasoning' => '',
-                'raw' => ['error' => true],
+                'raw' => ['error' => true, 'failure' => $failure],
                 'data_as_of' => CarbonImmutable::now()->toIso8601String(),
             ];
         }
@@ -91,15 +110,17 @@ class NewsAnalysisService
 
         try {
             $response = $llm->complete($model, $prompt);
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            $failure = $this->failureOf($exception);
+
             return [
                 'type' => 'daily_summary',
                 'provider' => 'error',
                 'model' => $model,
-                'summary' => self::ERROR_MESSAGE,
+                'summary' => $failure['message'].$failure['hint'],
                 'points' => [],
                 'symbols' => [],
-                'raw' => ['error' => true],
+                'raw' => ['error' => true, 'failure' => $failure],
                 'data_as_of' => CarbonImmutable::now()->toIso8601String(),
             ];
         }

@@ -43,6 +43,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/stocks/chart', [StockChartController::class, 'bySymbol'])->name('stocks.chart.symbol');
     Route::get('/stocks/{instrument}/chart', StockChartController::class)->name('stocks.chart');
     Route::post('/stocks/{instrument}/analyses', [StockSearchController::class, 'analyze'])->name('stocks.analyses.store');
+    Route::delete('/stocks/analyses/{stockAnalysis}', [StockSearchController::class, 'destroyAnalysis'])->name('stocks.analyses.destroy');
     Route::get('/portfolio', [PortfolioController::class, 'index'])->name('portfolio.index');
     Route::post('/portfolio', [PortfolioController::class, 'store'])->name('portfolio.store');
     Route::patch('/portfolio/{holding}', [PortfolioController::class, 'update'])->name('portfolio.update');
