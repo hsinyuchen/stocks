@@ -8,12 +8,31 @@ use App\Models\Instrument;
 use App\Models\MarginFlow;
 use App\Services\Margin\MarginDataService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class MarginDataServiceTest extends TestCase
 {
     use RefreshDatabase;
+
+    /**
+     * 新鮮度以「今天的資料公佈了沒」判斷（見 DailyDataFreshness），因此測試必須
+     * 固定在公佈時刻之後，否則跨過午夜跑就會變成「今天還沒公佈、不必重抓」而失敗。
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Carbon::setTestNow(Carbon::parse('2026-07-15 20:00', 'Asia/Taipei'));
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
 
     public function test_us_symbols_return_nothing(): void
     {

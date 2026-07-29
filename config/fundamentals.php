@@ -23,7 +23,6 @@ return [
     'percentile_min_samples' => (int) env('FUNDAMENTALS_PERCENTILE_MIN_SAMPLES', 20),
     'failure_ttl_hours' => (int) env('FUNDAMENTALS_FAILURE_TTL_HOURS', 2),
 
-
     /*
     |--------------------------------------------------------------------------
     | 盤後資料公佈時刻（台北時間，24 小時制）

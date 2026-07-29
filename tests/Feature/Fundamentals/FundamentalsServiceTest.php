@@ -8,11 +8,30 @@ use App\Models\Fundamental;
 use App\Models\Instrument;
 use App\Services\Fundamentals\FundamentalsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class FundamentalsServiceTest extends TestCase
 {
     use RefreshDatabase;
+
+    /**
+     * 新鮮度以「今天的資料公佈了沒」判斷（見 DailyDataFreshness），因此測試必須
+     * 固定在公佈時刻之後，否則跨過午夜跑就會變成「今天還沒公佈、不必重抓」而失敗。
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Carbon::setTestNow(Carbon::parse('2026-07-15 20:00', 'Asia/Taipei'));
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
 
     /** 計數 + 可回全 null 或拋例外的 stub。 */
     private function bindProvider(?FundamentalsData $data = null, bool $throw = false): object
