@@ -1,7 +1,8 @@
-import { Link, router, useForm, usePage } from '@inertiajs/react';
+import { router, useForm, usePage } from '@inertiajs/react';
 import { useState } from 'react';
 import { KeyRound, ShieldCheck, ShieldOff, Trash2, UserPlus, UserX, UserCheck } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
+import Pagination from '../../Components/Pagination';
 
 function formatDate(value) {
     if (!value) {
@@ -369,20 +370,7 @@ export default function AdminUsers({ users = { data: [], links: [] }, filters = 
                     </table>
                 </div>
 
-                <nav className="admin-users__pagination">
-                    {(users.links ?? []).map((link) => (
-                        link.url ? (
-                            <Link
-                                className={link.active ? 'is-active' : ''}
-                                dangerouslySetInnerHTML={{ __html: link.label }}
-                                href={link.url}
-                                key={link.label}
-                            />
-                        ) : (
-                            <span dangerouslySetInnerHTML={{ __html: link.label }} key={link.label} />
-                        )
-                    ))}
-                </nav>
+                <Pagination links={users.links} meta={users} />
             </section>
         </AppShell>
     );

@@ -2,6 +2,7 @@ import { router, useForm, usePage } from '@inertiajs/react';
 import { AlertTriangle, Plus, Upload } from 'lucide-react';
 import { useState } from 'react';
 import AppShell from '../../Layouts/AppShell';
+import Pagination from '../../Components/Pagination';
 
 function FieldError({ message }) {
     if (!message) {
@@ -286,6 +287,8 @@ export default function AdminInstruments({ instruments = { data: [], links: [] }
                     </div>
 
                     {instruments.data.length === 0 ? <p className="dashboard-empty">沒有符合條件的標的。</p> : null}
+
+                    <Pagination links={instruments.links} meta={instruments} />
                 </section>
             </div>
         </AppShell>

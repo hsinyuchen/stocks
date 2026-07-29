@@ -3,6 +3,7 @@ import { AlertTriangle, Bot, ChevronDown, GitBranch, Newspaper, Settings, Slider
 import { useEffect, useState } from 'react';
 import AppShell from '../../Layouts/AppShell';
 import Markdown from '../../Components/Markdown';
+import Pagination from '../../Components/Pagination';
 import useAnalysisPolling from '../../hooks/useAnalysisPolling';
 
 // 需與 config/news.php 的 domains 鍵一致；缺對應時前端會直接顯示英文鍵值。
@@ -490,27 +491,6 @@ function NewsCard({ item, providers, providerId, providerName }) {
     );
 }
 
-function Pagination({ links }) {
-    if (!links || links.length <= 3) {
-        return null;
-    }
-
-    return (
-        <nav className="news-pagination">
-            {links.map((link, index) => (
-                <button
-                    className={`news-page-link${link.active ? ' is-active' : ''}`}
-                    disabled={!link.url}
-                    dangerouslySetInnerHTML={{ __html: link.label }}
-                    key={index}
-                    onClick={() => link.url && router.get(link.url, {}, { preserveScroll: true })}
-                    type="button"
-                />
-            ))}
-        </nav>
-    );
-}
-
 /**
  * 事件 → 產業 → 個股的傳導鏈。
  *
@@ -698,7 +678,7 @@ export default function NewsIndex({
                     </div>
                 )}
 
-                <Pagination links={items.links} />
+                <Pagination links={items.links} meta={items} />
             </section>
         </AppShell>
     );

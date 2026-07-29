@@ -2474,30 +2474,54 @@ select:focus-visible {
     padding: 10px 14px;
 }
 
-.admin-users__pagination {
+/* 共用翻頁列：標的清單、使用者管理、新聞三處共用。除了頁碼按鈕，另外顯示
+   「第 N / M 頁　共 X 筆」——只有一排數字按鈕時，使用者不知道自己在哪、
+   後面還有多少。 */
+.pagination {
+    align-items: center;
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px 14px;
+    justify-content: space-between;
     margin-top: 14px;
 }
 
-.admin-users__pagination a,
-.admin-users__pagination span {
+.pagination__meta {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+.pagination__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.pagination__link {
+    background: none;
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--muted);
+    cursor: pointer;
     font-size: 0.85rem;
     padding: 4px 10px;
 }
 
-.admin-users__pagination a.is-active {
+.pagination__link:hover:not(:disabled),
+.pagination__link:focus-visible:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.pagination__link.is-active {
     background: var(--accent-soft);
     color: var(--text);
     font-weight: 700;
 }
 
-.admin-users__pagination span {
-    opacity: 0.5;
+.pagination__link:disabled {
+    cursor: default;
+    opacity: 0.45;
 }
 
 /* 選股器：規則 chips 換行複選 + 結果表（沿用 admin-users 表格視覺）。 */
@@ -3343,14 +3367,6 @@ select:focus-visible {
 
 .news-daily-summary__result {
     margin-top: 12px;
-}
-
-.news-pagination {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    justify-content: center;
-    margin-top: 18px;
 }
 
 .news-filter-bar {
