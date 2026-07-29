@@ -28,6 +28,8 @@ class UserManagementController extends Controller
                     ->where('email', 'like', "%{$q}%")
                     ->orWhere('name', 'like', "%{$q}%"));
             })
+            // 待審核的排最前面：那是唯一需要管理員動作的狀態，藏在第三頁等於沒做。
+            ->orderByRaw('approved_at is not null')
             ->orderBy('id')
             ->paginate(self::PER_PAGE)
             ->withQueryString()
@@ -37,6 +39,7 @@ class UserManagementController extends Controller
                 'email' => $user->email,
                 'is_admin' => $user->is_admin,
                 'disabled_at' => $user->disabled_at?->toIso8601String(),
+                'approved_at' => $user->approved_at?->toIso8601String(),
                 'created_at' => $user->created_at?->toIso8601String(),
                 'watchlists_count' => $user->watchlists_count,
                 'analyses_count' => $user->stock_analyses_count + $user->news_analyses_count,
@@ -46,7 +49,49 @@ class UserManagementController extends Controller
         return Inertia::render('Admin/Users', [
             'users' => $users,
             'filters' => ['q' => $q !== '' ? $q : null],
+            // 搜尋或翻頁時也要看得到還有幾筆待辦，所以獨立統計而非數當頁。
+            'pendingCount' => User::query()->whereNull('approved_at')->count(),
         ]);
+    }
+
+    /**
+     * 核准一筆註冊申請。
+     *
+     * 記下核准者：出事時要能追出是誰放行的，這是這道關卡存在的意義之一。
+     */
+    public function approve(Request $request, User $user): RedirectResponse
+    {
+        if ($user->approved_at !== null) {
+            return redirect()->back();
+        }
+
+        $user->forceFill([
+            'approved_at' => now(),
+            'approved_by' => $request->user()->id,
+        ])->save();
+
+        Log::info('admin action', ['actor' => $request->user()->id, 'target' => $user->id, 'action' => 'approve']);
+
+        return redirect()->back()->with('success', "已核准 {$user->email}。");
+    }
+
+    /**
+     * 駁回申請＝刪除帳號。
+     *
+     * 不留「已駁回」狀態：那會讓 email 永久佔用 unique 索引，同一個人之後想重新
+     * 申請就會撞到「此信箱已註冊」而完全無法自救。
+     */
+    public function reject(Request $request, User $user): RedirectResponse
+    {
+        if ($user->approved_at !== null) {
+            return redirect()->back()->with('error', '此帳號已核准，請改用停用或刪除。');
+        }
+
+        Log::info('admin action', ['actor' => $request->user()->id, 'target' => $user->id, 'action' => 'reject', 'email' => $user->email]);
+
+        $user->delete();
+
+        return redirect()->back()->with('success', '已駁回並刪除該申請。');
     }
 
     public function store(Request $request): RedirectResponse
@@ -66,6 +111,9 @@ class UserManagementController extends Controller
         }
 
         $user = User::query()->create($data);
+
+        // 管理員親手建立的帳號直接放行——再要求他去核准自己剛建的東西沒有意義。
+        $user->forceFill(['approved_at' => now(), 'approved_by' => $request->user()->id])->save();
 
         Log::info('admin action', ['actor' => $request->user()->id, 'target' => $user->id, 'action' => 'create']);
 
@@ -158,9 +206,11 @@ class UserManagementController extends Controller
             return '不能對自己執行此操作。';
         }
 
+        // 「有效」要同時看核准與停用：未核准的管理員登不進來，不能拿來充人數。
         $isLastActiveAdmin = $target->is_admin
-            && $target->disabled_at === null
-            && User::query()->where('is_admin', true)->whereNull('disabled_at')->count() === 1;
+            && $target->isActive()
+            && User::query()->where('is_admin', true)
+                ->whereNull('disabled_at')->whereNotNull('approved_at')->count() === 1;
 
         if ($isLastActiveAdmin) {
             return '這是最後一位有效管理員，不可停用、刪除或降級。';

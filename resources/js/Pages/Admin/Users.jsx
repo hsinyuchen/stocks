@@ -167,16 +167,40 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                 </td>
                 <td>{user.is_admin ? <span className="badge badge--admin">管理員</span> : '一般'}</td>
                 <td>
-                    {user.disabled_at
-                        ? <span className="badge badge--disabled">停用</span>
-                        : <span className="badge badge--active">正常</span>}
+                    {/* 待審核優先於停用：未核准的帳號從來沒有被啟用過，
+                        顯示成「正常」或「停用」都是錯的。 */}
+                    {user.approved_at === null
+                        ? <span className="badge badge--pending">待審核</span>
+                        : user.disabled_at
+                            ? <span className="badge badge--disabled">停用</span>
+                            : <span className="badge badge--active">正常</span>}
                 </td>
                 <td>{formatDate(user.created_at)}</td>
                 <td>{user.watchlists_count}</td>
                 <td>{user.analyses_count}</td>
                 <td>{user.has_llm ? '✓' : '—'}</td>
                 <td className="admin-row-actions">
-                    {user.disabled_at ? (
+                    {/* 待審核的帳號只有兩個合理動作：放行或駁回。停用一個從未啟用
+                        的帳號、或把它升為管理員，都只會讓狀態更難理解。 */}
+                    {user.approved_at === null ? (
+                        <>
+                            <button
+                                className="admin-approve"
+                                onClick={() => act('patch', `/admin/users/${user.id}/approve`, `核准 ${user.email} 的申請？`)}
+                                title="核准"
+                                type="button"
+                            >
+                                <UserCheck size={16} />
+                            </button>
+                            <button
+                                onClick={() => act('delete', `/admin/users/${user.id}/reject`, `駁回並刪除 ${user.email} 的申請？`)}
+                                title="駁回申請"
+                                type="button"
+                            >
+                                <UserX size={16} />
+                            </button>
+                        </>
+                    ) : user.disabled_at ? (
                         <button
                             onClick={() => act('patch', `/admin/users/${user.id}/enable`)}
                             title="啟用"
@@ -194,33 +218,39 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                             <UserX size={16} />
                         </button>
                     )}
-                    <button
-                        disabled={user.is_admin && locked}
-                        onClick={() => act(
-                            'patch',
-                            `/admin/users/${user.id}/role`,
-                            user.is_admin ? `將 ${user.email} 降為一般使用者？` : `將 ${user.email} 升為管理員？`,
-                        )}
-                        title={user.is_admin && locked ? lockReason : (user.is_admin ? '降為一般' : '升為管理員')}
-                        type="button"
-                    >
-                        {user.is_admin ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
-                    </button>
-                    <button
-                        onClick={() => act('post', `/admin/users/${user.id}/reset-link`, `寄密碼重設信給 ${user.email}？`)}
-                        title="寄密碼重設信"
-                        type="button"
-                    >
-                        <KeyRound size={16} />
-                    </button>
-                    <button
-                        disabled={locked}
-                        onClick={() => setDeleting(true)}
-                        title={locked ? lockReason : '刪除'}
-                        type="button"
-                    >
-                        <Trash2 size={16} />
-                    </button>
+                    {/* 角色、密碼重設、刪除對還沒放行的申請都沒有意義——駁回鈕
+                        本身就會刪掉它。 */}
+                    {user.approved_at !== null ? (
+                        <>
+                            <button
+                                disabled={user.is_admin && locked}
+                                onClick={() => act(
+                                    'patch',
+                                    `/admin/users/${user.id}/role`,
+                                    user.is_admin ? `將 ${user.email} 降為一般使用者？` : `將 ${user.email} 升為管理員？`,
+                                )}
+                                title={user.is_admin && locked ? lockReason : (user.is_admin ? '降為一般' : '升為管理員')}
+                                type="button"
+                            >
+                                {user.is_admin ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
+                            </button>
+                            <button
+                                onClick={() => act('post', `/admin/users/${user.id}/reset-link`, `寄密碼重設信給 ${user.email}？`)}
+                                title="寄密碼重設信"
+                                type="button"
+                            >
+                                <KeyRound size={16} />
+                            </button>
+                            <button
+                                disabled={locked}
+                                onClick={() => setDeleting(true)}
+                                title={locked ? lockReason : '刪除'}
+                                type="button"
+                            >
+                                <Trash2 size={16} />
+                            </button>
+                        </>
+                    ) : null}
                 </td>
             </tr>
             {deleting ? (
@@ -261,13 +291,14 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
     );
 }
 
-export default function AdminUsers({ users = { data: [], links: [] }, filters = {} }) {
+export default function AdminUsers({ users = { data: [], links: [] }, filters = {}, pendingCount = 0 }) {
     const { props } = usePage();
     const selfId = props.auth?.user?.id;
     const flash = props.flash ?? {};
     const [q, setQ] = useState(filters.q ?? '');
 
-    const activeAdmins = users.data.filter((user) => user.is_admin && !user.disabled_at);
+    // 未核准的管理員登不進來，不能算進「有效管理員」的人數。
+    const activeAdmins = users.data.filter((user) => user.is_admin && !user.disabled_at && user.approved_at);
     const lastActiveAdminId = activeAdmins.length === 1 ? activeAdmins[0].id : null;
 
     const search = (event) => {
@@ -285,6 +316,13 @@ export default function AdminUsers({ users = { data: [], links: [] }, filters = 
                     </div>
                     <CreateUserForm />
                 </header>
+
+                {/* 待審核是唯一需要管理員主動處理的狀態，搜尋或翻頁時也要看得到。 */}
+                {pendingCount > 0 ? (
+                    <p className="admin-pending-banner" role="status">
+                        有 {pendingCount} 筆註冊申請待審核，已排在列表最前面。
+                    </p>
+                ) : null}
 
                 {flash.error ? <p className="field-error">{flash.error}</p> : null}
                 {flash.success ? <p className="field-hint">{flash.success}</p> : null}

@@ -1,5 +1,5 @@
-import { useForm } from '@inertiajs/react';
-import { LogIn, UserPlus } from 'lucide-react';
+import { useForm, usePage } from '@inertiajs/react';
+import { CheckCircle2, LogIn, UserPlus } from 'lucide-react';
 
 function FieldError({ message }) {
     if (!message) {
@@ -80,15 +80,18 @@ function RegisterForm() {
 
     const submit = (event) => {
         event.preventDefault();
-        form.post('/register');
+        // 送出後不會自動登入，成功時導回登入頁並帶 flash 訊息。
+        form.post('/register', { onSuccess: () => form.reset() });
     };
 
     return (
         <form className="auth-card" onSubmit={submit}>
             <div>
                 <p className="section-kicker">建立帳號</p>
-                <h2>建立新的研究帳號</h2>
-                <p>註冊後會建立個人設定檔，可管理自選清單、主題色與 LLM 分析設定。</p>
+                <h2>申請新的研究帳號</h2>
+                {/* 審核制必須在送出前就講清楚，否則使用者會以為註冊完就能用，
+                    然後在登入被擋時以為是密碼打錯。 */}
+                <p>送出後需經管理員審核，核准後才能登入。核准通常需要一些時間，請耐心等候。</p>
             </div>
             <TextField
                 autoComplete="name"
@@ -124,13 +127,16 @@ function RegisterForm() {
             />
             <button className="button-secondary" disabled={form.processing} type="submit">
                 <UserPlus aria-hidden="true" size={18} />
-                <span>建立帳號</span>
+                <span>送出申請</span>
             </button>
         </form>
     );
 }
 
 export default function Login({ registrationEnabled = true }) {
+    // 申請送出後會導回本頁，成功訊息是使用者唯一的確認依據。
+    const { flash } = usePage().props;
+
     return (
         <main className="auth-page">
             <section className="auth-hero">
@@ -138,6 +144,12 @@ export default function Login({ registrationEnabled = true }) {
                 <h1>台美股市研究入口</h1>
                 <p>整合新聞、價格資料、技術指標、自選清單與 LLM 參考分析，作為投資研究與風險檢查的工作區。</p>
             </section>
+            {flash?.success ? (
+                <p className="auth-flash" role="status">
+                    <CheckCircle2 aria-hidden="true" size={18} />
+                    {flash.success}
+                </p>
+            ) : null}
             <section className="auth-grid" aria-label="登入與註冊表單">
                 <LoginForm />
                 {registrationEnabled ? <RegisterForm /> : null}

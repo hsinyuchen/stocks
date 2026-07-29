@@ -2242,6 +2242,75 @@ select:focus-visible {
     color: var(--neg);
 }
 
+/* 待審核＝等人處理，用警示色而非多空色：它不是「壞掉」，是待辦。 */
+.badge--pending {
+    background: var(--warning-soft);
+    color: var(--warning);
+}
+
+.admin-pending-banner {
+    background: var(--warning-soft);
+    border-radius: var(--radius-sm);
+    color: var(--warning);
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin: 0;
+    padding: 10px 14px;
+}
+
+.admin-approve:hover,
+.admin-approve:focus-visible {
+    border-color: var(--positive);
+    color: var(--positive);
+}
+
+.profile-page {
+    display: grid;
+    gap: 18px;
+}
+
+.profile-grid {
+    display: grid;
+    gap: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.profile-form {
+    align-content: start;
+    display: grid;
+    gap: 14px;
+}
+
+.profile-flash {
+    background: var(--pos-soft);
+    border-radius: var(--radius-sm);
+    color: var(--positive);
+    font-size: 0.88rem;
+    margin: 0;
+    padding: 11px 14px;
+}
+
+.profile-flash--error {
+    background: var(--neg-soft);
+    color: var(--neg);
+}
+
+/* 申請送出後導回登入頁，這是使用者唯一的成功回饋，不能低調到看不見。 */
+.auth-flash {
+    align-items: center;
+    background: var(--pos-soft);
+    border-radius: var(--radius-sm);
+    color: var(--positive);
+    display: flex;
+    font-size: 0.9rem;
+    font-weight: 600;
+    gap: 8px;
+    margin: 0 auto;
+    max-width: 900px;
+    padding: 12px 16px;
+    width: 100%;
+}
+
 .admin-create-form {
     border: 1px solid var(--border);
     border-radius: 12px;

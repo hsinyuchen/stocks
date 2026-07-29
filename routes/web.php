@@ -11,6 +11,7 @@ use App\Http\Controllers\NewsAnalysisController;
 use App\Http\Controllers\NewsController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PortfolioController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ScreenerController;
 use App\Http\Controllers\StockChartController;
 use App\Http\Controllers\StockSearchController;
@@ -57,6 +58,10 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/screener/history', [ScreenerController::class, 'history'])->name('screener.history');
     Route::post('/screener/watchlist', [ScreenerController::class, 'addToWatchlist'])->name('screener.watchlist');
     Route::get('/analyses', [AnalysesController::class, 'index'])->name('analyses.index');
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::patch('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
+    Route::patch('/profile/preferences', [ProfileController::class, 'updatePreferences'])->name('profile.preferences');
     Route::get('/settings', [LlmProviderSettingController::class, 'index'])->name('settings.index');
     Route::post('/settings', [LlmProviderSettingController::class, 'store'])->name('settings.store');
     Route::patch('/settings/{llmProviderSetting}', [LlmProviderSettingController::class, 'update'])->name('settings.update');
@@ -67,6 +72,8 @@ Route::middleware('auth')->group(function (): void {
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function (): void {
     Route::get('/users', [UserManagementController::class, 'index'])->name('users.index');
     Route::post('/users', [UserManagementController::class, 'store'])->name('users.store');
+    Route::patch('/users/{user}/approve', [UserManagementController::class, 'approve'])->name('users.approve');
+    Route::delete('/users/{user}/reject', [UserManagementController::class, 'reject'])->name('users.reject');
     Route::patch('/users/{user}/disable', [UserManagementController::class, 'disable'])->name('users.disable');
     Route::patch('/users/{user}/enable', [UserManagementController::class, 'enable'])->name('users.enable');
     Route::patch('/users/{user}/role', [UserManagementController::class, 'toggleRole'])->name('users.role');

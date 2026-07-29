@@ -26,12 +26,15 @@ class RegistrationToggleTest extends TestCase
     {
         config(['platform.registration_enabled' => true]);
 
+        // 開放註冊＝可以送出申請，不等於可以直接進站（審核見 RegistrationApprovalTest）。
         $this->post('/register', [
             'name' => 'A',
             'email' => 'a@example.com',
             'password' => 'password-123',
             'password_confirmation' => 'password-123',
-        ])->assertRedirect('/dashboard');
+        ])->assertRedirect('/login');
+
+        $this->assertDatabaseHas('users', ['email' => 'a@example.com', 'approved_at' => null]);
     }
 
     public function test_login_page_exposes_registration_flag(): void

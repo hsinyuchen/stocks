@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -36,11 +37,18 @@ class AuthController extends Controller
             ]);
         }
 
-        if ($request->user()->disabled_at !== null) {
-            Auth::logout();
+        // 待審核與已停用要分開講：前者是等人處理，後者是被收回權限，
+        // 使用者該採取的行動完全不同。
+        if ($request->user()->isPendingApproval()) {
+            $this->forget($request);
 
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
+            throw ValidationException::withMessages([
+                'email' => '此帳號尚待管理員審核，核准後才能登入。',
+            ]);
+        }
+
+        if ($request->user()->disabled_at !== null) {
+            $this->forget($request);
 
             throw ValidationException::withMessages([
                 'email' => '此帳號已停用。',
@@ -62,12 +70,14 @@ class AuthController extends Controller
             'password' => ['required', 'confirmed', 'min:8'],
         ]);
 
-        $user = User::query()->create($data);
+        // 自助註冊只是「提出申請」：approved_at 留空，等管理員在後台放行。
+        // 不呼叫 Auth::login——未核准的帳號連一次 session 都不該拿到。
+        User::query()->create($data);
 
-        Auth::login($user);
-        $request->session()->regenerate();
+        Log::info('registration requested', ['email' => $data['email']]);
 
-        return redirect()->route('dashboard');
+        return redirect()->route('login')
+            ->with('success', '申請已送出，待管理員審核通過後即可登入。');
     }
 
     public function logout(Request $request): RedirectResponse
@@ -78,5 +88,14 @@ class AuthController extends Controller
         $request->session()->regenerateToken();
 
         return redirect()->route('login');
+    }
+
+    /** 登出並丟掉整個 session，避免任何殘留狀態被下一個請求沿用。 */
+    private function forget(Request $request): void
+    {
+        Auth::logout();
+
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
     }
 }

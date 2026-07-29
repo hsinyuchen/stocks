@@ -18,17 +18,21 @@ class AuthFlowTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->component('Auth/Login'));
     }
 
-    public function test_user_can_register_and_is_redirected_to_dashboard(): void
+    /**
+     * 註冊只是提出申請，不再直接進站——詳細的審核行為見 RegistrationApprovalTest。
+     * 這裡保留的是「帳號與 profile 仍然會被建立」這件事。
+     */
+    public function test_user_can_register_and_is_sent_back_to_login_for_approval(): void
     {
         $this->post('/register', [
             'name' => 'Demo User',
             'email' => 'demo@example.test',
             'password' => 'password',
             'password_confirmation' => 'password',
-        ])->assertRedirect('/dashboard');
+        ])->assertRedirect('/login');
 
-        $this->assertAuthenticated();
-        $this->assertDatabaseHas('users', ['email' => 'demo@example.test']);
+        $this->assertGuest();
+        $this->assertDatabaseHas('users', ['email' => 'demo@example.test', 'approved_at' => null]);
         $this->assertDatabaseHas('user_profiles', ['theme' => 'warm']);
     }
 
