@@ -12,16 +12,11 @@ class ScreenRunPersistenceTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** 掃描範圍＝標的清單（instruments 表），不再是 config 的 universe。 */
     private function universe(): void
     {
-        config(['screener.universe' => [
-            ['symbol' => 'AAA', 'name' => 'Alpha'],
-            ['symbol' => 'BBB', 'name' => 'Beta'],
-        ]]);
-
-        foreach (['AAA', 'BBB'] as $symbol) {
-            Instrument::factory()->create(['symbol' => $symbol]);
-        }
+        Instrument::factory()->create(['symbol' => 'AAA', 'name' => 'Alpha']);
+        Instrument::factory()->create(['symbol' => 'BBB', 'name' => 'Beta']);
     }
 
     // --- 留存 ---
@@ -131,8 +126,8 @@ class ScreenRunPersistenceTest extends TestCase
     public function test_symbols_outside_the_run_results_are_ignored(): void
     {
         $this->universe();
-        Instrument::factory()->create(['symbol' => 'ZZZ']);
-
+        // 刻意不把 ZZZ 放進標的清單：它因此不在掃描範圍，也就不會出現在 run
+        // results 裡，正好用來驗白名單。（放進去的話它會被掃到並命中，測不到東西。）
         $user = User::factory()->create();
         $watchlist = $user->watchlists()->create(['name' => '核心']);
 

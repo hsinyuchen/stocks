@@ -1,7 +1,7 @@
 import { Link, router } from '@inertiajs/react';
 import axios from 'axios';
 import { useMemo, useState } from 'react';
-import { Loader2, ScanSearch } from 'lucide-react';
+import { ListChecks, Loader2, ScanSearch } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 
 function formatPrice(value) {
@@ -90,7 +90,74 @@ function AddToWatchlist({ symbol, name, watchlists }) {
     );
 }
 
-export default function ScreenerIndex({ rules = [], watchlists = [], universeCount = 0, poolCount = 0 }) {
+/**
+ * 掃描範圍的說明。
+ *
+ * 不用加減算式：自選股必然已在標的清單裡（watchlist 只能指向既有標的），寫成
+ * 「標的清單 68 支 ＋ 自選 11 支 − 重複 11 支」只會讓人更難懂。直接說總數，
+ * 再補一句「其中幾支是你追蹤的」。
+ */
+function PoolSummary({ poolCount, watchlistCount }) {
+    return (
+        <>
+            本次可掃描 {poolCount} 支（全站標的清單，不含指數）
+            {watchlistCount > 0 ? <>，其中 {watchlistCount} 支在你的自選清單</> : null}
+            。
+        </>
+    );
+}
+
+/**
+ * 完整股池清單。
+ *
+ * 預設收合：它是「掃描範圍」的佐證資料，不是每次都要讀的內容，但使用者需要能
+ * 確認自己關心的標的有沒有被涵蓋。
+ */
+function PoolList({ pool }) {
+    const [open, setOpen] = useState(false);
+
+    if (pool.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="screener-pool">
+            <button className="screener-pool__toggle" onClick={() => setOpen((v) => !v)} type="button">
+                <ListChecks aria-hidden="true" size={14} />
+                {open ? '收合股票清單' : `檢視全部 ${pool.length} 支股票`}
+            </button>
+
+            {open ? (
+                <div className="screener-pool__body">
+                    <p className="screener-pool__legend">
+                        <span className="screener-pool__tag screener-pool__tag--watchlist">自選</span> 在你的自選清單中
+                    </p>
+                    <ul className="screener-pool__list">
+                        {pool.map((entry) => (
+                            <li className="screener-pool__item" key={entry.symbol}>
+                                <a href={`/stocks/search?symbol=${encodeURIComponent(entry.symbol)}`}>
+                                    <strong>{entry.symbol}</strong>
+                                    <span>{entry.name}</span>
+                                </a>
+                                {entry.in_watchlist ? (
+                                    <span className="screener-pool__tag screener-pool__tag--watchlist">自選</span>
+                                ) : null}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+export default function ScreenerIndex({
+    rules = [],
+    watchlists = [],
+    poolCount = 0,
+    watchlistCount = 0,
+    pool = [],
+}) {
     const [selectedRules, setSelectedRules] = useState([]);
     const [excludedRules, setExcludedRules] = useState([]);
     const [picked, setPicked] = useState([]);
@@ -162,8 +229,10 @@ export default function ScreenerIndex({ rules = [], watchlists = [], universeCou
                         </p>
                         <h2>選股器</h2>
                         <p className="screener__subtitle">
-                            本次可掃描 {poolCount} 支（內建股池 {universeCount} 支 ∪ 你的自選股，重複只算一次）。點擊規則切換「必要 → 排除 → 取消」：必要條件須全部成立，命中任一排除條件即淘汰。結果依訊號強度排序。
+                            <PoolSummary poolCount={poolCount} watchlistCount={watchlistCount} />
+                            點擊規則切換「必要 → 排除 → 取消」：必要條件須全部成立，命中任一排除條件即淘汰。結果依訊號強度排序。
                         </p>
+                        <PoolList pool={pool} />
                     </div>
                 </header>
 
@@ -370,7 +439,7 @@ export default function ScreenerIndex({ rules = [], watchlists = [], universeCou
                 ) : null}
 
                 <p className="dashboard-disclaimer">
-                    技術訊號僅供參考，非投資建議。首次使用請先執行 <code>php artisan screener:warm</code> 預載股池資料。
+                    技術訊號僅供參考，非投資建議。
                 </p>
             </section>
         </AppShell>

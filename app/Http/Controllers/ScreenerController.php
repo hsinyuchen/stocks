@@ -20,8 +20,10 @@ class ScreenerController extends Controller
     /** 歷史掃描列出的筆數。留存是為了回測，但 UI 只需要最近幾次。 */
     private const HISTORY_LIMIT = 20;
 
-    public function index(Request $request, ScreenRuleRegistry $registry): Response
+    public function index(Request $request, ScreenRuleRegistry $registry, ScreenerService $screener): Response
     {
+        $pool = $screener->poolBreakdown($request->user());
+
         return Inertia::render('Screener/Index', [
             'rules' => collect($registry->all())
                 ->map(fn ($rule) => ['key' => $rule->key(), 'label' => $rule->label()])
@@ -32,10 +34,18 @@ class ScreenerController extends Controller
                 ->get(['id', 'name'])
                 ->map(fn ($watchlist) => ['id' => $watchlist->id, 'name' => $watchlist->name])
                 ->all(),
-            'universeCount' => count((array) config('screener.universe', [])),
+            // 全站標的清單（排除指數）的檔數。不再用 config 的 universe——那份
+            // 現在只是初始種子，與實際掃描範圍無關。
+            'instrumentCount' => $screener->baseInstrumentCount(),
             // 實際掃描檔數＝內建股池 ∪ 自選股（去重），與掃描結果的「掃描 N 支」
             // 一致。只顯示 config 筆數會讓兩個數字對不上。
-            'poolCount' => app(ScreenerService::class)->poolSize($request->user()),
+            'poolCount' => count($pool),
+            // 自選股檔數也要給：少了它，畫面只能寫「100 支 ∪ 你的自選股 = 105」，
+            // 使用者無從得知少掉的 6 支是重疊還是漏算，看起來就像數字錯了。
+            'watchlistCount' => $screener->watchlistSymbolCount($request->user()),
+            // 完整明細（約百餘筆 symbol + name），讓使用者能確認自己關心的標的
+            // 有沒有被涵蓋，而不是只看到一個黑箱數字。
+            'pool' => $pool,
         ]);
     }
 

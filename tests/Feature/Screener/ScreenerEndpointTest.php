@@ -33,7 +33,7 @@ class ScreenerEndpointTest extends TestCase
                 ->where('rules.0.key', 'kd_golden_cross')
                 ->has('watchlists', 1)
                 ->where('watchlists.0.name', '核心')
-                ->has('universeCount'));
+                ->has('instrumentCount'));
     }
 
     /** /screener 的 watchlists prop 只能有本人的清單。 */
@@ -53,25 +53,27 @@ class ScreenerEndpointTest extends TestCase
                 ->where('watchlists.0.name', '我的清單'));
     }
 
-    /** 掃描結果可反推自選股內容，故 endpoint 層也需鎖定隔離，不只服務層。 */
-    public function test_scan_does_not_include_other_users_watchlist_symbols(): void
+    /**
+     * 掃描範圍是全站標的清單，與誰把它加進自選無關。
+     *
+     * 標的清單是公開的標的資料，不含使用者資訊；真正需要隔離的是「哪些是我的
+     * 自選」，由 poolBreakdown 的 in_watchlist 負責（見 ScreenerServiceTest）。
+     */
+    public function test_scan_covers_the_shared_instrument_list(): void
     {
-        config(['screener.universe' => []]);
-
         $user = User::factory()->create();
         $other = User::factory()->create();
 
         $otherInstrument = Instrument::factory()->create(['symbol' => 'THEIRS.TW']);
-        $otherWatchlist = $other->watchlists()->create(['name' => '別人的清單']);
-        $otherWatchlist->items()->create(['instrument_id' => $otherInstrument->id, 'sort_order' => 0]);
+        $other->watchlists()->create(['name' => '別人的清單'])
+            ->items()->create(['instrument_id' => $otherInstrument->id, 'sort_order' => 0]);
 
         $response = $this->actingAs($user)
             ->postJson('/screener/scan', ['rules' => ['above_ma20']])
             ->assertOk()
             ->json();
 
-        $this->assertSame(0, $response['scanned']);
-        $this->assertStringNotContainsString('THEIRS.TW', json_encode($response, JSON_THROW_ON_ERROR));
+        $this->assertSame(1, $response['scanned']);
     }
 
     public function test_scan_rejects_unknown_rule_and_empty_rules(): void
@@ -84,7 +86,7 @@ class ScreenerEndpointTest extends TestCase
 
     public function test_scan_returns_service_shape(): void
     {
-        config(['screener.universe' => [['symbol' => 'AAA', 'name' => 'Alpha']]]);
+        Instrument::factory()->create(['symbol' => 'AAA', 'name' => 'Alpha']);
         $user = User::factory()->create();
 
         $response = $this->actingAs($user)
@@ -98,34 +100,35 @@ class ScreenerEndpointTest extends TestCase
         $this->assertArrayHasKey('skipped', $response);
     }
 
-    /** 顯示的可掃描檔數須等於「內建股池 ∪ 自選股」去重後的數量。 */
-    public function test_pool_count_reflects_universe_union_watchlists(): void
+    /** 顯示的可掃描檔數須等於「標的清單 ∪ 自選股」去重後的數量。 */
+    public function test_pool_count_reflects_instrument_list_union_watchlists(): void
     {
-        config(['screener.universe' => [
-            ['symbol' => 'AAA', 'name' => 'Alpha'],
-            ['symbol' => 'BBB', 'name' => 'Beta'],
-        ]]);
+        $instruments = collect([['AAA', 'Alpha'], ['BBB', 'Beta'], ['CCC', 'Gamma']])
+            ->mapWithKeys(fn (array $row) => [
+                $row[0] => Instrument::factory()->create(['symbol' => $row[0], 'name' => $row[1]]),
+            ]);
 
         $user = User::factory()->create();
         $watchlist = $user->watchlists()->create(['name' => 'W']);
 
-        // 一檔與股池重複（只算一次）、一檔是新的。
-        foreach ([['AAA', 'Alpha'], ['CCC', 'Gamma']] as [$symbol, $name]) {
-            $instrument = Instrument::factory()->create(['symbol' => $symbol, 'name' => $name]);
-            $watchlist->items()->create(['instrument_id' => $instrument->id, 'sort_order' => 0]);
+        // 自選的兩檔都已在標的清單上，去重後不會讓 poolCount 變大。
+        foreach (['AAA', 'CCC'] as $symbol) {
+            $watchlist->items()->create(['instrument_id' => $instruments[$symbol]->id, 'sort_order' => 0]);
         }
 
         $this->actingAs($user)
             ->get('/screener')
             ->assertInertia(fn (Assert $page) => $page
-                ->where('universeCount', 2)
-                ->where('poolCount', 3));
+                // 標的清單共 3 檔（AAA/BBB/CCC），自選 2 檔全在其中，去重後仍是 3。
+                ->where('instrumentCount', 3)
+                ->where('poolCount', 3)
+                ->where('watchlistCount', 2));
     }
 
-    /** 他人的自選股不得灌大本人的可掃描檔數。 */
-    public function test_pool_count_ignores_other_users_watchlists(): void
+    /** 他人的自選不得算進「我的自選股」檔數。 */
+    public function test_watchlist_count_ignores_other_users_watchlists(): void
     {
-        config(['screener.universe' => [['symbol' => 'AAA', 'name' => 'Alpha']]]);
+        Instrument::factory()->create(['symbol' => 'AAA', 'name' => 'Alpha']);
 
         $other = User::factory()->create();
         $otherList = $other->watchlists()->create(['name' => 'W']);
@@ -134,6 +137,10 @@ class ScreenerEndpointTest extends TestCase
 
         $this->actingAs(User::factory()->create())
             ->get('/screener')
-            ->assertInertia(fn (Assert $page) => $page->where('poolCount', 1));
+            ->assertInertia(fn (Assert $page) => $page
+                // 兩檔都在標的清單上，所以都掃得到……
+                ->where('poolCount', 2)
+                // ……但沒有一檔是我的自選。
+                ->where('watchlistCount', 0));
     }
 }

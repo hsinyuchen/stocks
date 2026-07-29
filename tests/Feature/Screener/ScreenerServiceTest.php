@@ -18,10 +18,8 @@ class ScreenerServiceTest extends TestCase
 
     public function test_scan_returns_shape_and_scans_universe_plus_watchlist(): void
     {
-        config(['screener.universe' => [
-            ['symbol' => 'AAA', 'name' => 'Alpha'],
-            ['symbol' => 'BBB', 'name' => 'Beta'],
-        ]]);
+        Instrument::factory()->create(['symbol' => 'AAA', 'name' => 'Alpha']);
+        Instrument::factory()->create(['symbol' => 'BBB', 'name' => 'Beta']);
 
         $user = User::factory()->create();
         $instrument = Instrument::factory()->create(['symbol' => 'CCC.TW', 'name' => '測試']);
@@ -44,51 +42,52 @@ class ScreenerServiceTest extends TestCase
         $this->assertIsFloat($row['close']);
     }
 
-    /**
-     * 掃描股池含使用者自選股，因此掃描結果可反推自選內容。他人自選股絕不可
-     * 進入本人的掃描範圍，否則等同洩漏對方持股關注清單。
-     */
-    public function test_scan_pool_excludes_other_users_watchlist_symbols(): void
+    public function test_pool_is_the_shared_instrument_list_regardless_of_whose_watchlist(): void
     {
-        // 清空內建股池，讓掃描範圍完全等於「使用者自選股」，隔離失效即可見。
-        config(['screener.universe' => []]);
-
+        // 股池來源改成標的清單後，「別人的自選股」本來就在裡面——標的清單是全站
+        // 共用的公開資料，掃到它不代表洩漏任何使用者資訊。真正要保護的是下一個
+        // 測試驗的「in_watchlist 標記只反映自己的自選」。
         $owner = User::factory()->create();
         $other = User::factory()->create();
 
         $ownInstrument = Instrument::factory()->create(['symbol' => 'MINE.TW', 'name' => '我的']);
-        $ownerWatchlist = $owner->watchlists()->create(['name' => '我的清單']);
-        $ownerWatchlist->items()->create(['instrument_id' => $ownInstrument->id, 'sort_order' => 0]);
+        $owner->watchlists()->create(['name' => '我的清單'])
+            ->items()->create(['instrument_id' => $ownInstrument->id, 'sort_order' => 0]);
 
         $otherInstrument = Instrument::factory()->create(['symbol' => 'THEIRS.TW', 'name' => '別人的']);
-        $otherWatchlist = $other->watchlists()->create(['name' => '別人的清單']);
-        $otherWatchlist->items()->create(['instrument_id' => $otherInstrument->id, 'sort_order' => 0]);
+        $other->watchlists()->create(['name' => '別人的清單'])
+            ->items()->create(['instrument_id' => $otherInstrument->id, 'sort_order' => 0]);
 
         $result = app(ScreenerService::class)->scan($owner, ['above_ma20']);
 
-        $this->assertSame(1, $result['scanned'], '掃描支數應僅含本人自選股。');
-
-        $touched = array_merge(
-            array_column($result['results'], 'symbol'),
-            array_column($result['failures'], 'symbol'),
-            $result['skipped'],
-        );
-
-        $this->assertContains('MINE.TW', $touched);
-        $this->assertNotContains('THEIRS.TW', $touched, '他人自選股不得進入掃描範圍。');
+        $this->assertSame(2, $result['scanned'], '標的清單上的兩檔都該被掃到。');
     }
 
-    /** 沒有自選股的使用者，掃描範圍不得因他人自選股而變得非空。 */
-    public function test_user_without_watchlists_scans_nothing_when_universe_is_empty(): void
+    public function test_watchlist_marking_reflects_only_the_current_user(): void
     {
-        config(['screener.universe' => []]);
-
         $owner = User::factory()->create();
         $other = User::factory()->create();
 
-        $otherInstrument = Instrument::factory()->create(['symbol' => 'THEIRS.TW']);
-        $otherWatchlist = $other->watchlists()->create(['name' => '別人的清單']);
-        $otherWatchlist->items()->create(['instrument_id' => $otherInstrument->id, 'sort_order' => 0]);
+        $ownInstrument = Instrument::factory()->create(['symbol' => 'MINE.TW', 'name' => '我的']);
+        $owner->watchlists()->create(['name' => '我的清單'])
+            ->items()->create(['instrument_id' => $ownInstrument->id, 'sort_order' => 0]);
+
+        $otherInstrument = Instrument::factory()->create(['symbol' => 'THEIRS.TW', 'name' => '別人的']);
+        $other->watchlists()->create(['name' => '別人的清單'])
+            ->items()->create(['instrument_id' => $otherInstrument->id, 'sort_order' => 0]);
+
+        $pool = collect(app(ScreenerService::class)->poolBreakdown($owner))->keyBy('symbol');
+
+        $this->assertTrue($pool['MINE.TW']['in_watchlist']);
+        // 別人追蹤什麼是別人的事，不該顯示在我的畫面上。
+        $this->assertFalse($pool['THEIRS.TW']['in_watchlist']);
+        $this->assertSame(1, app(ScreenerService::class)->watchlistSymbolCount($owner));
+    }
+
+    /** 標的清單是空的時候，沒有自選股的使用者掃不到任何東西。 */
+    public function test_empty_instrument_list_means_nothing_to_scan(): void
+    {
+        $owner = User::factory()->create();
 
         $result = app(ScreenerService::class)->scan($owner, ['above_ma20']);
 
@@ -96,9 +95,21 @@ class ScreenerServiceTest extends TestCase
         $this->assertSame([], $result['results']);
     }
 
+    /** 指數不進股池：對 ^TWII 算 KD 黃金交叉沒有意義，還會佔掉掃描的時間預算。 */
+    public function test_indices_are_excluded_from_the_pool(): void
+    {
+        Instrument::factory()->create(['symbol' => 'AAA', 'name' => 'Alpha', 'asset_type' => 'stock']);
+        Instrument::factory()->create(['symbol' => '^TWII', 'name' => '台股加權', 'asset_type' => 'index']);
+
+        $result = app(ScreenerService::class)->scan(User::factory()->create(), ['above_ma20']);
+
+        $this->assertSame(1, $result['scanned']);
+        $this->assertNotContains('^TWII', array_column($result['results'], 'symbol'));
+    }
+
     public function test_and_semantics_all_rules_must_match(): void
     {
-        config(['screener.universe' => [['symbol' => 'AAA', 'name' => 'Alpha']]]);
+        Instrument::factory()->create(['symbol' => 'AAA', 'name' => 'Alpha']);
         $user = User::factory()->create();
 
         // fake 序列單調上升：above_ma20 命中、rsi_oversold（RSI=100）不命中 → AND 後空
@@ -109,9 +120,9 @@ class ScreenerServiceTest extends TestCase
 
     public function test_watchlist_symbol_overlapping_universe_is_deduped(): void
     {
-        config(['screener.universe' => [['symbol' => 'AAA', 'name' => 'Alpha']]]);
+        // 同一檔既在標的清單也在自選清單，去重後只該掃一次。
         $user = User::factory()->create();
-        $instrument = Instrument::factory()->create(['symbol' => 'AAA']);
+        $instrument = Instrument::factory()->create(['symbol' => 'AAA', 'name' => 'Alpha']);
         $watchlist = $user->watchlists()->create(['name' => 'W']);
         $watchlist->items()->create(['instrument_id' => $instrument->id, 'sort_order' => 0]);
 
@@ -122,10 +133,8 @@ class ScreenerServiceTest extends TestCase
 
     public function test_failing_symbol_is_recorded_not_fatal(): void
     {
-        config(['screener.universe' => [
-            ['symbol' => 'GOOD', 'name' => 'Good'],
-            ['symbol' => 'BAD', 'name' => 'Bad'],
-        ]]);
+        Instrument::factory()->create(['symbol' => 'GOOD', 'name' => 'Good']);
+        Instrument::factory()->create(['symbol' => 'BAD', 'name' => 'Bad']);
         $user = User::factory()->create();
 
         // 綁一個對 BAD 拋例外的 provider stub

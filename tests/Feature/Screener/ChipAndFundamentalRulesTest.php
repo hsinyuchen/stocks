@@ -164,8 +164,7 @@ class ChipAndFundamentalRulesTest extends TestCase
      */
     public function test_technical_only_scan_does_not_load_extra_context(): void
     {
-        config(['screener.universe' => [['symbol' => 'AAA', 'name' => 'Alpha']]]);
-        Instrument::factory()->create(['symbol' => 'AAA']);
+        Instrument::factory()->create(['symbol' => 'AAA', 'name' => 'Alpha']);
 
         $method = new \ReflectionMethod(ScreenerService::class, 'contextFor');
         $method->setAccessible(true);
@@ -188,7 +187,7 @@ class ChipAndFundamentalRulesTest extends TestCase
     /** 掃描含籌碼規則時不得因缺資料而拋錯，應安靜地不命中。 */
     public function test_scan_with_chip_rule_is_safe_when_data_is_missing(): void
     {
-        config(['screener.universe' => [['symbol' => 'AAA', 'name' => 'Alpha']]]);
+        Instrument::factory()->create(['symbol' => 'AAA', 'name' => 'Alpha']);
 
         $result = app(ScreenerService::class)->scan(User::factory()->create(), ['foreign_buying_streak']);
 

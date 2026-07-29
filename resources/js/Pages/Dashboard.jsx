@@ -130,7 +130,11 @@ function MarketSnapshot({ items }) {
     );
 }
 
-function WatchlistMovers({ items }) {
+function WatchlistMovers({ items, coverage }) {
+    // 顯示數少於自選清單總數時要說明，否則看起來像儀表板漏了標的。差額來自
+    // 顯示上限，或某檔完全抓不到行情。
+    const missing = Math.max(0, (coverage?.total ?? items.length) - items.length);
+
     return (
         <section className="table-panel">
             <div className="panel-heading">
@@ -140,7 +144,20 @@ function WatchlistMovers({ items }) {
                     </p>
                     <h2>自選清單焦點</h2>
                 </div>
+                {coverage?.total ? (
+                    <small className="dashboard-coverage">
+                        顯示 {items.length} / 共 {coverage.total} 檔
+                    </small>
+                ) : null}
             </div>
+            {missing > 0 ? (
+                <p className="dashboard-coverage-note">
+                    有 {missing} 檔未顯示（超過顯示上限，或暫時取不到行情資料）。完整清單見
+                    {' '}
+                    <Link href="/watchlists">自選清單</Link>
+                    。
+                </p>
+            ) : null}
             {items.length === 0 ? (
                 <p className="dashboard-empty">
                     尚未加入自選股。前往
@@ -381,6 +398,7 @@ function RecentAnalyses({ items }) {
 export default function Dashboard({
     marketSnapshot = [],
     watchlistMovers = [],
+    watchlistCoverage = null,
     latestNews = [],
     transmissionFocus = [],
     recentAnalyses = [],
@@ -473,7 +491,7 @@ export default function Dashboard({
                 ) : null}
 
                 <MarketSnapshot items={marketSnapshot} />
-                <WatchlistMovers items={watchlistMovers} />
+                <WatchlistMovers coverage={watchlistCoverage} items={watchlistMovers} />
                 <LatestNews items={latestNews} />
                 <TransmissionFocus items={transmissionFocus} />
                 <RecentAnalyses items={recentAnalyses} />

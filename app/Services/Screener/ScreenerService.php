@@ -3,11 +3,14 @@
 namespace App\Services\Screener;
 
 use App\Contracts\MarketDataProvider;
+use App\Enums\AssetType;
 use App\Models\Instrument;
 use App\Models\User;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
+use App\Services\Margin\MarginDataService;
 use App\Services\TechnicalIndicatorService;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -260,6 +263,77 @@ class ScreenerService
     }
 
     /**
+     * 自選股的去重檔數，供畫面把股池的算式攤開。
+     *
+     * 用與 pool() 相同的 upper 去重規則，否則兩個數字會用不同標準統計，
+     * 使用者拿去相減只會得到對不上的結果。
+     */
+    /** 標的清單（排除指數）的檔數，供畫面顯示掃描範圍的組成。 */
+    public function baseInstrumentCount(): int
+    {
+        return Instrument::query()
+            ->where('asset_type', '!=', AssetType::Index->value)
+            ->count();
+    }
+
+    /**
+     * 標的清單的 symbol → name，供 screener:warm 預載價格。
+     *
+     * 預載與掃描必須用同一份清單，否則會回到「預載了 A、掃描的是 B」的老問題。
+     *
+     * @return array<string, string>
+     */
+    public function baseSymbols(): array
+    {
+        return $this->baseInstruments()
+            ->mapWithKeys(fn ($instrument) => [
+                strtoupper((string) $instrument->symbol) => (string) $instrument->name,
+            ])
+            ->all();
+    }
+
+    public function watchlistSymbolCount(User $user): int
+    {
+        return $this->watchlistInstruments($user)
+            ->map(fn ($instrument) => strtoupper((string) $instrument->symbol))
+            ->unique()
+            ->count();
+    }
+
+    /**
+     * 完整股池明細，含每檔的來源。
+     *
+     * 「掃描 N 支」是個黑箱數字：使用者看不到裡面到底有哪些股票，也就無法判斷
+     * 自己關心的標的有沒有被涵蓋。來源標記讓「這檔是內建的還是我自己加的」
+     * 一目了然。
+     *
+     * @return list<array{symbol: string, name: string, in_universe: bool, in_watchlist: bool}>
+     */
+    public function poolBreakdown(User $user): array
+    {
+        $universe = $this->baseInstruments()
+            ->mapWithKeys(fn ($instrument) => [strtoupper((string) $instrument->symbol) => true])
+            ->all();
+
+        $watchlist = $this->watchlistInstruments($user)
+            ->mapWithKeys(fn ($instrument) => [strtoupper((string) $instrument->symbol) => true])
+            ->all();
+
+        $out = [];
+
+        foreach ($this->pool($user) as $symbol => $name) {
+            $out[] = [
+                'symbol' => $symbol,
+                'name' => (string) $name,
+                'in_universe' => isset($universe[$symbol]),
+                'in_watchlist' => isset($watchlist[$symbol]),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * 股池：config universe ∪ 使用者 watchlist（symbol → name，upper 去重，
      * watchlist 名稱優先使用 Instrument.name）。
      *
@@ -269,20 +343,47 @@ class ScreenerService
     {
         $pool = [];
 
-        foreach ((array) config('screener.universe', []) as $entry) {
-            $pool[strtoupper((string) $entry['symbol'])] = (string) ($entry['name'] ?? $entry['symbol']);
+        foreach ($this->baseInstruments() as $instrument) {
+            $pool[strtoupper((string) $instrument->symbol)] = (string) $instrument->name;
         }
 
-        $watchlistInstruments = $user->watchlists()
-            ->with('items.instrument')
-            ->get()
-            ->flatMap(fn ($watchlist) => $watchlist->items->pluck('instrument'))
-            ->filter();
-
-        foreach ($watchlistInstruments as $instrument) {
+        foreach ($this->watchlistInstruments($user) as $instrument) {
             $pool[strtoupper($instrument->symbol)] = $instrument->name;
         }
 
         return $pool;
+    }
+
+    /**
+     * 全站標的清單（管理員在 /admin/instruments 維護）。
+     *
+     * 來源從 config/screener.universe 改成這張表，是因為兩者長期不同步：管理員
+     * 新增的標的掃不到，config 裡的股票又不在標的清單上，同一件事要在兩個地方
+     * 維護。config 現在只當初始種子（php artisan instruments:seed-universe）。
+     *
+     * 排除指數：對 ^TWII 算 KD 黃金交叉沒有意義，且它會佔掉掃描的時間預算。
+     *
+     * @return Collection<int, Instrument>
+     */
+    private function baseInstruments(): Collection
+    {
+        return Instrument::query()
+            ->where('asset_type', '!=', AssetType::Index->value)
+            ->orderBy('symbol')
+            ->get(['symbol', 'name']);
+    }
+
+    /**
+     * 使用者跨所有清單的自選標的（未去重，呼叫端自行決定）。
+     *
+     * @return Collection<int, Instrument>
+     */
+    private function watchlistInstruments(User $user)
+    {
+        return $user->watchlists()
+            ->with('items.instrument')
+            ->get()
+            ->flatMap(fn ($watchlist) => $watchlist->items->pluck('instrument'))
+            ->filter();
     }
 }

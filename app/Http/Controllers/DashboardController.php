@@ -136,12 +136,20 @@ class DashboardController extends Controller
      */
     private function buildPayload(User $user): array
     {
+        $watchlistTotal = $this->watchlistInstrumentCount($user);
         $watchlistInstruments = $this->watchlistInstruments($user);
         $watchlistSymbols = $watchlistInstruments->pluck('symbol')->all();
+        $movers = $this->watchlistMovers($watchlistInstruments);
 
         return [
             'marketSnapshot' => $this->marketSnapshot(),
-            'watchlistMovers' => $this->watchlistMovers($watchlistInstruments),
+            'watchlistMovers' => $movers,
+            // 顯示幾檔 vs 自選清單實際有幾檔。任何上限都會有人撞到，靜默截斷會被
+            // 當成「儀表板和自選清單不同步」；抓不到行情而被略過的也算在差額裡。
+            'watchlistCoverage' => [
+                'shown' => count($movers),
+                'total' => $watchlistTotal,
+            ],
             'latestNews' => $this->latestNews($watchlistSymbols),
             'transmissionFocus' => $this->transmissionFocus($watchlistSymbols),
             'recentAnalyses' => $this->recentAnalyses($user),
@@ -191,16 +199,32 @@ class DashboardController extends Controller
      */
     private function watchlistInstruments(User $user): Collection
     {
-        $limit = (int) config('dashboard.watchlist_movers_limit', 8);
+        $limit = (int) config('dashboard.watchlist_movers_limit', 30);
 
+        return $this->allWatchlistInstruments($user)
+            ->take($limit)
+            ->values();
+    }
+
+    /** 未截斷的自選標的數，供畫面說明「顯示 N / 共 M 檔」。 */
+    private function watchlistInstrumentCount(User $user): int
+    {
+        return $this->allWatchlistInstruments($user)->count();
+    }
+
+    /**
+     * 跨所有清單去重後的自選標的。
+     *
+     * @return Collection<int, Instrument>
+     */
+    private function allWatchlistInstruments(User $user): Collection
+    {
         return $user->watchlists()
             ->with('items.instrument')
             ->get()
             ->flatMap(fn ($watchlist) => $watchlist->items->pluck('instrument'))
             ->filter()
-            ->unique('id')
-            ->take($limit)
-            ->values();
+            ->unique('id');
     }
 
     /**
