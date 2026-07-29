@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Contracts\ChipDataProvider;
 use App\Contracts\FundamentalsProvider;
+use App\Contracts\MarginDataProvider;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Contracts\SymbolNewsProvider;
@@ -11,10 +12,12 @@ use App\Contracts\YoutubeWorkerRunner;
 use App\Services\Chip\FinMindChipDataProvider;
 use App\Services\Fake\FakeChipDataProvider;
 use App\Services\Fake\FakeFundamentalsProvider;
+use App\Services\Fake\FakeMarginDataProvider;
 use App\Services\Fake\FakeMarketDataProvider;
 use App\Services\Fake\FakeNewsProvider;
 use App\Services\Fake\FakeSymbolNewsProvider;
 use App\Services\Fundamentals\FinMindFundamentalsProvider;
+use App\Services\Margin\FinMindMarginDataProvider;
 use App\Services\Market\CachedMarketDataProvider;
 use App\Services\Market\FinMindMarketDataProvider;
 use App\Services\Market\RoutingMarketDataProvider;
@@ -87,6 +90,14 @@ class AppServiceProvider extends ServiceProvider
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeChipDataProvider::class)
                 : new FinMindChipDataProvider(config('services.finmind.token'));
+        });
+
+        // 融資融券與籌碼同源（FinMind、同一組 token），因此沿用同一個 driver 開關：
+        // 測試環境一律 fake，不打網路。
+        $this->app->bind(MarginDataProvider::class, function ($app): MarginDataProvider {
+            return config('services.market_data.driver') === 'fake'
+                ? $app->make(FakeMarginDataProvider::class)
+                : new FinMindMarginDataProvider(config('services.finmind.token'));
         });
 
         // YouTube captions worker (2C). The real runner shells out to the Python

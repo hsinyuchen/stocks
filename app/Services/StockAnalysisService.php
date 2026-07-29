@@ -6,6 +6,7 @@ use App\Contracts\LlmProvider;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
+use App\Data\MarginFlowData;
 use App\Enums\LlmFailureReason;
 use App\Exceptions\LlmRequestException;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -25,13 +26,19 @@ class StockAnalysisService
      * $llm 為 null 代表使用者尚未設定 AI 模型：技術指標與規則訊號照常
      * 產出，LLM 區塊回傳明確的「未設定」說明，絕不以假內容冒充 AI 分析。
      *
-     * $chipFlows 由呼叫端提供（controller 才有 Instrument 可查籌碼）。空陣列
-     * 代表無籌碼資料（美股、或抓取失敗），rule_signal 即不含 chip 區塊。
+     * $chipFlows / $marginFlows 由呼叫端提供（controller 才有 Instrument 可查）。
+     * 空陣列代表無該類資料（美股、或抓取失敗），rule_signal 即不含對應區塊。
      *
      * @param  list<ChipFlowData>  $chipFlows
+     * @param  list<MarginFlowData>  $marginFlows
      */
-    public function analyze(string $symbol, string $model, ?LlmProvider $llm = null, array $chipFlows = []): array
-    {
+    public function analyze(
+        string $symbol,
+        string $model,
+        ?LlmProvider $llm = null,
+        array $chipFlows = [],
+        array $marginFlows = [],
+    ): array {
         $quote = $this->marketData->quote($symbol);
         $prices = $this->marketData->dailyPrices($symbol, 80);
         $news = $this->news->relatedNews($symbol, 5);
@@ -58,7 +65,7 @@ class StockAnalysisService
         }
 
         $technicalSnapshot = $this->indicators->calculate($prices);
-        $ruleSignal = $this->signals->evaluate($technicalSnapshot, $chipFlows);
+        $ruleSignal = $this->signals->evaluate($technicalSnapshot, $chipFlows, $marginFlows);
 
         if ($llm === null) {
             return [
@@ -173,7 +180,7 @@ PROMPT;
         $lines = [
             '- technical_snapshot 中值為 null 代表指標仍在暖身期、資料不足，不是 0，不得解讀為中性或偏空。',
             '- rule_signal.stance 僅由 KD、MACD 柱狀體、MA5 對 MA20 三項計分（score 範圍 -3 至 3）。三者同為價格動能的衍生指標、彼此高度共線，不可當成三項獨立佐證，也不要據此宣稱「多項指標一致確認」。',
-            '- 只能使用本 prompt 提供的數據。不得臆測未提供的資訊（財報細節、法人持股比率、融資券餘額、目標價、產能、營收預估）。缺少的資料請直接說明缺少。',
+            '- 只能使用本 prompt 提供的數據。不得臆測未提供的資訊（財報細節、法人持股比率、目標價、產能、營收預估）。缺少的資料請直接說明缺少。',
         ];
 
         $chip = $ruleSignal['chip'] ?? null;
@@ -181,7 +188,9 @@ PROMPT;
         if (! is_array($chip)) {
             $lines[] = '- 本次未提供籌碼資料（非台股或抓取失敗）。不得臆測三大法人買賣超、外資動向或持股變化。';
 
-            return implode("\n", $lines);
+            // 仍要走融資指南：兩者各自 best-effort，籌碼抓失敗而融資成功時，
+            // rule_signal 裡會有沒被說明的 margin 欄位。
+            return implode("\n", $this->appendMarginGuide($lines, $ruleSignal));
         }
 
         $lines[] = '- rule_signal.chip 為台股三大法人買賣超，單位是「股」（1 張 = 1000 股），正值買超、負值賣超；數值為買進減賣出的淨額。';
@@ -192,6 +201,38 @@ PROMPT;
         $lines[] = '- 單日買賣超雜訊大。請以 chip.days 期間的合計與 foreign_streak 為主要依據，不要只憑最後一日下結論。';
         $lines[] = '- 籌碼只反映資金流向，不等於基本面或估值判斷，也不保證後續走勢。';
 
-        return implode("\n", $lines);
+        return implode("\n", $this->appendMarginGuide($lines, $ruleSignal));
+    }
+
+    /**
+     * 融資融券的欄位指南。
+     *
+     * 與籌碼分開說明，因為兩者的主體不同：籌碼是法人，融資是散戶槓桿。模型很容易
+     * 把「融資增加」直接讀成看空，這裡必須明講那是錯的——多頭初升段融資跟著增加
+     * 是正常現象，真正有訊息量的是它與外資的組合（crossover）。
+     *
+     * @param  list<string>  $lines
+     * @param  array<string, mixed>  $ruleSignal
+     * @return list<string>
+     */
+    private function appendMarginGuide(array $lines, array $ruleSignal): array
+    {
+        $margin = $ruleSignal['margin'] ?? null;
+
+        if (! is_array($margin)) {
+            $lines[] = '- 本次未提供融資融券資料（非台股或抓取失敗）。不得臆測融資餘額、券資比或散戶槓桿狀況。';
+
+            return $lines;
+        }
+
+        $lines[] = '- rule_signal.margin 為台股融資融券，單位是「股」（1 張 = 1000 股）。margin.balance 為融資餘額、margin.short_balance 為融券餘額。';
+        $lines[] = '- margin.usage_percent 是融資餘額佔融資限額的比率；限額依股本而異，故絕對餘額不可跨股比較，要看使用率。null 代表限額不明或暫停信用交易。';
+        $lines[] = '- margin.short_ratio 為券資比（融券÷融資）。比率高代表空方部位相對集中，具備軋空條件。';
+        $lines[] = '- margin.stance：leveraging 為該期間融資顯著增加（散戶加碼）、deleveraging 為顯著減少（散戶退場）、neutral 為變化未達門檻。';
+        $lines[] = '- 重要：融資增加本身不等於看空。多頭初升段融資與股價同步上升是正常現象。只有在融資增速遠超股價漲幅、或融資增加同時法人賣出時，才構成警訊。';
+        $lines[] = '- margin.crossover 是融資與外資的交叉判定，資訊量高於單看融資：retail_chasing（融資增＋外資賣，散戶接刀，套牢籌碼累積）、smart_money_absorbing（融資減＋外資買，籌碼由散戶換手到法人）、aligned_long（兩者同步做多，但槓桿在累積）、aligned_short（多殺多，賣壓可能已宣洩）、none（資料不足或任一方中性，不得強行解讀）。';
+        $lines[] = '- 融資資料為收盤後公佈的 T 日數字，不反映盤中變化，也不保證後續走勢。';
+
+        return $lines;
     }
 }

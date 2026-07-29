@@ -291,7 +291,7 @@ final class StubSignalEngine extends SignalEngine
 {
     public function __construct(private readonly array $signal) {}
 
-    public function evaluate(array $snapshot, array $chipFlows = []): array
+    public function evaluate(array $snapshot, array $chipFlows = [], array $marginFlows = []): array
     {
         return $this->signal;
     }

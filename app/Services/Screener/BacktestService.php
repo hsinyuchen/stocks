@@ -3,6 +3,10 @@
 namespace App\Services\Screener;
 
 use App\Contracts\MarketDataProvider;
+use App\Models\Instrument;
+use App\Services\Chip\ChipDataService;
+use App\Services\Margin\MarginDataService;
+use App\Services\Screener\Rules\MarginRule;
 use App\Services\TechnicalIndicatorService;
 
 /**
@@ -81,6 +85,11 @@ class BacktestService
             $scanned++;
             $series = $this->indicators->series($prices);
             $closes = $series['close'];
+            $context = $this->backtestContext(
+                [...array_values($rules), ...array_values($excludes)],
+                (string) $symbol,
+                $historyDays,
+            );
 
             // 最後 maxHorizon 根無法計算完整的前瞻報酬，必須排除——否則樣本會
             // 混入「還沒走完」的訊號，讓最近的結果系統性偏向未實現的方向。
@@ -91,7 +100,7 @@ class BacktestService
                 // 沒有基準就無法分辨「規則有效」與「這段期間本來就在漲」。
                 $baseline[] = $this->forwardReturns($closes, $i, $horizons);
 
-                if (! $this->matchesAt($rules, $excludes, $series, $i)) {
+                if (! $this->matchesAt($rules, $excludes, $series, $i, $context)) {
                     continue;
                 }
 
@@ -120,16 +129,16 @@ class BacktestService
      * @param  array<string, ScreenRule>  $excludes
      * @param  array<string, list<int|float|null>>  $series
      */
-    private function matchesAt(array $rules, array $excludes, array $series, int $n): bool
+    private function matchesAt(array $rules, array $excludes, array $series, int $n, array $context = []): bool
     {
         foreach ($rules as $rule) {
-            if (! $rule->matchesAt($series, $n)) {
+            if (! $rule->matchesAt($series, $n, $context)) {
                 return false;
             }
         }
 
         foreach ($excludes as $exclude) {
-            if ($exclude->matchesAt($series, $n)) {
+            if ($exclude->matchesAt($series, $n, $context)) {
                 return false;
             }
         }
@@ -138,10 +147,69 @@ class BacktestService
     }
 
     /**
+     * 回放所需的外部資料，整檔股票只載入一次。
+     *
+     * 融資與籌碼在迴圈外抓、由規則自行截到時點；放進迴圈會對每一根 K 棒重打
+     * 一次查詢，400 根就是 400 次。
+     *
+     * @param  list<ScreenRule>  $rules
+     * @return array<string, mixed>
+     */
+    private function backtestContext(array $rules, string $symbol, int $historyDays): array
+    {
+        $needs = [];
+
+        foreach ($rules as $rule) {
+            if (! $rule instanceof MarginRule) {
+                continue;
+            }
+
+            foreach ($rule->requires() as $need) {
+                $needs[$need] = true;
+            }
+        }
+
+        if ($needs === []) {
+            return [];
+        }
+
+        $instrument = Instrument::query()->where('symbol', $symbol)->first();
+
+        if ($instrument === null) {
+            return [];
+        }
+
+        // 服務層的 days 是「日曆日」，回測的 historyDays 是「交易根數」。不換算的話
+        // 拿到的歷史會比回測區間短一大截，訊號被無聲截斷——實測 260 根的回測只吃到
+        // 最近 60 天的融資，樣本從 261 個縮成 38 個，而且全擠在最後兩個月。
+        $calendarDays = (int) ceil($historyDays * 1.5);
+
+        $context = [];
+
+        foreach (array_keys($needs) as $need) {
+            try {
+                $context[$need] = match ($need) {
+                    ScreenRule::NEEDS_MARGIN => app(MarginDataService::class)->forInstrument($instrument, $calendarDays),
+                    ScreenRule::NEEDS_CHIP => app(ChipDataService::class)->forInstrument($instrument, $calendarDays),
+                    default => null,
+                };
+            } catch (\Throwable) {
+                $context[$need] = null;
+            }
+        }
+
+        return $context;
+    }
+
+    /**
      * 不支援回放的規則。
      *
      * 這些規則的 matchesAt() 永遠回 false，若混進必要條件會讓命中數直接歸零。
      * 必須明確回報，否則使用者會誤以為「這組規則歷史上從沒訊號」。
+     *
+     * 判準不是「有沒有 requires()」而是規則自己有沒有實作時點截斷：融資規則
+     * （MarginRule）會把資料截到該根 K 棒的日期再評估，可以正確回放；籌碼與
+     * 基本面規則沒有接時點資訊，用當下資料評估過去屬前視偏誤，仍不支援。
      *
      * @param  list<ScreenRule>  $rules
      * @return list<string>
@@ -151,7 +219,7 @@ class BacktestService
         $out = [];
 
         foreach ($rules as $rule) {
-            if ($rule->requires() !== []) {
+            if ($rule->requires() !== [] && ! $rule instanceof MarginRule) {
                 $out[] = $rule->key();
             }
         }

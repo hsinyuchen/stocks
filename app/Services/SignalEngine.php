@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Data\ChipFlowData;
+use App\Data\MarginFlowData;
 
 class SignalEngine
 {
@@ -12,15 +13,16 @@ class SignalEngine
     /**
      * @param  array<string, mixed>  $snapshot  技術指標快照
      * @param  list<ChipFlowData>  $chipFlows  三大法人買賣超（升冪）；空陣列代表無籌碼資料
+     * @param  list<MarginFlowData>  $marginFlows  融資融券餘額（升冪）；空陣列代表無融資資料
      */
-    public function evaluate(array $snapshot, array $chipFlows = []): array
+    public function evaluate(array $snapshot, array $chipFlows = [], array $marginFlows = []): array
     {
         if (! $this->hasRequiredIndicators($snapshot)) {
-            return $this->withChip([
+            return $this->withMargin($this->withChip([
                 'stance' => 'insufficient_data',
                 'score' => 0,
                 'reasons' => ['缺少必要技術指標或指標格式無效，暫時無法評估訊號。'],
-            ], $chipFlows);
+            ], $chipFlows), $marginFlows, $chipFlows);
         }
 
         $k = (float) $snapshot['k'];
@@ -83,11 +85,15 @@ class SignalEngine
             default => 'neutral',
         };
 
-        return $this->withChip($this->withDimensions([
-            'stance' => $stance,
-            'score' => $score,
-            'reasons' => $reasons,
-        ], $snapshot), $chipFlows);
+        return $this->withMargin(
+            $this->withChip($this->withDimensions([
+                'stance' => $stance,
+                'score' => $score,
+                'reasons' => $reasons,
+            ], $snapshot), $chipFlows),
+            $marginFlows,
+            $chipFlows,
+        );
     }
 
     /**
@@ -338,6 +344,138 @@ class SignalEngine
         }
 
         return $streak;
+    }
+
+    /**
+     * 融資融券維度。
+     *
+     * 與 chip 一樣不併入 stance／score：融資是「散戶槓桿」，與動能是不同性質的
+     * 資訊，混進同一個分數只會讓兩者互相稀釋。而且 stance 被警報、儀表板與既有
+     * stock_analyses 共用，改變它的語意會汙染歷史紀錄。
+     *
+     * 無融資資料（美股、抓取失敗）時完全不加欄位，呼叫端行為與過去一致。
+     *
+     * @param  array<string, mixed>  $result
+     * @param  list<MarginFlowData>  $marginFlows
+     * @param  list<ChipFlowData>  $chipFlows
+     * @return array<string, mixed>
+     */
+    private function withMargin(array $result, array $marginFlows, array $chipFlows): array
+    {
+        if ($marginFlows === []) {
+            return $result;
+        }
+
+        $windowDays = max(2, (int) config('margin.signal.window_days', 5));
+        $window = array_slice($marginFlows, -$windowDays);
+        $latest = $marginFlows[count($marginFlows) - 1];
+
+        // 變化率用「視窗第一天的餘額」當分母，而不是累加每日 change：後者在
+        // 資料缺日時會低估，前者只要頭尾兩點就成立。
+        $first = $window[0];
+        $changePercent = $first->marginBalance > 0
+            ? round(($latest->marginBalance / $first->marginBalance - 1) * 100, 2)
+            : null;
+
+        $threshold = (float) config('margin.signal.change_threshold', 3.0);
+
+        $stance = match (true) {
+            $changePercent === null => 'neutral',
+            $changePercent >= $threshold => 'leveraging',      // 融資增：散戶加碼
+            $changePercent <= -$threshold => 'deleveraging',   // 融資減：散戶退場
+            default => 'neutral',
+        };
+
+        $usage = $latest->marginUsagePercent();
+        $shortRatio = $latest->shortToMarginPercent();
+
+        $result['margin'] = [
+            'stance' => $stance,
+            'days' => count($window),
+            'balance' => $latest->marginBalance,
+            'change' => $latest->marginBalance - $first->marginBalance,
+            'change_percent' => $changePercent,
+            'usage_percent' => $usage,
+            'short_balance' => $latest->shortBalance,
+            'short_ratio' => $shortRatio,
+            'as_of' => $latest->date,
+            'crossover' => $this->marginCrossover($stance, $chipFlows),
+            'reasons' => $this->marginReasons($stance, $changePercent, $usage, $shortRatio, count($window)),
+        ];
+
+        return $result;
+    }
+
+    /**
+     * 融資（散戶槓桿）與外資（法人）的交叉判定——融資資料真正的價值所在。
+     *
+     * 單看融資增減意義有限：多頭初升段融資跟著增加是健康的。有解讀價值的是
+     * 「誰在買、誰在賣」的組合：
+     *
+     *   retail_chasing      融資增 + 外資賣 → 散戶接刀，套牢籌碼累積
+     *   smart_money_absorbing 融資減 + 外資買 → 籌碼由散戶換手到法人
+     *   aligned_long        融資增 + 外資買 → 同步做多，但槓桿在累積
+     *   aligned_short       融資減 + 外資賣 → 多殺多，賣壓可能已宣洩
+     *
+     * 沒有籌碼資料或任一方中性時回 none：寧可不判，也不要拿半邊資訊硬湊象限。
+     *
+     * @param  list<ChipFlowData>  $chipFlows
+     */
+    private function marginCrossover(string $marginStance, array $chipFlows): string
+    {
+        if ($chipFlows === [] || $marginStance === 'neutral') {
+            return 'none';
+        }
+
+        $foreignNet = 0;
+
+        foreach (array_slice($chipFlows, -self::CHIP_WINDOW) as $flow) {
+            $foreignNet += $flow->foreignNet;
+        }
+
+        if ($foreignNet === 0) {
+            return 'none';
+        }
+
+        return match (true) {
+            $marginStance === 'leveraging' && $foreignNet < 0 => 'retail_chasing',
+            $marginStance === 'deleveraging' && $foreignNet > 0 => 'smart_money_absorbing',
+            $marginStance === 'leveraging' => 'aligned_long',
+            default => 'aligned_short',
+        };
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function marginReasons(string $stance, ?float $changePercent, ?float $usage, ?float $shortRatio, int $days): array
+    {
+        $reasons = [];
+
+        if ($changePercent !== null) {
+            $reasons[] = match ($stance) {
+                'leveraging' => sprintf('近 %d 個交易日融資餘額增加 %.2f%%，散戶槓桿升高。', $days, $changePercent),
+                'deleveraging' => sprintf('近 %d 個交易日融資餘額減少 %.2f%%，散戶槓桿下降。', $days, abs($changePercent)),
+                default => sprintf('近 %d 個交易日融資餘額變化 %.2f%%，未達顯著門檻。', $days, $changePercent),
+            };
+        }
+
+        if ($usage !== null) {
+            $high = (float) config('margin.signal.usage_high', 30.0);
+            $low = (float) config('margin.signal.usage_low', 10.0);
+
+            if ($usage >= $high) {
+                $reasons[] = sprintf('融資使用率 %.2f%%，籌碼偏重，反彈易遇解套賣壓。', $usage);
+            } elseif ($usage <= $low) {
+                $reasons[] = sprintf('融資使用率 %.2f%%，信用籌碼相對乾淨。', $usage);
+            }
+        }
+
+        if ($shortRatio !== null && $shortRatio >= (float) config('margin.signal.short_ratio_high', 20.0)) {
+            $reasons[] = sprintf('券資比 %.2f%%，空方部位集中，具備軋空條件。', $shortRatio);
+        }
+
+        return $reasons;
     }
 
     /** @return list<string> */

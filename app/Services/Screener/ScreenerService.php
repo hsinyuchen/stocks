@@ -199,6 +199,7 @@ class ScreenerService
                 $context[$need] = match ($need) {
                     ScreenRule::NEEDS_CHIP => app(ChipDataService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_FUNDAMENTALS => app(FundamentalsService::class)->forInstrument($instrument),
+                    ScreenRule::NEEDS_MARGIN => app(MarginDataService::class)->forInstrument($instrument),
                     default => null,
                 };
             } catch (\Throwable $exception) {

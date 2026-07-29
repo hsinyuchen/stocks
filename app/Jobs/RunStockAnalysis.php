@@ -6,6 +6,7 @@ use App\Enums\AnalysisStatus;
 use App\Models\StockAnalysis;
 use App\Services\Chip\ChipDataService;
 use App\Services\Llm\LlmProviderFactory;
+use App\Services\Margin\MarginDataService;
 use App\Services\StockAnalysisService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -44,6 +45,7 @@ class RunStockAnalysis implements ShouldQueue
         StockAnalysisService $analysisService,
         LlmProviderFactory $factory,
         ChipDataService $chipData,
+        MarginDataService $marginData,
     ): void {
         $analysis = StockAnalysis::query()->with('instrument')->find($this->analysisId);
 
@@ -59,8 +61,10 @@ class RunStockAnalysis implements ShouldQueue
 
         $llm = $setting === null ? null : $factory->make($setting);
         $chipFlows = $chipData->forInstrument($analysis->instrument);
+        // 融資與籌碼同為 best-effort：抓不到就少一個維度，不影響其餘分析。
+        $marginFlows = $marginData->forInstrument($analysis->instrument);
 
-        $result = $analysisService->analyze($analysis->instrument->symbol, $this->model, $llm, $chipFlows);
+        $result = $analysisService->analyze($analysis->instrument->symbol, $this->model, $llm, $chipFlows, $marginFlows);
         $provider = (string) ($result['llm']['provider'] ?? 'unknown');
 
         $analysis->forceFill([

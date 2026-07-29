@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
+use App\Data\MarginFlowData;
 use App\Enums\AnalysisStatus;
 use App\Enums\AssetType;
 use App\Enums\MarketRegion;
@@ -15,6 +16,7 @@ use App\Models\StockAnalysis;
 use App\Models\User;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
+use App\Services\Margin\MarginDataService;
 use App\Services\News\SymbolNewsService;
 use App\Services\Search\StockSearchService;
 use Carbon\CarbonImmutable;
@@ -66,6 +68,8 @@ class StockSearchController extends Controller
 
         // 台股才有籌碼。頁面只顯示最近 20 個交易日，快取本身仍保留較長歷史。
         $chipFlows = app(ChipDataService::class)->forInstrument($instrument);
+        // 融資融券同為台股限定，且與籌碼共用 FinMind 額度。
+        $marginFlows = app(MarginDataService::class)->forInstrument($instrument);
 
         // 首載瘦身：不再輸出 prices/indicators，前端掛載後另打 stocks.chart endpoint
         // 取 5 年日/週/月 K 與完整指標序列，避免首頁 payload 過大。
@@ -90,6 +94,19 @@ class StockSearchController extends Controller
                 'dealer_net' => $flow->dealerNet,
                 'total_net' => $flow->totalNet,
             ], array_slice($chipFlows, -20)),
+            // 使用率與券資比由 DTO 算好再送出：分母（融資限額、融資餘額）可能為 0，
+            // 除法的邊界處理只做一次，前端不必重複判斷。
+            'marginFlows' => array_map(fn (MarginFlowData $flow): array => [
+                'date' => $flow->date,
+                'margin_balance' => $flow->marginBalance,
+                'margin_change' => $flow->marginChange,
+                'margin_limit' => $flow->marginLimit,
+                'short_balance' => $flow->shortBalance,
+                'short_change' => $flow->shortChange,
+                'offset' => $flow->offsetLoanAndShort,
+                'usage_percent' => $flow->marginUsagePercent(),
+                'short_ratio' => $flow->shortToMarginPercent(),
+            ], array_slice($marginFlows, -20)),
         ]);
     }
 
@@ -180,6 +197,7 @@ class StockSearchController extends Controller
             'analyses' => [],
             'llmProviders' => [],
             'chipFlows' => [],
+            'marginFlows' => [],
         ];
     }
 

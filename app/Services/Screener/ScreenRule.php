@@ -19,6 +19,9 @@ interface ScreenRule
     /** 需要基本面資料（PER/PBR/ROE/月營收）。 */
     public const NEEDS_FUNDAMENTALS = 'fundamentals';
 
+    /** 需要融資融券資料（餘額、限額、券資比）。 */
+    public const NEEDS_MARGIN = 'margin';
+
     public function key(): string;
 
     public function label(): string;

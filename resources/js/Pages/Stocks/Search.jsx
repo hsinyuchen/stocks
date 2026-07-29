@@ -831,6 +831,93 @@ function ChipPanel({ chipFlows }) {
     );
 }
 
+/**
+ * 融資融券面板。
+ *
+ * 與籌碼分開呈現，因為主體不同：籌碼是法人資金流向，融資是散戶槓桿。
+ * 絕對餘額不可跨股比較（融資限額依股本而異），所以把使用率放在最顯眼的位置。
+ */
+function MarginPanel({ marginFlows }) {
+    if (!marginFlows || marginFlows.length === 0) {
+        return null;
+    }
+
+    const latest = marginFlows[marginFlows.length - 1];
+    const window = marginFlows.slice(-5);
+    const first = window[0];
+
+    // 變化率用頭尾兩點相除，與後端 SignalEngine 同規則——累加每日增減在資料
+    // 缺日時會低估。
+    const changePercent = first.margin_balance > 0
+        ? (latest.margin_balance / first.margin_balance - 1) * 100
+        : null;
+
+    const recent = [...marginFlows].slice(-10).reverse();
+
+    return (
+        <section className="stock-panel chip-panel">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">信用交易</p>
+                    <h2>融資融券</h2>
+                </div>
+                <span className="field-hint">資料日 {latest.date}</span>
+            </div>
+
+            <div className="fundamentals-grid">
+                <div className="fundamentals-cell">
+                    <span>融資餘額</span>
+                    <strong>{fmtLots(latest.margin_balance)} 張</strong>
+                </div>
+                <div className="fundamentals-cell">
+                    <span>近 {window.length} 日變化</span>
+                    <strong className={changeClass(changePercent)}>
+                        {changePercent === null ? '—' : `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`}
+                    </strong>
+                </div>
+                <div className="fundamentals-cell">
+                    <span>融資使用率</span>
+                    <strong>{latest.usage_percent === null ? '—' : `${latest.usage_percent}%`}</strong>
+                </div>
+                <div className="fundamentals-cell">
+                    <span>券資比</span>
+                    <strong>{latest.short_ratio === null ? '—' : `${latest.short_ratio}%`}</strong>
+                </div>
+            </div>
+
+            <div className="chip-table-scroll">
+                <table className="chip-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">日期</th>
+                            <th scope="col">融資餘額</th>
+                            <th scope="col">融資增減</th>
+                            <th scope="col">融券餘額</th>
+                            <th scope="col">融券增減</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {recent.map((row) => (
+                            <tr key={row.date}>
+                                <td>{row.date}</td>
+                                <td>{fmtLots(row.margin_balance)}</td>
+                                <td className={changeClass(row.margin_change)}>{fmtLots(row.margin_change)}</td>
+                                <td>{fmtLots(row.short_balance)}</td>
+                                <td className={changeClass(row.short_change)}>{fmtLots(row.short_change)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            <p className="fundamentals-disclaimer">
+                單位為張（1 張 = 1000 股）。融資餘額反映散戶槓桿，使用率為餘額佔融資限額的比率；限額依股本而異，故絕對餘額不可跨股比較。
+                融資增加本身不等於看空——多頭初升段融資與股價同步上升是正常現象。資料來自 FinMind，收盤後公佈。僅供參考，非投資建議。
+            </p>
+        </section>
+    );
+}
+
 export default function StockSearch({
     symbol = null,
     instrument = null,
@@ -840,6 +927,7 @@ export default function StockSearch({
     llmProviders = [],
     fundamentals = null,
     chipFlows = [],
+    marginFlows = [],
 }) {
     // 分析在佇列執行，頁面回來時多半還是 pending，靠輪詢把結果補上。
     const hasPending = analyses.some((analysis) => analysis.status === 'pending');
@@ -863,6 +951,7 @@ export default function StockSearch({
                         {instrument ? <ChartSection instrument={instrument} /> : null}
                         <FundamentalsPanel fundamentals={fundamentals} />
                         <ChipPanel chipFlows={chipFlows} />
+                        <MarginPanel marginFlows={marginFlows} />
                         <NewsList news={news} />
                     </div>
                     <aside className="stock-workspace__side">
