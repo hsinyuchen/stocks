@@ -242,6 +242,9 @@ class StockSearchController extends Controller
             'title' => $item->title,
             'summary' => $item->summary,
             'topic' => $item->topic,
+            // 供前端連回原文。DTO 預設空字串（fake provider、無來源連結的舊資料），
+            // 前端據此決定是否渲染連結。
+            'url' => $item->url,
             'related_symbols' => $item->relatedSymbols,
             'published_at' => $item->publishedAt,
         ];

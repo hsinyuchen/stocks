@@ -1149,6 +1149,13 @@ button {
     font-size: 0.78rem;
 }
 
+/* 標題連外部原文。全域 a 已是 inherit + 無底線，維持原本標題外觀，
+   僅在 hover/focus 時提示可點擊——與即時新聞的 .news-title a 一致。 */
+.news-item strong a:hover,
+.news-item strong a:focus-visible {
+    text-decoration: underline;
+}
+
 .analysis-item__head {
     align-items: center;
     display: flex;

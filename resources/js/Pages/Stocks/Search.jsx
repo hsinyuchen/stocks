@@ -391,8 +391,16 @@ function NewsList({ news }) {
             </div>
             <div className="news-list">
                 {news.map((item) => (
-                    <article className="news-item" key={`${item.source}-${item.title}`}>
-                        <strong>{item.title}</strong>
+                    <article className="news-item" key={item.url || `${item.source}-${item.title}`}>
+                        {/* 與即時新聞一致：有原文連結時標題可點擊外開；舊資料或
+                            fake provider 沒有 url，退回純文字，不渲染空連結。 */}
+                        <strong>
+                            {item.url ? (
+                                <a href={item.url} rel="noopener noreferrer" target="_blank">{item.title}</a>
+                            ) : (
+                                item.title
+                            )}
+                        </strong>
                         <p>{item.summary}</p>
                         <span>{item.source} · {item.published_at}</span>
                     </article>
