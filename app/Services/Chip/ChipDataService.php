@@ -6,6 +6,7 @@ use App\Contracts\ChipDataProvider;
 use App\Data\ChipFlowData;
 use App\Models\ChipFlow;
 use App\Models\Instrument;
+use App\Support\DailyDataFreshness;
 use App\Support\MarketResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -78,10 +79,12 @@ class ChipDataService
             ->latest('updated_at')
             ->first();
 
-        return $latest?->updated_at !== null
-            && $latest->updated_at->greaterThan(
-                CarbonImmutable::now()->subHours((int) config('chip.ttl_hours', 12))
-            );
+        // 盤後公佈的資料用固定小時數判斷會讓過期時刻逐日漂移；改問「今天的
+        // 公佈了沒」，見 DailyDataFreshness 的說明。
+        return ! DailyDataFreshness::isStale(
+            $latest?->updated_at,
+            (int) config('chip.publish_hour', 15),
+        );
     }
 
     private function throttleFailure(Instrument $instrument): void

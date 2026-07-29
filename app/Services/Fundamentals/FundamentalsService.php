@@ -6,6 +6,7 @@ use App\Contracts\FundamentalsProvider;
 use App\Data\FundamentalsData;
 use App\Models\Fundamental;
 use App\Models\Instrument;
+use App\Support\DailyDataFreshness;
 use App\Support\MarketResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
@@ -150,8 +151,12 @@ class FundamentalsService
             return false;
         }
 
-        return $row->fetched_at === null
-            || $row->fetched_at->lessThan(CarbonImmutable::now()->subHours((int) config('fundamentals.ttl_hours', 24)));
+        // 估值每日盤後公佈，用固定小時數判斷會讓過期時刻逐日漂移，
+        // 使用者在公佈後到過期前只看得到前一日的數字。改問「今天的公佈了沒」。
+        return DailyDataFreshness::isStale(
+            $row->fetched_at,
+            (int) config('fundamentals.publish_hour', 15),
+        );
     }
 
     private function failureTtl(): int

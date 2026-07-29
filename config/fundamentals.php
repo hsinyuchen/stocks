@@ -23,4 +23,21 @@ return [
     'percentile_min_samples' => (int) env('FUNDAMENTALS_PERCENTILE_MIN_SAMPLES', 20),
     'failure_ttl_hours' => (int) env('FUNDAMENTALS_FAILURE_TTL_HOURS', 2),
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | 盤後資料公佈時刻（台北時間，24 小時制）
+    |--------------------------------------------------------------------------
+    |
+    | 新鮮度以「今天的資料公佈了沒」判斷，而不是距離上次抓取幾小時——後者的
+    | 過期時刻會逐日漂移，使用者在公佈後到過期前只看得到前一日的數字。
+    | 詳見 App\Support\DailyDataFreshness。
+    |
+    | 台股 13:30 收盤，盤後統計約 15:00 前後上線；設保守一點不會有損失，
+    | 只是當天資料晚一點才更新。
+    |
+    */
+
+    'publish_hour' => (int) env('FUNDAMENTALS_PUBLISH_HOUR', 15),
+
 ];
