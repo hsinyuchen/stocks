@@ -58,7 +58,14 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'strict' => true,
-            'engine' => null,
+            // 明確指定 InnoDB，不沿用伺服器的 default_storage_engine。
+            //
+            // 落到 MyISAM 時只有第一個症狀會報錯（utf8mb4 的 varchar(255) 唯一索引
+            // 佔 1020 bytes，超過 MyISAM 的 1000 bytes 上限），第二個症狀完全靜默：
+            // MyISAM 不支援外鍵，會直接忽略 constrained()->cascadeOnDelete()。
+            // 於是刪除使用者時 watchlists / stock_analyses / llm_provider_settings
+            // 不會連帶刪除，而自增 id 被新使用者重用後就是跨使用者資料外洩。
+            'engine' => env('DB_ENGINE', 'InnoDB'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
@@ -78,7 +85,8 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'strict' => true,
-            'engine' => null,
+            // 理由同 mysql 連線：外鍵被靜默忽略是無聲的資料外洩。
+            'engine' => env('DB_ENGINE', 'InnoDB'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
