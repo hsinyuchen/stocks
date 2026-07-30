@@ -49,7 +49,7 @@ Then add an `ollama` provider in Settings with model `llama3.1` and a blank base
 
 ## Deployment
 
-Deploying to KnownHost shared hosting (cPanel, no cron): see [`../docs/DEPLOY-knownhost.md`](../docs/DEPLOY-knownhost.md). Moving hosts / restoring backups: see [`../MIGRATION.md`](../MIGRATION.md).
+Deploying to a cloud host (MySQL, cPanel shared hosting or a plain VPS): see [`../docs/DEPLOY-knownhost.md`](../docs/DEPLOY-knownhost.md). Moving hosts / restoring backups: see [`../MIGRATION.md`](../MIGRATION.md).
 
 ## Local Setup
 
