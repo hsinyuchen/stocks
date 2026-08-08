@@ -6,6 +6,7 @@ use App\Enums\AnalysisStatus;
 use App\Http\Middleware\ProcessQueuedAnalyses;
 use App\Models\NewsAnalysis;
 use App\Models\StockAnalysis;
+use App\Models\StockChatTurn;
 use App\Services\Analysis\InlineQueueWorker;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -56,6 +57,9 @@ class QueueDoctorCommand extends Command
         $this->kv('queue driver', (string) config('queue.default'));
         $this->kv('inline worker', $worker->enabled() ? '啟用' : '停用');
         $this->kv('inline 時間預算', config('analysis.inline_worker.max_seconds').' 秒／次');
+        // 兩種取件模式的參數要並列，才看得出目前實際靠哪一邊在前進。
+        $this->kv('cron worker 存活', config('analysis.cron_worker.max_seconds').' 秒／次');
+        $this->kv('cron worker 空佇列即退出', config('analysis.cron_worker.stop_when_empty') ? '是' : '否');
         $this->kv('LLM 逾時下限', config('analysis.llm_timeout_floor').' 秒');
         // 直接把「需要多少」印出來，使用者不必自己拿三個設定去算。
         $this->kv('最壞情況需要', $worker->requiredSeconds().' 秒');
@@ -75,15 +79,24 @@ class QueueDoctorCommand extends Command
 
         $stockPending = StockAnalysis::query()->where('status', AnalysisStatus::Pending->value)->count();
         $newsPending = NewsAnalysis::query()->where('status', AnalysisStatus::Pending->value)->count();
+        $chatPending = StockChatTurn::query()->where('status', AnalysisStatus::Pending->value)->count();
         $oldestPending = $this->oldestPendingMinutes();
 
         $this->kv('個股分析 pending', (string) $stockPending);
         $this->kv('新聞分析 pending', (string) $newsPending);
+        $this->kv('個股問答 pending', (string) $chatPending);
         $this->kv('最久的 pending', $oldestPending === null ? '—' : $oldestPending.' 分鐘');
 
         $this->line('');
 
-        return $this->diagnose($worker, $maxExecution, $canRelax, $queueStats, $stockPending + $newsPending, $oldestPending);
+        return $this->diagnose(
+            $worker,
+            $maxExecution,
+            $canRelax,
+            $queueStats,
+            $stockPending + $newsPending + $chatPending,
+            $oldestPending,
+        );
     }
 
     /**
@@ -116,8 +129,9 @@ class QueueDoctorCommand extends Command
     {
         $stock = StockAnalysis::query()->where('status', AnalysisStatus::Pending->value)->min('created_at');
         $news = NewsAnalysis::query()->where('status', AnalysisStatus::Pending->value)->min('created_at');
+        $chat = StockChatTurn::query()->where('status', AnalysisStatus::Pending->value)->min('created_at');
 
-        $candidates = array_filter([$stock, $news]);
+        $candidates = array_filter([$stock, $news, $chat]);
 
         if ($candidates === []) {
             return null;

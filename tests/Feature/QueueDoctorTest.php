@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Analysis\InlineQueueWorker;
 use App\Services\Llm\LlmProviderFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -169,6 +170,27 @@ class QueueDoctorTest extends TestCase
         $reflection = new \ReflectionProperty($provider, 'timeoutSeconds');
 
         $this->assertSame(60, $reflection->getValue($provider));
+    }
+
+    /** 兩種取件模式的參數要並列，否則看不出目前實際靠哪一邊在前進。 */
+    public function test_it_shows_both_worker_modes(): void
+    {
+        Cache::flush();
+        config([
+            'analysis.cron_worker.max_seconds' => 42,
+            'analysis.cron_worker.stop_when_empty' => true,
+        ]);
+
+        // 不用 expectsOutputToContain：一個期望消耗一次寫入，「cron worker 存活」與
+        // 同一行上的「42」不可能同時比對到。
+        $this->withoutMockingConsoleOutput();
+        $this->artisan('queue:doctor');
+        $output = Artisan::output();
+
+        $this->assertStringContainsString('inline worker', $output);
+        $this->assertStringContainsString('cron worker 存活', $output);
+        $this->assertStringContainsString('42', $output);
+        $this->assertStringContainsString('cron worker 空佇列即退出', $output);
     }
 
     public function test_a_healthy_environment_passes(): void

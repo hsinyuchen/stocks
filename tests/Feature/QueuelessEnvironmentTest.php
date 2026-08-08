@@ -8,6 +8,7 @@ use App\Jobs\RunStockAnalysis;
 use App\Models\Instrument;
 use App\Models\NewsItem;
 use App\Models\StockAnalysis;
+use App\Models\StockChatTurn;
 use App\Models\User;
 use App\Services\Analysis\StaleAnalysisReaper;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -139,6 +140,80 @@ class QueuelessEnvironmentTest extends TestCase
 
         $this->assertSame(1, $result['news']);
         $this->assertSame(AnalysisStatus::Failed, $analysis->fresh()->status);
+    }
+
+    /** 沒有這段，問答會永遠停在「思考中」，而且同檔的「1 題上限」會讓它再也無法提問。 */
+    public function test_stale_chat_turns_are_reaped_too(): void
+    {
+        config(['analysis.pending_timeout_minutes' => 8]);
+
+        $user = User::factory()->create();
+        $instrument = Instrument::factory()->create(['symbol' => '2337.TW']);
+
+        $stale = $user->stockChatTurns()->create([
+            'instrument_id' => $instrument->id,
+            'provider_type' => 'pending',
+            'model' => 'llama3.1',
+            'prompt_version' => 'v1',
+            'status' => AnalysisStatus::Pending,
+            'question' => '技術面如何？',
+            'metadata' => [],
+            'data_as_of' => now(),
+        ]);
+        $this->backdate($stale, 9);
+
+        $result = app(StaleAnalysisReaper::class)->reap();
+
+        $this->assertSame(1, $result['chat']);
+
+        $fresh = $stale->fresh();
+        $this->assertSame(AnalysisStatus::Failed, $fresh->status);
+        $this->assertSame('error', $fresh->provider_type);
+        $this->assertTrue($fresh->metadata['reaped']);
+        $this->assertSame(LlmFailureReason::Timeout->value, $fresh->metadata['failure']['reason']);
+        // answer 不能留空：畫面上會變成一張沒有任何說明的卡片。
+        $this->assertStringContainsString('已自動結束', (string) $fresh->answer);
+    }
+
+    /**
+     * reaper 不得覆寫掉已經完成的紀錄。
+     *
+     * 競態是真的：reaper 先 get() 拿到 pending 快照，worker 在那之後把同一筆寫成
+     * 完成，若 update 不帶 status 條件，一次已經付費的回答就會被抹成失敗。
+     */
+    public function test_reaper_does_not_overwrite_a_turn_that_completed_in_the_meantime(): void
+    {
+        config(['analysis.pending_timeout_minutes' => 8]);
+
+        $user = User::factory()->create();
+        $instrument = Instrument::factory()->create(['symbol' => '2337.TW']);
+
+        $turn = $user->stockChatTurns()->create([
+            'instrument_id' => $instrument->id,
+            'provider_type' => 'pending',
+            'model' => 'llama3.1',
+            'prompt_version' => 'v1',
+            'status' => AnalysisStatus::Pending,
+            'question' => '技術面如何？',
+            'metadata' => [],
+            'data_as_of' => now(),
+        ]);
+        $this->backdate($turn, 9);
+
+        // 模擬 worker 在 reaper 讀取之後、寫入之前完成這一筆。
+        StockChatTurn::query()->whereKey($turn->id)->update([
+            'status' => AnalysisStatus::Completed->value,
+            'provider_type' => 'ollama',
+            'answer' => '已完成的回答。',
+        ]);
+
+        $result = app(StaleAnalysisReaper::class)->reap();
+
+        $fresh = $turn->fresh();
+        $this->assertSame(AnalysisStatus::Completed, $fresh->status);
+        $this->assertSame('已完成的回答。', $fresh->answer);
+        // 計數要反映真正被回收的筆數，不是候選筆數。
+        $this->assertSame(0, $result['chat']);
     }
 
     public function test_reaper_is_throttled_so_every_request_does_not_rescan(): void
