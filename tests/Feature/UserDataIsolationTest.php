@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AnalysisStatus;
 use App\Models\DailyPrice;
 use App\Models\Instrument;
 use App\Models\LlmProviderSetting;
+use App\Models\StockChatTurn;
 use App\Models\User;
 use App\Models\Watchlist;
 use Carbon\CarbonInterface;
@@ -135,6 +137,36 @@ class UserDataIsolationTest extends TestCase
         ]);
 
         $this->assertSame($user->id, $watchlist->user_id);
+    }
+
+    public function test_stock_chat_turn_direct_create_cannot_override_user_id_and_relation_create_sets_it(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+        $instrument = Instrument::factory()->create(['symbol' => 'CHAT.TW']);
+
+        $payload = [
+            'instrument_id' => $instrument->id,
+            'provider_type' => 'pending',
+            'model' => 'llama3.1',
+            'prompt_version' => 'v1',
+            'status' => AnalysisStatus::Pending,
+            'question' => '這檔最近怎麼樣？',
+            'metadata' => [],
+            'data_as_of' => now(),
+        ];
+
+        try {
+            StockChatTurn::create([...$payload, 'user_id' => $otherUser->id]);
+
+            $this->fail('Expected direct stock chat turn create without relation to fail.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('user_id', $exception->getMessage());
+        }
+
+        $turn = $user->stockChatTurns()->create($payload);
+
+        $this->assertSame($user->id, $turn->user_id);
     }
 
     public function test_llm_provider_setting_direct_create_cannot_override_user_id_and_relation_create_sets_it(): void

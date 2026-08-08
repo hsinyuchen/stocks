@@ -21,7 +21,7 @@ class UserManagementController extends Controller
         $q = trim((string) $request->query('q', ''));
 
         $users = User::query()
-            ->withCount(['watchlists', 'stockAnalyses', 'newsAnalyses'])
+            ->withCount(['watchlists', 'stockAnalyses', 'newsAnalyses', 'stockChatTurns'])
             ->withExists('llmProviderSettings as has_llm')
             ->when($q !== '', function ($query) use ($q): void {
                 $query->where(fn ($inner) => $inner
@@ -42,7 +42,10 @@ class UserManagementController extends Controller
                 'approved_at' => $user->approved_at?->toIso8601String(),
                 'created_at' => $user->created_at?->toIso8601String(),
                 'watchlists_count' => $user->watchlists_count,
-                'analyses_count' => $user->stock_analyses_count + $user->news_analyses_count,
+                // AI 用量的總計：個股分析、新聞分析、個股問答都各是一次 LLM 呼叫。
+                'analyses_count' => $user->stock_analyses_count
+                    + $user->news_analyses_count
+                    + $user->stock_chat_turns_count,
                 'has_llm' => (bool) $user->has_llm,
             ]);
 

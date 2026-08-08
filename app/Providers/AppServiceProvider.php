@@ -4,22 +4,28 @@ namespace App\Providers;
 
 use App\Contracts\ChipDataProvider;
 use App\Contracts\FundamentalsProvider;
+use App\Contracts\FuturesDataProvider;
 use App\Contracts\MarginDataProvider;
 use App\Contracts\MarketDataProvider;
+use App\Contracts\MarketInstitutionalProvider;
 use App\Contracts\NewsProvider;
 use App\Contracts\SymbolNewsProvider;
 use App\Contracts\YoutubeWorkerRunner;
 use App\Services\Chip\FinMindChipDataProvider;
 use App\Services\Fake\FakeChipDataProvider;
 use App\Services\Fake\FakeFundamentalsProvider;
+use App\Services\Fake\FakeFuturesDataProvider;
 use App\Services\Fake\FakeMarginDataProvider;
 use App\Services\Fake\FakeMarketDataProvider;
+use App\Services\Fake\FakeMarketInstitutionalProvider;
 use App\Services\Fake\FakeNewsProvider;
 use App\Services\Fake\FakeSymbolNewsProvider;
 use App\Services\Fundamentals\FinMindFundamentalsProvider;
+use App\Services\Futures\FinMindFuturesDataProvider;
 use App\Services\Margin\FinMindMarginDataProvider;
 use App\Services\Market\CachedMarketDataProvider;
 use App\Services\Market\FinMindMarketDataProvider;
+use App\Services\Market\FinMindMarketInstitutionalProvider;
 use App\Services\Market\RoutingMarketDataProvider;
 use App\Services\Market\YahooChartMarketDataProvider;
 use App\Services\News\DbNewsProvider;
@@ -98,6 +104,25 @@ class AppServiceProvider extends ServiceProvider
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeMarginDataProvider::class)
                 : new FinMindMarginDataProvider(config('services.finmind.token'));
+        });
+
+        // 台股期貨/選擇權大盤籌碼（台指期未平倉、三大法人期貨淨留倉、選擇權 P/C）：
+        // 同為 FinMind、沿用同一 driver 開關。免費層即可，測試一律 fake、不打網路。
+        $this->app->bind(FuturesDataProvider::class, function ($app): FuturesDataProvider {
+            return config('services.market_data.driver') === 'fake'
+                ? $app->make(FakeFuturesDataProvider::class)
+                : new FinMindFuturesDataProvider(
+                    config('services.finmind.token'),
+                    (string) config('brief.futures.futures_id', 'TX'),
+                    (string) config('brief.futures.option_id', 'TXO'),
+                );
+        });
+
+        // 全市場三大法人現貨買賣超（大盤風向），同為 FinMind、沿用同一 driver 開關。
+        $this->app->bind(MarketInstitutionalProvider::class, function ($app): MarketInstitutionalProvider {
+            return config('services.market_data.driver') === 'fake'
+                ? $app->make(FakeMarketInstitutionalProvider::class)
+                : new FinMindMarketInstitutionalProvider(config('services.finmind.token'));
         });
 
         // YouTube captions worker (2C). The real runner shells out to the Python

@@ -94,6 +94,12 @@ class User extends Authenticatable
         return $this->hasMany(StockAnalysis::class);
     }
 
+    /** 個股 AI 問答。屬個別使用者：內容含使用者自己輸入的提問。 */
+    public function stockChatTurns(): HasMany
+    {
+        return $this->hasMany(StockChatTurn::class);
+    }
+
     /** 選股掃描紀錄。屬個別使用者：股池含自選股，結果可反推自選內容。 */
     public function screenRuns(): HasMany
     {
@@ -103,6 +109,12 @@ class User extends Authenticatable
     public function newsAnalyses(): HasMany
     {
         return $this->hasMany(NewsAnalysis::class);
+    }
+
+    /** 自選股晚間快報。屬個別使用者：以其全部自選清單為分析對象。 */
+    public function watchlistAnalyses(): HasMany
+    {
+        return $this->hasMany(WatchlistAnalysis::class);
     }
 
     public function llmProviderSettings(): HasMany

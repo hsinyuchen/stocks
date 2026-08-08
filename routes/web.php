@@ -14,7 +14,9 @@ use App\Http\Controllers\PortfolioController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ScreenerController;
 use App\Http\Controllers\StockChartController;
+use App\Http\Controllers\StockChatController;
 use App\Http\Controllers\StockSearchController;
+use App\Http\Controllers\WatchlistAnalysisController;
 use App\Http\Controllers\WatchlistController;
 use Illuminate\Support\Facades\Route;
 
@@ -34,6 +36,9 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/news/daily-summary', [NewsAnalysisController::class, 'dailySummary'])->name('news.daily-summary');
     Route::post('/news/{newsItem}/analyses', [NewsAnalysisController::class, 'store'])->name('news.analyses.store');
     Route::get('/watchlists', [WatchlistController::class, 'index'])->name('watchlists.index');
+    // 具名靜態區段，需排在 /watchlists/{watchlist} 之前（此處無 GET {watchlist}，仍維持清楚順序）。
+    Route::get('/watchlists/analysis', [WatchlistAnalysisController::class, 'show'])->name('watchlists.analysis');
+    Route::post('/watchlists/analysis', [WatchlistAnalysisController::class, 'store'])->name('watchlists.analysis.store');
     Route::post('/watchlists', [WatchlistController::class, 'store'])->name('watchlists.store');
     Route::patch('/watchlists/{watchlist}', [WatchlistController::class, 'update'])->name('watchlists.update');
     Route::delete('/watchlists/{watchlist}', [WatchlistController::class, 'destroy'])->name('watchlists.destroy');
@@ -45,6 +50,13 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/stocks/{instrument}/chart', StockChartController::class)->name('stocks.chart');
     Route::post('/stocks/{instrument}/analyses', [StockSearchController::class, 'analyze'])->name('stocks.analyses.store');
     Route::delete('/stocks/analyses/{stockAnalysis}', [StockSearchController::class, 'destroyAnalysis'])->name('stocks.analyses.destroy');
+    // throttle 是濫用後盾而非主要控制：controller 已限制同一檔同時只能有一題
+    // 未回答，真人最多約 2 題／分鐘，20 只有在前端失控重送時才會觸發。
+    Route::post('/stocks/{instrument}/chat', [StockChatController::class, 'store'])
+        ->middleware('throttle:20,1')
+        ->name('stocks.chat.store');
+    Route::delete('/stocks/chat/{stockChatTurn}', [StockChatController::class, 'destroy'])->name('stocks.chat.destroy');
+    Route::delete('/stocks/{instrument}/chat', [StockChatController::class, 'clear'])->name('stocks.chat.clear');
     Route::get('/portfolio', [PortfolioController::class, 'index'])->name('portfolio.index');
     Route::post('/portfolio', [PortfolioController::class, 'store'])->name('portfolio.store');
     Route::patch('/portfolio/{holding}', [PortfolioController::class, 'update'])->name('portfolio.update');

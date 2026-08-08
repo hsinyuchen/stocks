@@ -67,6 +67,11 @@ class Instrument extends Model
         return $this->hasMany(StockAnalysis::class);
     }
 
+    public function stockChatTurns(): HasMany
+    {
+        return $this->hasMany(StockChatTurn::class);
+    }
+
     public function watchlistItems(): HasMany
     {
         return $this->hasMany(WatchlistItem::class);
@@ -90,15 +95,20 @@ class Instrument extends Model
     /**
      * 是否被使用者資料參照。
      *
-     * instruments 被 8 個表以 cascade 參照，其中這四個屬使用者資料，刪除
-     * instrument 會連同使用者的自選股、持倉、警報與已存分析一起消失。
-     * 其餘（daily_prices、chip_flows、fundamentals、technical_snapshots）
-     * 是可重抓的快取，隨之清除無妨。
+     * instruments 被多個表以 cascade 參照，其中這五個屬使用者資料，刪除
+     * instrument 會連同使用者的自選股、持倉、警報、已存分析與 AI 問答紀錄
+     * 一起消失。其餘（daily_prices、chip_flows、fundamentals、
+     * technical_snapshots）是可重抓的快取，隨之清除無妨。
+     *
+     * 這份判斷另有兩處副本，新增類別時必須同步：
+     * Admin\InstrumentController 的列表 withCount，以及
+     * InstrumentImportService 的 replace 保護查詢。
      */
     public function isReferencedByUserData(): bool
     {
         return $this->watchlistItems()->exists()
             || $this->stockAnalyses()->exists()
+            || $this->stockChatTurns()->exists()
             || $this->holdings()->exists()
             || $this->alerts()->exists();
     }

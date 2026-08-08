@@ -48,10 +48,11 @@ class InstrumentImportService
      * mode = append：只新增，既有代號直接跳過（不覆寫名稱）。
      * mode = replace：先移除「沒有被任何使用者資料參照」的標的，再匯入。
      *
-     * replace 不會刪除被自選清單、持倉、警報或已存分析參照的標的：
-     * instruments 被 8 個表以 cascade 參照，其中 watchlist_items、holdings、
-     * alerts、stock_analyses 屬使用者資料，天真的「全部取代」會連同使用者的
-     * 自選股一起刪掉。行情、籌碼、基本面等純快取則可安全隨之清除，之後會重抓。
+     * replace 不會刪除被自選清單、持倉、警報、已存分析或 AI 問答參照的標的：
+     * instruments 被多個表以 cascade 參照，其中 watchlist_items、holdings、
+     * alerts、stock_analyses、stock_chat_turns 屬使用者資料，天真的「全部取代」
+     * 會連同使用者的自選股一起刪掉。行情、籌碼、基本面等純快取則可安全隨之
+     * 清除，之後會重抓。
      *
      * @param  list<array{symbol: string, name: string}>  $rows
      * @return array{created: int, skipped: int, removed: int, protected: int}
@@ -110,10 +111,12 @@ class InstrumentImportService
      */
     private function removeUnreferenced(array $keepSymbols): array
     {
+        // 與 Instrument::isReferencedByUserData() 同一組類別，新增時要同步。
         $referenced = Instrument::query()
             ->where(fn ($q) => $q
                 ->whereHas('watchlistItems')
                 ->orWhereHas('stockAnalyses')
+                ->orWhereHas('stockChatTurns')
                 ->orWhereHas('holdings')
                 ->orWhereHas('alerts'))
             ->pluck('id')

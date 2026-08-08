@@ -30,7 +30,8 @@ class InstrumentController extends Controller
         ]);
 
         $query = Instrument::query()
-            ->withCount(['watchlistItems', 'stockAnalyses', 'holdings', 'alerts'])
+            // 與 Instrument::isReferencedByUserData() 同一組類別，新增時要同步。
+            ->withCount(['watchlistItems', 'stockAnalyses', 'stockChatTurns', 'holdings', 'alerts'])
             ->orderBy('symbol');
 
         if (($filters['q'] ?? '') !== '') {
@@ -54,6 +55,7 @@ class InstrumentController extends Controller
             // 被使用者資料參照者在「全部取代」時會被保留，UI 需標示出來。
             'referenced' => ($instrument->watchlist_items_count
                 + $instrument->stock_analyses_count
+                + $instrument->stock_chat_turns_count
                 + $instrument->holdings_count
                 + $instrument->alerts_count) > 0,
         ]);

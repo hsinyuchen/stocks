@@ -1,7 +1,16 @@
 import { router } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 
-const INTERVAL_MS = 3000;
+/**
+ * 前 15 秒用密集間隔，之後退避。
+ *
+ * 一次分析實測 28～47 秒、問答約 10～40 秒，全程 3 秒一次等於每題多打十幾次
+ * request。而共享主機的瓶頸是 entry process 與 CPU 配額，不是延遲，所以前段保持
+ * 靈敏、後段拉長是划算的交換。
+ */
+const FAST_INTERVAL_MS = 3000;
+const SLOW_INTERVAL_MS = 6000;
+const FAST_PHASE_MS = 15000;
 
 /**
  * 放棄輪詢的門檻。
@@ -52,19 +61,44 @@ export default function useAnalysisPolling(hasPending, only) {
         }
 
         const startedAt = Date.now();
-        const timer = setInterval(() => {
-            if (Date.now() - startedAt > MAX_WAIT_MS) {
+        let timer = null;
+        let cancelled = false;
+
+        const tick = () => {
+            if (cancelled) {
+                return;
+            }
+
+            const elapsed = Date.now() - startedAt;
+
+            if (elapsed > MAX_WAIT_MS) {
                 setStalled(true);
-                clearInterval(timer);
 
                 return;
             }
 
-            // preserveState 保住表單與圖表狀態，preserveScroll 避免每 3 秒跳回頂端。
-            router.reload({ only: onlyKey.split(','), preserveScroll: true, preserveState: true });
-        }, INTERVAL_MS);
+            /*
+             * 分頁不在前景就跳過這一輪，但計時器繼續跑。使用者切走後結果仍會在
+             * 後端完成，切回來時下一輪就抓得到；而放著不管的分頁原本會空打滿
+             * 10 分鐘的 request，那些流量沒有任何人看得到。
+             */
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                // preserveState 保住表單與圖表狀態，preserveScroll 避免每次跳回頂端。
+                router.reload({ only: onlyKey.split(','), preserveScroll: true, preserveState: true });
+            }
 
-        return () => clearInterval(timer);
+            timer = setTimeout(tick, elapsed > FAST_PHASE_MS ? SLOW_INTERVAL_MS : FAST_INTERVAL_MS);
+        };
+
+        timer = setTimeout(tick, FAST_INTERVAL_MS);
+
+        return () => {
+            cancelled = true;
+
+            if (timer !== null) {
+                clearTimeout(timer);
+            }
+        };
     }, [hasPending, onlyKey]);
 
     return stalled;
