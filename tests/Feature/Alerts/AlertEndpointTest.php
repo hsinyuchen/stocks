@@ -111,6 +111,60 @@ class AlertEndpointTest extends TestCase
         $this->assertSame('kd_golden_cross', $user->alerts()->firstOrFail()->signal_key);
     }
 
+    public function test_store_market_futures_flip_alert(): void
+    {
+        $this->bindQuietProvider();
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->post('/alerts', [
+            'type' => 'market_futures_flip',
+            'note' => '大盤轉空提示',
+        ])->assertRedirect();
+
+        $alert = $user->alerts()->firstOrFail();
+        $this->assertSame('market_futures_flip', $alert->type);
+        $this->assertNull($alert->instrument_id);
+        $this->assertNull($alert->threshold);
+        $this->assertNull($alert->signal_key);
+        $this->assertSame('大盤轉空提示', $alert->note);
+    }
+
+    public function test_store_market_bearish_flip_alert(): void
+    {
+        $this->bindQuietProvider();
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->post('/alerts', ['type' => 'market_bearish_flip'])->assertRedirect();
+
+        $alert = $user->alerts()->firstOrFail();
+        $this->assertSame('market_bearish_flip', $alert->type);
+        $this->assertNull($alert->instrument_id);
+    }
+
+    public function test_market_alert_prohibits_symbol_and_threshold(): void
+    {
+        $this->bindQuietProvider();
+        $user = User::factory()->create();
+        $post = fn (array $data) => $this->actingAs($user)->from('/alerts')->post('/alerts', $data);
+
+        $post(['type' => 'market_futures_flip', 'symbol' => 'NVDA'])->assertSessionHasErrors('symbol');
+        $post(['type' => 'market_futures_flip', 'threshold' => 5])->assertSessionHasErrors('threshold');
+
+        $this->assertSame(0, $user->alerts()->count());
+    }
+
+    public function test_duplicate_active_market_alert_rejected(): void
+    {
+        $this->bindQuietProvider();
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->post('/alerts', ['type' => 'market_futures_flip'])->assertRedirect();
+        $this->actingAs($user)->from('/alerts')->post('/alerts', ['type' => 'market_futures_flip'])
+            ->assertSessionHasErrors('type');
+
+        $this->assertSame(1, $user->alerts()->count());
+    }
+
     public function test_store_validation(): void
     {
         $this->bindQuietProvider();

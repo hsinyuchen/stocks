@@ -9,11 +9,33 @@ const TYPE_OPTIONS = [
     { value: 'change_pct_above', label: '單日漲幅高於 (%)' },
     { value: 'change_pct_below', label: '單日跌幅低於 (%)' },
     { value: 'signal', label: '技術訊號' },
+    { value: 'market_futures_flip', label: '大盤期貨翻空（外資）' },
+    { value: 'market_bearish_flip', label: '大盤真翻空（四維共振）' },
 ];
 
 const TYPE_LABEL = Object.fromEntries(TYPE_OPTIONS.map((option) => [option.value, option.label]));
 
+const MARKET_TYPES = ['market_futures_flip', 'market_bearish_flip'];
+
+const MARKET_TITLE = {
+    market_futures_flip: '大盤期貨',
+    market_bearish_flip: '大盤真翻空',
+};
+
+const MARKET_HINT = {
+    market_futures_flip: '大盤層級警報，無需標的：外資台指期淨空單連續站上門檻時觸發（排除結算週轉倉干擾）。僅期貨籌碼一個維度，請配合現貨賣壓、匯率與技術面綜合研判。',
+    market_bearish_flip: '大盤層級警報，無需標的：期貨淨空＋外資現貨連續大賣＋台股跌破月線與季線＋台幣趨勢貶值，四維同時成立才觸發（真翻空）。缺任一維度或資料不足則不觸發。',
+};
+
 function describe(alert, signalRules) {
+    if (alert.type === 'market_futures_flip') {
+        return '外資台指期淨空單連續站上門檻（大盤期貨籌碼轉空）';
+    }
+
+    if (alert.type === 'market_bearish_flip') {
+        return '期貨淨空＋現貨連續大賣＋破月/季線＋台幣走貶（四維共振翻空）';
+    }
+
     if (alert.type === 'signal') {
         const rule = signalRules.find((entry) => entry.key === alert.signal_key);
 
@@ -37,12 +59,19 @@ function AddAlertForm({ signalRules }) {
     const [open, setOpen] = useState(false);
     const form = useForm({ symbol: '', type: 'price_above', threshold: '', signal_key: signalRules[0]?.key ?? '', note: '' });
     const isSignal = form.data.type === 'signal';
+    const isMarket = MARKET_TYPES.includes(form.data.type);
 
     const submit = (event) => {
         event.preventDefault();
-        form.transform((data) => (data.type === 'signal'
-            ? { symbol: data.symbol, type: data.type, signal_key: data.signal_key, note: data.note }
-            : { symbol: data.symbol, type: data.type, threshold: data.threshold, note: data.note }))
+        form.transform((data) => {
+            if (MARKET_TYPES.includes(data.type)) {
+                return { type: data.type, note: data.note };
+            }
+
+            return data.type === 'signal'
+                ? { symbol: data.symbol, type: data.type, signal_key: data.signal_key, note: data.note }
+                : { symbol: data.symbol, type: data.type, threshold: data.threshold, note: data.note };
+        })
             .post('/alerts', {
                 preserveScroll: true,
                 onSuccess: () => {
@@ -63,16 +92,18 @@ function AddAlertForm({ signalRules }) {
 
     return (
         <form className="alert-form" onSubmit={submit}>
-            <label className="form-field">
-                <span>標的</span>
-                <input
-                    onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
-                    placeholder="例如 2330.TW、NVDA"
-                    type="text"
-                    value={form.data.symbol}
-                />
-                {form.errors.symbol ? <p className="field-error">{form.errors.symbol}</p> : null}
-            </label>
+            {isMarket ? null : (
+                <label className="form-field">
+                    <span>標的</span>
+                    <input
+                        onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
+                        placeholder="例如 2330.TW、NVDA"
+                        type="text"
+                        value={form.data.symbol}
+                    />
+                    {form.errors.symbol ? <p className="field-error">{form.errors.symbol}</p> : null}
+                </label>
+            )}
             <label className="form-field">
                 <span>條件</span>
                 <select onChange={(event) => form.setData('type', event.target.value)} value={form.data.type}>
@@ -80,8 +111,11 @@ function AddAlertForm({ signalRules }) {
                         <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                 </select>
+                {form.errors.type ? <p className="field-error">{form.errors.type}</p> : null}
             </label>
-            {isSignal ? (
+            {isMarket ? (
+                <p className="field-hint">{MARKET_HINT[form.data.type]}</p>
+            ) : isSignal ? (
                 <label className="form-field">
                     <span>訊號</span>
                     <select onChange={(event) => form.setData('signal_key', event.target.value)} value={form.data.signal_key}>
@@ -134,9 +168,13 @@ function AlertCard({ alert, signalRules, triggered }) {
     return (
         <article className={`alert-card${triggered ? ' alert-card--triggered' : ''}`}>
             <div>
-                <Link href={`/stocks/search?symbol=${encodeURIComponent(alert.symbol)}`}>
-                    <strong>{alert.symbol}</strong>
-                </Link>
+                {alert.scope === 'market' ? (
+                    <strong>{MARKET_TITLE[alert.type] ?? '大盤'}</strong>
+                ) : (
+                    <Link href={`/stocks/search?symbol=${encodeURIComponent(alert.symbol)}`}>
+                        <strong>{alert.symbol}</strong>
+                    </Link>
+                )}
                 <span className="alert-card__desc">{describe(alert, signalRules)}</span>
                 {alert.note ? <small>{alert.note}</small> : null}
                 {triggered ? (

@@ -22,6 +22,9 @@ class AlertController extends Controller
 
     private const TYPES = ['price_above', 'price_below', 'change_pct_above', 'change_pct_below', 'signal'];
 
+    // 大盤層級警報：無個股標的（instrument_id null），全站條件相同。
+    private const MARKET_TYPES = ['market_futures_flip', 'market_bearish_flip'];
+
     public function index(Request $request, AlertEvaluator $evaluator, ScreenRuleRegistry $registry): Response
     {
         // 開頁時被動檢查（best-effort：evaluator 內已容錯，此為雙層保險）。
@@ -45,8 +48,13 @@ class AlertController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        $request->merge(['symbol' => strtoupper(trim((string) $request->input('symbol', '')))]);
         $type = (string) $request->input('type');
+
+        if (in_array($type, self::MARKET_TYPES, true)) {
+            return $this->storeMarketAlert($request, $type);
+        }
+
+        $request->merge(['symbol' => strtoupper(trim((string) $request->input('symbol', '')))]);
         $isPrice = in_array($type, self::PRICE_TYPES, true);
 
         $data = $request->validate([
@@ -88,6 +96,35 @@ class AlertController extends Controller
         return redirect()->back();
     }
 
+    /**
+     * 大盤層級警報：無 symbol / threshold / signal_key，instrument_id 存 null。
+     * 每人同類型只留一筆監控中——條件全站相同，多筆只會同時觸發洗版。
+     */
+    private function storeMarketAlert(Request $request, string $type): RedirectResponse
+    {
+        $data = $request->validate([
+            'type' => ['required', Rule::in(self::MARKET_TYPES)],
+            'symbol' => ['prohibited'],
+            'threshold' => ['prohibited'],
+            'signal_key' => ['prohibited'],
+            'note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $exists = $request->user()->alerts()
+            ->where('type', $type)
+            ->where('status', 'active')
+            ->exists();
+
+        if ($exists) {
+            return back()->withErrors(['type' => '已有一筆監控中的大盤警報，請勿重複新增。'])->withInput();
+        }
+
+        $alert = new Alert(['type' => $type, 'note' => $data['note'] ?? null]);
+        $request->user()->alerts()->save($alert);
+
+        return redirect()->back();
+    }
+
     public function reactivate(Request $request, Alert $alert): RedirectResponse
     {
         $this->authorizeAlert($request, $alert);
@@ -114,10 +151,14 @@ class AlertController extends Controller
     /** @return array<string, mixed> */
     private function payload(Alert $alert): array
     {
+        // 大盤層級警報無個股標的，instrument 為 null。
+        $isMarket = in_array($alert->type, self::MARKET_TYPES, true);
+
         return [
             'id' => $alert->id,
-            'symbol' => $alert->instrument->symbol,
-            'name' => $alert->instrument->name,
+            'scope' => $isMarket ? 'market' : 'instrument',
+            'symbol' => $alert->instrument?->symbol,
+            'name' => $alert->instrument?->name,
             'type' => $alert->type,
             'threshold' => $alert->threshold === null ? null : (float) $alert->threshold,
             'signal_key' => $alert->signal_key,

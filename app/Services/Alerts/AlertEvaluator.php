@@ -5,7 +5,14 @@ namespace App\Services\Alerts;
 use App\Contracts\MarketDataProvider;
 use App\Data\MarketQuoteData;
 use App\Models\Alert;
+use App\Models\Instrument;
 use App\Models\User;
+use App\Services\Chip\ChipDataService;
+use App\Services\Fundamentals\FundamentalsService;
+use App\Services\Futures\MarketFuturesFlipDetector;
+use App\Services\Margin\MarginDataService;
+use App\Services\Market\MarketBearishFlipDetector;
+use App\Services\Screener\ScreenRule;
 use App\Services\Screener\ScreenRuleRegistry;
 use App\Services\TechnicalIndicatorService;
 use Illuminate\Support\Facades\Log;
@@ -14,10 +21,15 @@ class AlertEvaluator
 {
     private const HISTORY_DAYS = 250;
 
+    /** 大盤層級警報類型：無個股標的，條件全站相同、本輪只算一次。 */
+    private const MARKET_TYPES = ['market_futures_flip', 'market_bearish_flip'];
+
     public function __construct(
         private readonly MarketDataProvider $marketData,
         private readonly TechnicalIndicatorService $indicators,
         private readonly ScreenRuleRegistry $registry,
+        private readonly MarketFuturesFlipDetector $futuresFlip,
+        private readonly MarketBearishFlipDetector $bearishFlip,
     ) {}
 
     /**
@@ -32,8 +44,20 @@ class AlertEvaluator
         $quoteCache = [];    // symbol => MarketQuoteData（memoize，同 symbol 只呼叫上游一次）
         $failedQuote = [];   // symbol => true（quote() 失敗）
         $failedDaily = [];   // symbol => true（dailyPrices() 失敗）
+        $marketTriggered = []; // type => bool，本輪 memoize（大盤條件全站相同，只需算一次）
 
         foreach ($user->alerts()->with('instrument')->where('status', 'active')->get() as $alert) {
+            // 大盤層級警報無個股標的（instrument_id 為 null），須在解參考 instrument 前處理。
+            if (in_array($alert->type, self::MARKET_TYPES, true)) {
+                $marketTriggered[$alert->type] ??= $this->detectMarket($alert->type);
+
+                if ($marketTriggered[$alert->type] && $this->markTriggered($alert, null)) {
+                    $triggered++;
+                }
+
+                continue;
+            }
+
             $symbol = $alert->instrument->symbol;
 
             // 訊號類只依賴 dailyPrices（獨立資料源），不因 quote 中斷而被跳過。
@@ -67,6 +91,16 @@ class AlertEvaluator
         }
 
         return $triggered;
+    }
+
+    /** 大盤層級警報：依類型選對應偵測器，回傳是否成立（全站條件相同）。 */
+    private function detectMarket(string $type): bool
+    {
+        return match ($type) {
+            'market_futures_flip' => $this->futuresFlip->detect()['triggered'],
+            'market_bearish_flip' => $this->bearishFlip->detect()['triggered'],
+            default => false,
+        };
     }
 
     private function matchesPrice(Alert $alert, MarketQuoteData $quote): bool
@@ -135,7 +169,47 @@ class AlertEvaluator
             return false;
         }
 
-        return $rule->matches($this->indicators->series($prices));
+        // 籌碼／融資／基本面規則需要價格以外的資料；少了 context，ChipRule/MarginRule
+        // 的 matches() 讀不到 $context[...] 會一律回 false——選得到卻永遠不觸發。
+        // 依 rule->requires() 補齊，抓取全 best-effort（非台股或失敗留 null，規則自判不命中）。
+        $context = $this->contextFor($alert->instrument, $rule->requires());
+
+        return $rule->matches($this->indicators->series($prices), $context);
+    }
+
+    /**
+     * 依規則宣告的需求載入籌碼／融資／基本面，與 ScreenerService::contextFor 同邏輯。
+     *
+     * best-effort：只有台股有、且上游可能失敗，取不到留 null，由規則自行判定不命中——
+     * 不可當「無條件通過」，否則美股在籌碼規則下會被誤觸發。
+     *
+     * @param  list<string>  $needs
+     * @return array<string, mixed>
+     */
+    private function contextFor(Instrument $instrument, array $needs): array
+    {
+        $context = [];
+
+        foreach ($needs as $need) {
+            try {
+                $context[$need] = match ($need) {
+                    ScreenRule::NEEDS_CHIP => app(ChipDataService::class)->forInstrument($instrument),
+                    ScreenRule::NEEDS_FUNDAMENTALS => app(FundamentalsService::class)->forInstrument($instrument),
+                    ScreenRule::NEEDS_MARGIN => app(MarginDataService::class)->forInstrument($instrument),
+                    default => null,
+                };
+            } catch (\Throwable $exception) {
+                Log::warning('alert: signal context load failed', [
+                    'symbol' => $instrument->symbol,
+                    'need' => $need,
+                    'error' => $exception->getMessage(),
+                ]);
+
+                $context[$need] = null;
+            }
+        }
+
+        return $context;
     }
 
     /**
