@@ -163,7 +163,7 @@ final class CannedLlmProvider implements LlmProvider
 {
     public function __construct(private readonly string $content) {}
 
-    public function complete(string $model, string $prompt): LlmResponseData
+    public function complete(string $model, string $prompt, ?string $system = null): LlmResponseData
     {
         return new LlmResponseData(
             provider: 'canned-llm',
@@ -182,7 +182,7 @@ final class RecordingLlmProvider implements LlmProvider
 
     public function __construct(private readonly string $content) {}
 
-    public function complete(string $model, string $prompt): LlmResponseData
+    public function complete(string $model, string $prompt, ?string $system = null): LlmResponseData
     {
         $this->lastModel = $model;
         $this->lastPrompt = $prompt;
@@ -200,7 +200,7 @@ final class ThrowingLlmProvider implements LlmProvider
 {
     public function __construct(private readonly ?Throwable $exception = null) {}
 
-    public function complete(string $model, string $prompt): LlmResponseData
+    public function complete(string $model, string $prompt, ?string $system = null): LlmResponseData
     {
         throw $this->exception ?? new RuntimeException('boom');
     }

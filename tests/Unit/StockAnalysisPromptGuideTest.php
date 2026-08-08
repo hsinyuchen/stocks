@@ -154,9 +154,12 @@ final class PromptCapturingLlmProvider implements LlmProvider
 {
     public ?string $lastPrompt = null;
 
-    public function complete(string $model, string $prompt): LlmResponseData
+    public ?string $lastSystem = null;
+
+    public function complete(string $model, string $prompt, ?string $system = null): LlmResponseData
     {
         $this->lastPrompt = $prompt;
+        $this->lastSystem = $system;
 
         return new LlmResponseData('stub', $model, 'ok', []);
     }

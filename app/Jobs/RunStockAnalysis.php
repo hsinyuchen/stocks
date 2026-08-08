@@ -32,8 +32,14 @@ class RunStockAnalysis implements ShouldQueue
      */
     public int $tries = 1;
 
-    /** 要大於 LLM 逾時上限（120 秒）加上行情抓取，否則 job 會先被砍掉。 */
-    public int $timeout = 600;
+    /**
+     * 要大於 LLM 逾時上限（120 秒）加上行情抓取，否則 job 會先被砍掉；
+     * 同時要小於 analysis.pending_timeout_minutes（預設 8 分）。
+     *
+     * 原本是 600 秒，比 pending timeout 還長，於是 reaper 會在 job 仍在執行時
+     * 把紀錄標成失敗，job 跑完再寫回完成，畫面上狀態來回跳。300 秒兩邊都滿足。
+     */
+    public int $timeout = 300;
 
     public function __construct(
         private readonly int $analysisId,
@@ -67,16 +73,22 @@ class RunStockAnalysis implements ShouldQueue
         $result = $analysisService->analyze($analysis->instrument->symbol, $this->model, $llm, $chipFlows, $marginFlows);
         $provider = (string) ($result['llm']['provider'] ?? 'unknown');
 
-        $analysis->forceFill([
-            'provider_type' => $provider,
-            'model' => (string) ($result['llm']['model'] ?? $this->model),
-            // provider 'error' 代表 service 已攔下 LLM 例外並降級；規則訊號仍在，
-            // 但使用者要看得出 AI 那段沒跑成功。
-            'status' => $provider === 'error' ? AnalysisStatus::Failed : AnalysisStatus::Completed,
-            'rule_signal' => $result['rule_signal'] ?? [],
-            'llm_output' => $result['llm'] ?? [],
-            'data_as_of' => CarbonImmutable::parse($result['data_as_of']),
-        ])->save();
+        // 只在仍是 pending 時寫入：reaper 可能已因逾時把它標成失敗，這裡再寫回
+        // 完成會讓狀態在畫面上來回跳。
+        StockAnalysis::query()
+            ->whereKey($analysis->getKey())
+            ->where('status', AnalysisStatus::Pending->value)
+            ->update([
+                'provider_type' => $provider,
+                'model' => (string) ($result['llm']['model'] ?? $this->model),
+                // provider 'error' 代表 service 已攔下 LLM 例外並降級；規則訊號仍在，
+                // 但使用者要看得出 AI 那段沒跑成功。
+                'status' => $provider === 'error' ? AnalysisStatus::Failed->value : AnalysisStatus::Completed->value,
+                'rule_signal' => json_encode($result['rule_signal'] ?? [], JSON_UNESCAPED_UNICODE),
+                'llm_output' => json_encode($result['llm'] ?? [], JSON_UNESCAPED_UNICODE),
+                'data_as_of' => CarbonImmutable::parse($result['data_as_of']),
+                'updated_at' => now(),
+            ]);
     }
 
     /**
@@ -85,9 +97,12 @@ class RunStockAnalysis implements ShouldQueue
      */
     public function failed(?Throwable $exception): void
     {
-        StockAnalysis::query()->whereKey($this->analysisId)->update([
-            'status' => AnalysisStatus::Failed->value,
-            'provider_type' => 'error',
-        ]);
+        StockAnalysis::query()
+            ->whereKey($this->analysisId)
+            ->where('status', AnalysisStatus::Pending->value)
+            ->update([
+                'status' => AnalysisStatus::Failed->value,
+                'provider_type' => 'error',
+            ]);
     }
 }

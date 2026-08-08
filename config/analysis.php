@@ -24,6 +24,33 @@ return [
     ],
 
     /*
+     * 另一種取件方式：排程（routes/console.php）每分鐘啟動一個 queue:work，用 cron
+     * 拼出近乎常駐的 worker。與 inline_worker 是同一件事的兩種模式，放在一起才看
+     * 得出取捨——inline 佔的是 web entry process，cron worker 佔的是背景程序額度。
+     *
+     * 參數做成設定而非寫死：共享主機能容忍多長的 process 事前無從得知，量測完
+     * （php artisan host:probe:report）改 .env 就好，不必動程式碼重新部署。
+     */
+    'cron_worker' => [
+        /*
+         * 單次 worker 的存活秒數。55 秒讓下一分鐘的 cron 無縫接手，空窗只有幾秒。
+         *
+         * 主機若會砍長壽 process，就得降到實測存活時間之下；報告會直接算出建議值。
+         */
+        'max_seconds' => (int) env('QUEUE_WORKER_MAX_SECONDS', 55),
+
+        /*
+         * 佇列空了就立刻退出。
+         *
+         * 預設 false：那會讓 00:01 送出的問題等到 01:00 的 cron 才開始跑。
+         * 但主機禁止常駐背景程序時必須開啟——開啟後主機看到的只是一個跑幾百毫秒
+         * 就結束的短命程序，不像 daemon。此時要同時保留 ANALYSIS_INLINE_WORKER=true，
+         * 否則使用者體感會明顯變慢。
+         */
+        'stop_when_empty' => (bool) env('QUEUE_WORKER_STOP_WHEN_EMPTY', false),
+    ],
+
+    /*
      * LLM 呼叫逾時的下限（秒），會蓋過使用者在設定頁填的較小值。
      *
      * 存在的理由是本地 thinking model：它們把大部分時間花在推理，逾時設太短會

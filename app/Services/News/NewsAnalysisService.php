@@ -6,6 +6,7 @@ use App\Contracts\LlmProvider;
 use App\Enums\LlmFailureReason;
 use App\Exceptions\LlmRequestException;
 use App\Models\NewsItem;
+use App\Services\Llm\LlmJsonParser;
 use Carbon\CarbonImmutable;
 use Throwable;
 
@@ -16,7 +17,10 @@ class NewsAnalysisService
     /** 每日摘要 prompt 最多納入的「事件」數（聚類後）。 */
     private const DAILY_SUMMARY_EVENTS = 30;
 
-    public function __construct(private readonly NewsEventClusterer $clusterer = new NewsEventClusterer) {}
+    public function __construct(
+        private readonly NewsEventClusterer $clusterer = new NewsEventClusterer,
+        private readonly LlmJsonParser $json = new LlmJsonParser,
+    ) {}
 
     /**
      * 把例外翻成使用者看得懂的失敗原因。
@@ -61,13 +65,13 @@ class NewsAnalysisService
             ];
         }
 
-        $parsed = $this->extractJson($response->content);
+        $parsed = $this->json->extract($response->content);
 
         if ($parsed === null) {
             $sentiment = 'neutral';
             $impact = null;
             $symbols = [];
-            $summary = $this->cleanText($response->content);
+            $summary = $this->json->clean($response->content);
             $reasoning = '';
         } else {
             $sentiment = $this->normalizeSentiment($parsed['sentiment'] ?? null);
@@ -125,10 +129,10 @@ class NewsAnalysisService
             ];
         }
 
-        $parsed = $this->extractJson($response->content);
+        $parsed = $this->json->extract($response->content);
 
         if ($parsed === null) {
-            $summary = $this->cleanText($response->content);
+            $summary = $this->json->clean($response->content);
             $points = [];
             $symbols = [];
         } else {
@@ -316,42 +320,6 @@ END_DAILY_NEWS
 PROMPT;
     }
 
-    /**
-     * Extract and decode the first balanced JSON object from the content.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function extractJson(string $content): ?array
-    {
-        $start = strpos($content, '{');
-
-        if ($start === false) {
-            return null;
-        }
-
-        $depth = 0;
-        $length = strlen($content);
-
-        for ($i = $start; $i < $length; $i++) {
-            $char = $content[$i];
-
-            if ($char === '{') {
-                $depth++;
-            } elseif ($char === '}') {
-                $depth--;
-
-                if ($depth === 0) {
-                    $candidate = substr($content, $start, $i - $start + 1);
-                    $decoded = json_decode($candidate, true);
-
-                    return is_array($decoded) ? $decoded : null;
-                }
-            }
-        }
-
-        return null;
-    }
-
     private function normalizeSentiment(mixed $value): string
     {
         $value = is_string($value) ? strtolower(trim($value)) : '';
@@ -450,19 +418,6 @@ PROMPT;
         }
 
         return array_values($list);
-    }
-
-    /**
-     * Strip a wrapping Markdown code fence (```json … ```), used when the model
-     * returned an unparseable/truncated JSON blob so the raw text reads cleaner.
-     */
-    private function cleanText(string $content): string
-    {
-        $text = trim($content);
-        $text = (string) preg_replace('/^```[a-zA-Z]*\s*/', '', $text);
-        $text = (string) preg_replace('/\s*```$/', '', $text);
-
-        return trim($text);
     }
 
     private function stringField(mixed $value): string
