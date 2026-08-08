@@ -4,6 +4,7 @@ namespace App\Services\Fundamentals;
 
 use App\Contracts\FundamentalsProvider;
 use App\Data\FundamentalsData;
+use App\Support\FinMindGate;
 use App\Support\MarketResolver;
 use Illuminate\Support\Facades\Http;
 
@@ -45,6 +46,12 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
      */
     private function rows(string $dataset, string $dataId, string $startDate): array
     {
+        // 免費層額度冷卻中：跳過。本方法一次分析被呼叫多次（PER/財報/資產/營收），
+        // 冷卻一旦開啟，後續幾個 dataset 都會直接略過，不再逐一撞額度。
+        if (FinMindGate::isTripped()) {
+            return [];
+        }
+
         $response = Http::timeout($this->timeoutSeconds)->get(self::ENDPOINT, array_filter([
             'dataset' => $dataset,
             'data_id' => $dataId,
@@ -52,7 +59,7 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
             'token' => $this->token ?: null,
         ]));
 
-        if ($response->failed()) {
+        if (FinMindGate::limited($response) || $response->failed()) {
             return [];
         }
 

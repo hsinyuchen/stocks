@@ -5,6 +5,7 @@ namespace App\Services\Market;
 use App\Contracts\MarketDataProvider;
 use App\Data\DailyPriceData;
 use App\Data\MarketQuoteData;
+use App\Support\FinMindGate;
 use App\Support\MarketResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
@@ -45,6 +46,12 @@ class FinMindMarketDataProvider implements MarketDataProvider
             return [];
         }
 
+        // 免費層額度冷卻中：與 FinMind 失敗同樣拋出，由上層（CachedMarketDataProvider
+        // 讀既有 DB 快取、或呼叫端的 try/catch）走既有降級路徑。
+        if (FinMindGate::isTripped()) {
+            throw new RuntimeException("FinMind cooldown active for {$symbol}.");
+        }
+
         $query = [
             'dataset' => 'TaiwanStockPrice',
             'data_id' => MarketResolver::taiwanCode($symbol),
@@ -59,7 +66,7 @@ class FinMindMarketDataProvider implements MarketDataProvider
             ->acceptJson()
             ->get('https://api.finmindtrade.com/api/v4/data', $query);
 
-        if ($response->failed()) {
+        if (FinMindGate::limited($response) || $response->failed()) {
             throw new RuntimeException("FinMind request for {$symbol} failed with status {$response->status()}.");
         }
 

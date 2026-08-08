@@ -101,7 +101,7 @@ class FundamentalsServiceTest extends TestCase
         $instrument = $this->tw();
         Fundamental::query()->create([
             'instrument_id' => $instrument->id, 'per' => 10.0,
-            'fetched_at' => now()->subHours(25),   // > ttl_hours(24)
+            'fetched_at' => now()->subHours(25),   // 昨天抓的，在今日公佈時刻前 → 過期
         ]);
         $stub = $this->bindProvider(new FundamentalsData(per: 33.14));
 
@@ -150,7 +150,7 @@ class FundamentalsServiceTest extends TestCase
         $instrument = $this->tw();
         Fundamental::query()->create([
             'instrument_id' => $instrument->id, 'per' => 33.14, 'eps' => 46.0,
-            'fetched_at' => now()->subHours(25),   // > ttl_hours(24) → 觸發重抓
+            'fetched_at' => now()->subHours(25),   // 昨天抓的，在今日公佈時刻前 → 觸發重抓
         ]);
         // 回全 null DTO（rate-limit 路徑：provider->rows() 回 []，fetch() 不拋例外）
         $stub = $this->bindProvider(new FundamentalsData);

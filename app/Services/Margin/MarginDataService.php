@@ -15,8 +15,8 @@ use Illuminate\Support\Facades\Log;
  * 融資融券餘額（快取優先）。
  *
  * 快取策略與 ChipDataService 相同，理由也相同：資料每日盤後公佈、盤中不變，
- * TTL 以小時計即可涵蓋一個交易日；失敗改用較短的 TTL 節流，避免對達到流量
- * 上限的 FinMind 每次開頁重打。
+ * 新鮮度以「今天的公佈了沒」判斷（DailyDataFreshness），而非固定小時 TTL；
+ * 失敗改用較短的 failure TTL 節流，避免對達到流量上限的 FinMind 每次開頁重打。
  *
  * 注意：融資與籌碼共用同一組 FinMind 額度，同時啟用會讓每檔股票的呼叫翻倍。
  */

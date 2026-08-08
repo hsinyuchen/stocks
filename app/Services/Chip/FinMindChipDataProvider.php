@@ -4,6 +4,7 @@ namespace App\Services\Chip;
 
 use App\Contracts\ChipDataProvider;
 use App\Data\ChipFlowData;
+use App\Support\FinMindGate;
 use App\Support\MarketResolver;
 use Illuminate\Support\Facades\Http;
 
@@ -40,6 +41,11 @@ class FinMindChipDataProvider implements ChipDataProvider
             return [];
         }
 
+        // 免費層額度冷卻中：直接跳過，交由呼叫端走 best-effort 降級。
+        if (FinMindGate::isTripped()) {
+            return [];
+        }
+
         $response = Http::timeout($this->timeoutSeconds)->get(self::ENDPOINT, array_filter([
             'dataset' => self::DATASET,
             'data_id' => MarketResolver::taiwanCode($symbol),   // 2330.TW → 2330
@@ -47,7 +53,8 @@ class FinMindChipDataProvider implements ChipDataProvider
             'token' => $this->token ?: null,
         ]));
 
-        if ($response->failed()) {
+        // 撞到額度/等級上限即開啟全站冷卻；一般失敗維持原本的 best-effort 回空。
+        if (FinMindGate::limited($response) || $response->failed()) {
             return [];
         }
 

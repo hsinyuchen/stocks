@@ -122,11 +122,9 @@ class ChipDataServiceTest extends TestCase
         $this->assertSame(1, $provider->calls, '失敗後應節流，不得每次開頁重打。');
     }
 
-    /** TTL 過期後應重新抓取並就地更新，不產生重複列。 */
+    /** 資料過期後應重新抓取並就地更新，不產生重複列。 */
     public function test_stale_cache_refetches_and_updates_in_place(): void
     {
-        config(['chip.ttl_hours' => 12]);
-
         $instrument = $this->taiwanInstrument();
         $provider = new CountingChipProvider;
 

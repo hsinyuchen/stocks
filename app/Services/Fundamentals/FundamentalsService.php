@@ -136,8 +136,9 @@ class FundamentalsService
 
     /**
      * 新鮮度：
-     * - 有指標列：failed_at 在 failure_ttl 內視為 fresh（節流失敗重試）；否則依 ttl_hours 判斷 fetched_at。
-     * - 全 null 列（無既有非空資料）：failure_ttl off fetched_at。
+     * - 有指標列：failed_at 在 failure_ttl 內視為 fresh（節流失敗重試）；否則問「今天的盤後
+     *   資料公佈了沒」（DailyDataFreshness），而非固定小時 TTL。
+     * - 全 null 列（無既有非空資料）：以 failure_ttl 節流 fetched_at。
      */
     private function isStale(Fundamental $row): bool
     {

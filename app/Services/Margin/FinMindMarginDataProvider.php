@@ -4,6 +4,7 @@ namespace App\Services\Margin;
 
 use App\Contracts\MarginDataProvider;
 use App\Data\MarginFlowData;
+use App\Support\FinMindGate;
 use App\Support\MarketResolver;
 use Illuminate\Support\Facades\Http;
 
@@ -28,6 +29,11 @@ class FinMindMarginDataProvider implements MarginDataProvider
             return [];
         }
 
+        // 免費層額度冷卻中：跳過，走 best-effort 降級。
+        if (FinMindGate::isTripped()) {
+            return [];
+        }
+
         $response = Http::timeout($this->timeoutSeconds)->get(self::ENDPOINT, array_filter([
             'dataset' => self::DATASET,
             'data_id' => MarketResolver::taiwanCode($symbol),   // 2330.TW → 2330
@@ -35,7 +41,7 @@ class FinMindMarginDataProvider implements MarginDataProvider
             'token' => $this->token ?: null,
         ]));
 
-        if ($response->failed()) {
+        if (FinMindGate::limited($response) || $response->failed()) {
             return [];
         }
 

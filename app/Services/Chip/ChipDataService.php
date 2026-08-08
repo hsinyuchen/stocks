@@ -62,7 +62,7 @@ class ChipDataService
     /**
      * 新鮮度：
      * - 失敗節流標記存在 → 視為 fresh，不重打上游。
-     * - 否則看最新一列的 updated_at 是否在 ttl_hours 內。
+     * - 否則問「今天的盤後資料公佈了沒」（DailyDataFreshness），而非固定小時 TTL。
      *
      * 失敗標記放 Cache 而非資料表：籌碼是時間序列，沒有「全 null 列」可以
      * 當負快取用（fundamentals 另以刪除舊空列的方式維持單一負快取列）。
