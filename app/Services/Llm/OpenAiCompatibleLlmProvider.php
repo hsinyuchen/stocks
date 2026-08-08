@@ -48,9 +48,18 @@ class OpenAiCompatibleLlmProvider implements LlmProvider
         }
     }
 
-    public function complete(string $model, string $prompt): LlmResponseData
+    public function complete(string $model, string $prompt, ?string $system = null): LlmResponseData
     {
         $endpoint = rtrim($this->baseUrl, '/').'/chat/completions';
+
+        // 沒有系統指令時不送空的 system message：部分 OpenAI 相容端點（尤其是
+        // 本地 llama.cpp / lmstudio）會把空字串當成有效指令而截斷後續內容。
+        $messages = $system === null || $system === ''
+            ? [['role' => 'user', 'content' => $prompt]]
+            : [
+                ['role' => 'system', 'content' => $system],
+                ['role' => 'user', 'content' => $prompt],
+            ];
 
         // 關閉 redirect：baseUrl 由使用者自填，允許跟隨跳轉等於把端點的控制權
         // 交給對方主機，任何位址檢查都能被一次 302 繞過。正規的 LLM API 不跳轉。
@@ -72,9 +81,7 @@ class OpenAiCompatibleLlmProvider implements LlmProvider
         try {
             $response = $request->post($endpoint, [
                 'model' => $model,
-                'messages' => [
-                    ['role' => 'user', 'content' => $prompt],
-                ],
+                'messages' => $messages,
                 'temperature' => $this->temperature,
                 'max_tokens' => $this->maxTokens,
             ]);

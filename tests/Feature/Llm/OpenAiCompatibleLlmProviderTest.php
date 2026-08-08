@@ -37,6 +37,47 @@ class OpenAiCompatibleLlmProviderTest extends TestCase
         });
     }
 
+    /** 系統指令要成為獨立的 system message，排在 user message 之前。 */
+    public function test_system_prompt_is_sent_as_a_leading_system_message(): void
+    {
+        Http::fake([
+            'http://localhost:11434/v1/chat/completions' => Http::response([
+                'model' => 'llama3.1',
+                'choices' => [['message' => ['content' => 'ok']]],
+            ], 200),
+        ]);
+
+        $provider = new OpenAiCompatibleLlmProvider('ollama', 'http://localhost:11434/v1', null, 30, 0.2, 800);
+        $provider->complete('llama3.1', 'PROMPT_BODY', 'SYSTEM_BODY');
+
+        Http::assertSent(function ($request) {
+            return count($request['messages']) === 2
+                && $request['messages'][0]['role'] === 'system'
+                && $request['messages'][0]['content'] === 'SYSTEM_BODY'
+                && $request['messages'][1]['role'] === 'user'
+                && $request['messages'][1]['content'] === 'PROMPT_BODY';
+        });
+    }
+
+    /** 沒有系統指令時不得送出空的 system message：部分本地端點會據此截斷輸出。 */
+    public function test_no_system_message_is_sent_when_none_is_given(): void
+    {
+        Http::fake([
+            'http://localhost:11434/v1/chat/completions' => Http::response([
+                'model' => 'llama3.1',
+                'choices' => [['message' => ['content' => 'ok']]],
+            ], 200),
+        ]);
+
+        (new OpenAiCompatibleLlmProvider('ollama', 'http://localhost:11434/v1', null))
+            ->complete('llama3.1', 'PROMPT_BODY');
+
+        Http::assertSent(function ($request) {
+            return count($request['messages']) === 1
+                && $request['messages'][0]['role'] === 'user';
+        });
+    }
+
     public function test_sends_bearer_token_when_api_key_present(): void
     {
         Http::fake([

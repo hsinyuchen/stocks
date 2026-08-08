@@ -29,7 +29,7 @@ class GeminiLlmProvider implements LlmProvider
         private readonly int $maxTokens = 1200,
     ) {}
 
-    public function complete(string $model, string $prompt): LlmResponseData
+    public function complete(string $model, string $prompt, ?string $system = null): LlmResponseData
     {
         $endpoint = rtrim($this->baseUrl, '/')."/models/{$model}:generateContent?key=".urlencode((string) $this->apiKey);
 
@@ -44,17 +44,24 @@ class GeminiLlmProvider implements LlmProvider
             ->acceptJson()
             ->asJson();
 
+        $payload = [
+            'contents' => [
+                ['parts' => [['text' => $prompt]]],
+            ],
+            'generationConfig' => [
+                'temperature' => $this->temperature,
+                'maxOutputTokens' => $this->maxTokens,
+            ],
+        ];
+
+        // Gemini 的系統指令是頂層 systemInstruction，格式與 contents 相同但沒有 role。
+        if ($system !== null && $system !== '') {
+            $payload['systemInstruction'] = ['parts' => [['text' => $system]]];
+        }
+
         // 連線層失敗與 HTTP 錯誤碼分開歸因，兩者的處理方式不同。
         try {
-            $response = $request->post($endpoint, [
-                'contents' => [
-                    ['parts' => [['text' => $prompt]]],
-                ],
-                'generationConfig' => [
-                    'temperature' => $this->temperature,
-                    'maxOutputTokens' => $this->maxTokens,
-                ],
-            ]);
+            $response = $request->post($endpoint, $payload);
         } catch (ConnectionException $exception) {
             throw LlmRequestException::fromConnection('gemini', $exception);
         }

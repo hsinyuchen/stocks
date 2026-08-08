@@ -42,6 +42,38 @@ class GeminiLlmProviderTest extends TestCase
         });
     }
 
+    /** 系統指令要走頂層 systemInstruction，不得併進 contents 的使用者文字。 */
+    public function test_system_prompt_is_sent_in_the_native_field(): void
+    {
+        Http::fake([
+            '*generativelanguage.googleapis.com*' => Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => 'ok']]]]],
+            ], 200),
+        ]);
+
+        $provider = new GeminiLlmProvider('https://generativelanguage.googleapis.com/v1beta', 'k');
+        $provider->complete('gemini-2.5-flash', 'PROMPT_BODY', 'SYSTEM_BODY');
+
+        Http::assertSent(function ($request) {
+            return $request['systemInstruction']['parts'][0]['text'] === 'SYSTEM_BODY'
+                && $request['contents'][0]['parts'][0]['text'] === 'PROMPT_BODY';
+        });
+    }
+
+    public function test_system_instruction_is_absent_when_no_system_prompt_is_given(): void
+    {
+        Http::fake([
+            '*generativelanguage.googleapis.com*' => Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => 'ok']]]]],
+            ], 200),
+        ]);
+
+        (new GeminiLlmProvider('https://generativelanguage.googleapis.com/v1beta', 'k'))
+            ->complete('gemini-2.5-flash', 'PROMPT_BODY');
+
+        Http::assertSent(fn ($request) => ! array_key_exists('systemInstruction', $request->data()));
+    }
+
     public function test_throws_on_http_error(): void
     {
         Http::fake([

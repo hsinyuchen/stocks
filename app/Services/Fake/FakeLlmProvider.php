@@ -7,7 +7,7 @@ use App\Data\LlmResponseData;
 
 class FakeLlmProvider implements LlmProvider
 {
-    public function complete(string $model, string $prompt): LlmResponseData
+    public function complete(string $model, string $prompt, ?string $system = null): LlmResponseData
     {
         return new LlmResponseData(
             provider: 'fake',

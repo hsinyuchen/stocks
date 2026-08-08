@@ -31,7 +31,7 @@ class AnthropicLlmProvider implements LlmProvider
         private readonly int $maxTokens = 1200,
     ) {}
 
-    public function complete(string $model, string $prompt): LlmResponseData
+    public function complete(string $model, string $prompt, ?string $system = null): LlmResponseData
     {
         $endpoint = rtrim($this->baseUrl, '/').'/v1/messages';
 
@@ -50,16 +50,23 @@ class AnthropicLlmProvider implements LlmProvider
                 'anthropic-version' => self::ANTHROPIC_VERSION,
             ]);
 
+        $payload = [
+            'model' => $model,
+            'max_tokens' => $this->maxTokens,
+            'temperature' => $this->temperature,
+            'messages' => [
+                ['role' => 'user', 'content' => $prompt],
+            ],
+        ];
+
+        // Messages API 的 system 是頂層參數，不是 messages 裡的一個 role。
+        if ($system !== null && $system !== '') {
+            $payload['system'] = $system;
+        }
+
         // 連線層失敗與 HTTP 錯誤碼分開歸因，兩者的處理方式不同。
         try {
-            $response = $request->post($endpoint, [
-                'model' => $model,
-                'max_tokens' => $this->maxTokens,
-                'temperature' => $this->temperature,
-                'messages' => [
-                    ['role' => 'user', 'content' => $prompt],
-                ],
-            ]);
+            $response = $request->post($endpoint, $payload);
         } catch (ConnectionException $exception) {
             throw LlmRequestException::fromConnection('anthropic', $exception);
         }
