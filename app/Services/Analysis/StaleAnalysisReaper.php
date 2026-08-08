@@ -6,6 +6,9 @@ use App\Enums\AnalysisStatus;
 use App\Enums\LlmFailureReason;
 use App\Models\NewsAnalysis;
 use App\Models\StockAnalysis;
+use App\Models\StockChatTurn;
+use App\Models\WatchlistAnalysis;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +27,7 @@ class StaleAnalysisReaper
     private const THROTTLE_KEY = 'analysis:reaper:last-run';
 
     /**
-     * @return array{stock: int, news: int, jobs: int}
+     * @return array{stock: int, news: int, chat: int, watchlist: int, jobs: int}
      */
     public function reap(): array
     {
@@ -34,6 +37,8 @@ class StaleAnalysisReaper
         return [
             'stock' => $this->reapStock($cutoff),
             'news' => $this->reapNews($cutoff),
+            'chat' => $this->reapChat($cutoff),
+            'watchlist' => $this->reapWatchlist($cutoff),
             'jobs' => $this->discardStaleJobs($cutoff),
         ];
     }
@@ -41,7 +46,7 @@ class StaleAnalysisReaper
     /**
      * 節流版本：超時是分鐘級事件，不需要每個 request 都掃一次。
      *
-     * @return array{stock: int, news: int, jobs: int}|null null 代表這次跳過
+     * @return array{stock: int, news: int, chat: int, watchlist: int, jobs: int}|null null 代表這次跳過
      */
     public function reapThrottled(): ?array
     {
@@ -62,22 +67,23 @@ class StaleAnalysisReaper
             ->where('created_at', '<', $cutoff)
             ->get();
 
+        $reaped = 0;
+
         foreach ($rows as $row) {
             $failure = LlmFailureReason::Timeout->toArray();
 
-            $row->forceFill([
-                'status' => AnalysisStatus::Failed,
+            $reaped += $this->markFailed(StockAnalysis::query()->whereKey($row->getKey()), [
                 'provider_type' => 'error',
-                'llm_output' => [
+                'llm_output' => $this->encode([
                     'provider' => 'error',
                     'model' => $row->model,
                     'content' => '分析排隊超過時限仍未執行，已自動結束。'.$failure['hint'],
                     'metadata' => ['error' => true, 'failure' => $failure, 'reaped' => true],
-                ],
-            ])->save();
+                ]),
+            ]);
         }
 
-        return $rows->count();
+        return $reaped;
     }
 
     private function reapNews(Carbon $cutoff): int
@@ -87,18 +93,93 @@ class StaleAnalysisReaper
             ->where('created_at', '<', $cutoff)
             ->get();
 
+        $reaped = 0;
+
         foreach ($rows as $row) {
             $failure = LlmFailureReason::Timeout->toArray();
 
-            $row->forceFill([
-                'status' => AnalysisStatus::Failed,
+            $reaped += $this->markFailed(NewsAnalysis::query()->whereKey($row->getKey()), [
                 'provider_type' => 'error',
                 'summary' => '分析排隊超過時限仍未執行，已自動結束。',
-                'raw_output' => ['error' => true, 'failure' => $failure, 'reaped' => true],
-            ])->save();
+                'raw_output' => $this->encode(['error' => true, 'failure' => $failure, 'reaped' => true]),
+            ]);
         }
 
-        return $rows->count();
+        return $reaped;
+    }
+
+    private function reapWatchlist(Carbon $cutoff): int
+    {
+        $rows = WatchlistAnalysis::query()
+            ->where('status', AnalysisStatus::Pending->value)
+            ->where('created_at', '<', $cutoff)
+            ->get();
+
+        $reaped = 0;
+
+        foreach ($rows as $row) {
+            $failure = LlmFailureReason::Timeout->toArray();
+
+            $reaped += $this->markFailed(WatchlistAnalysis::query()->whereKey($row->getKey()), [
+                'provider_type' => 'error',
+                'summary' => '晚間快報排隊超過時限仍未執行，已自動結束。'.$failure['hint'],
+                'raw_output' => $this->encode(['error' => true, 'failure' => $failure, 'reaped' => true]),
+            ]);
+        }
+
+        return $reaped;
+    }
+
+    private function reapChat(Carbon $cutoff): int
+    {
+        $rows = StockChatTurn::query()
+            ->where('status', AnalysisStatus::Pending->value)
+            ->where('created_at', '<', $cutoff)
+            ->get();
+
+        $reaped = 0;
+
+        foreach ($rows as $row) {
+            $failure = LlmFailureReason::Timeout->toArray();
+
+            $reaped += $this->markFailed(StockChatTurn::query()->whereKey($row->getKey()), [
+                'provider_type' => 'error',
+                'answer' => '提問排隊超過時限仍未回答，已自動結束。'.$failure['hint'],
+                'metadata' => $this->encode(['error' => true, 'failure' => $failure, 'reaped' => true]),
+            ]);
+        }
+
+        return $reaped;
+    }
+
+    /**
+     * 只在紀錄仍是 pending 時標記失敗。
+     *
+     * 讀取與寫入之間可能有 worker 正好把同一筆寫成完成——沒有這個條件的話，
+     * 上面 get() 拿到的舊快照會把一次已經付費完成的回答覆寫成失敗。回傳實際
+     * 影響的列數，讓計數反映真正被回收的筆數而不是候選筆數。
+     *
+     * @param  array<string, mixed>  $values
+     */
+    private function markFailed(Builder $query, array $values): int
+    {
+        return $query
+            ->where('status', AnalysisStatus::Pending->value)
+            ->update([
+                ...$values,
+                'status' => AnalysisStatus::Failed->value,
+                'updated_at' => Carbon::now(),
+            ]);
+    }
+
+    /**
+     * json 欄位要自行序列化：這裡走 query builder 的 update，不經過 model 的 cast。
+     *
+     * @param  array<string, mixed>  $value
+     */
+    private function encode(array $value): string
+    {
+        return (string) json_encode($value, JSON_UNESCAPED_UNICODE);
     }
 
     /**
