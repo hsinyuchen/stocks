@@ -90,15 +90,18 @@ class DashboardController extends Controller
             'disclaimer' => self::DISCLAIMER,
             'hasLlmProvider' => $user->llmProviderSettings()->exists(),
             // Deferred：同一 group 一次 partial 請求載齊。
-            'marketSnapshot' => Inertia::defer(fn (): array => $resolve()['marketSnapshot'], 'dashboard'),
-            'marketBreadth' => Inertia::defer(fn () => $resolve()['marketBreadth'], 'dashboard'),
-            'watchlistMovers' => Inertia::defer(fn (): array => $resolve()['watchlistMovers'], 'dashboard'),
-            'watchlistCoverage' => Inertia::defer(fn () => $resolve()['watchlistCoverage'], 'dashboard'),
-            'latestNews' => Inertia::defer(fn (): array => $resolve()['latestNews'], 'dashboard'),
-            'transmissionFocus' => Inertia::defer(fn (): array => $resolve()['transmissionFocus'], 'dashboard'),
-            'recentAnalyses' => Inertia::defer(fn (): array => $resolve()['recentAnalyses'], 'dashboard'),
-            'generatedAt' => Inertia::defer(fn () => $resolve()['generatedAt'], 'dashboard'),
-            'triggeredAlerts' => Inertia::defer(fn (): array => $resolve()['triggeredAlerts'], 'dashboard'),
+            // 用 ?? 容錯：payload 存在 session 快取（CACHE_STORE=database），部署改了
+            // payload 形狀時，殘留的舊快取會缺新 key。缺 key 就退回預設值（陣列 []、
+            // 單一區塊 null），讓該區塊暫時空白而非整頁 500，等快取過期或 refresh 自癒。
+            'marketSnapshot' => Inertia::defer(fn (): array => $resolve()['marketSnapshot'] ?? [], 'dashboard'),
+            'marketBreadth' => Inertia::defer(fn () => $resolve()['marketBreadth'] ?? null, 'dashboard'),
+            'watchlistMovers' => Inertia::defer(fn (): array => $resolve()['watchlistMovers'] ?? [], 'dashboard'),
+            'watchlistCoverage' => Inertia::defer(fn () => $resolve()['watchlistCoverage'] ?? null, 'dashboard'),
+            'latestNews' => Inertia::defer(fn (): array => $resolve()['latestNews'] ?? [], 'dashboard'),
+            'transmissionFocus' => Inertia::defer(fn (): array => $resolve()['transmissionFocus'] ?? [], 'dashboard'),
+            'recentAnalyses' => Inertia::defer(fn (): array => $resolve()['recentAnalyses'] ?? [], 'dashboard'),
+            'generatedAt' => Inertia::defer(fn () => $resolve()['generatedAt'] ?? null, 'dashboard'),
+            'triggeredAlerts' => Inertia::defer(fn (): array => $resolve()['triggeredAlerts'] ?? [], 'dashboard'),
         ]);
     }
 
