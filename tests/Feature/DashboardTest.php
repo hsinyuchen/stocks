@@ -66,40 +66,34 @@ class DashboardTest extends TestCase
             'data_as_of' => CarbonImmutable::parse('2026-06-24T08:00:00+08:00'),
         ]);
 
-        $this->actingAs($user)
-            ->get('/dashboard')
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('Dashboard')
-                ->where('auth.user.id', $user->id)
-                ->has('marketSnapshot')
-                ->has('watchlistMovers')
-                ->has('latestNews')
-                ->has('recentAnalyses')
-                ->where('disclaimer', '本頁資訊與 AI 分析僅供研究參考，不構成投資建議。')
-                // Market snapshot is deterministic via the fake provider (3 configured indices).
-                ->has('marketSnapshot', 3)
-                ->where('marketSnapshot.0.symbol', '^TWII')
-                ->where('marketSnapshot.0.price', 128.5)
-                // Each snapshot index carries a sparkline of recent closes.
-                ->has('marketSnapshot.0.spark')
-                // Watchlist mover for the single instrument with a rule-based stance.
-                ->has('watchlistMovers', 1)
-                ->where('watchlistMovers.0.symbol', '2330.TW')
-                ->where('watchlistMovers.0.name', '台積電')
-                ->has('watchlistMovers.0.stance')
-                ->has('watchlistMovers.0.spark')
-                // Latest news prefers the watchlist-related item.
-                ->has('latestNews', 1)
-                ->where('latestNews.0.title', '台積電法說會釋出展望')
-                ->where('latestNews.0.source', '財經日報')
-                // Recent analyses include the user's stock analysis.
-                ->has('recentAnalyses', 1)
-                ->where('recentAnalyses.0.type', 'stock')
-                ->where('recentAnalyses.0.label', '2330.TW')
-                ->where('recentAnalyses.0.stance', 'bullish')
-                // 未設定 AI 模型時，前端據此顯示設定引導提示。
-                ->where('hasLlmProvider', false));
+        $response = $this->actingAs($user)->getDashboard()->assertOk();
+
+        $response->assertJsonPath('component', 'Dashboard');
+        $response->assertJsonPath('props.auth.user.id', $user->id);
+        $response->assertJsonPath('props.disclaimer', '本頁資訊與 AI 分析僅供研究參考，不構成投資建議。');
+        // Market snapshot is deterministic via the fake provider (3 configured indices).
+        $response->assertJsonCount(3, 'props.marketSnapshot');
+        $response->assertJsonPath('props.marketSnapshot.0.symbol', '^TWII');
+        $response->assertJsonPath('props.marketSnapshot.0.price', 128.5);
+        // Each snapshot index carries a sparkline of recent closes.
+        $this->assertNotNull($response->json('props.marketSnapshot.0.spark'));
+        // Watchlist mover for the single instrument with a rule-based stance.
+        $response->assertJsonCount(1, 'props.watchlistMovers');
+        $response->assertJsonPath('props.watchlistMovers.0.symbol', '2330.TW');
+        $response->assertJsonPath('props.watchlistMovers.0.name', '台積電');
+        $this->assertNotNull($response->json('props.watchlistMovers.0.stance'));
+        $this->assertNotNull($response->json('props.watchlistMovers.0.spark'));
+        // Latest news prefers the watchlist-related item.
+        $response->assertJsonCount(1, 'props.latestNews');
+        $response->assertJsonPath('props.latestNews.0.title', '台積電法說會釋出展望');
+        $response->assertJsonPath('props.latestNews.0.source', '財經日報');
+        // Recent analyses include the user's stock analysis.
+        $response->assertJsonCount(1, 'props.recentAnalyses');
+        $response->assertJsonPath('props.recentAnalyses.0.type', 'stock');
+        $response->assertJsonPath('props.recentAnalyses.0.label', '2330.TW');
+        $response->assertJsonPath('props.recentAnalyses.0.stance', 'bullish');
+        // 未設定 AI 模型時，前端據此顯示設定引導提示。
+        $response->assertJsonPath('props.hasLlmProvider', false);
     }
 
     public function test_dashboard_reports_llm_provider_presence(): void
@@ -130,16 +124,14 @@ class DashboardTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)
-            ->get('/dashboard')
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('Dashboard')
-                ->has('marketSnapshot', 3)
-                ->has('watchlistMovers', 0)
-                ->has('latestNews', 0)
-                ->has('recentAnalyses', 0)
-                ->where('disclaimer', '本頁資訊與 AI 分析僅供研究參考，不構成投資建議。'));
+        $response = $this->actingAs($user)->getDashboard()->assertOk();
+
+        $response->assertJsonPath('component', 'Dashboard');
+        $response->assertJsonCount(3, 'props.marketSnapshot');
+        $response->assertJsonCount(0, 'props.watchlistMovers');
+        $response->assertJsonCount(0, 'props.latestNews');
+        $response->assertJsonCount(0, 'props.recentAnalyses');
+        $response->assertJsonPath('props.disclaimer', '本頁資訊與 AI 分析僅供研究參考，不構成投資建議。');
     }
 
     public function test_dashboard_is_isolated_per_user(): void
@@ -162,13 +154,11 @@ class DashboardTest extends TestCase
             'data_as_of' => CarbonImmutable::now(),
         ]);
 
-        $this->actingAs($other)
-            ->get('/dashboard')
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('Dashboard')
-                ->has('watchlistMovers', 0)
-                ->has('recentAnalyses', 0));
+        $response = $this->actingAs($other)->getDashboard()->assertOk();
+
+        $response->assertJsonPath('component', 'Dashboard');
+        $response->assertJsonCount(0, 'props.watchlistMovers');
+        $response->assertJsonCount(0, 'props.recentAnalyses');
     }
 
     public function test_dashboard_is_cached_per_session_and_refresh_busts_it(): void
@@ -177,19 +167,18 @@ class DashboardTest extends TestCase
         $this->makeNewsItem('第一則新聞');
 
         // First load builds + caches (one news item) and exposes the build time.
-        $this->actingAs($user)->get('/dashboard')
-            ->assertInertia(fn (Assert $page) => $page->has('latestNews', 1)->has('generatedAt'));
+        $first = $this->actingAs($user)->getDashboard()->assertOk();
+        $first->assertJsonCount(1, 'props.latestNews');
+        $this->assertNotNull($first->json('props.generatedAt'));
 
         // A second item arrives after the cache was built.
         $this->makeNewsItem('第二則新聞');
 
         // Re-entering serves the cached payload — still only the first item.
-        $this->actingAs($user)->get('/dashboard')
-            ->assertInertia(fn (Assert $page) => $page->has('latestNews', 1));
+        $this->actingAs($user)->getDashboard()->assertOk()->assertJsonCount(1, 'props.latestNews');
 
         // The refresh button busts the cache and pulls the latest.
-        $this->actingAs($user)->get('/dashboard?refresh=1')
-            ->assertInertia(fn (Assert $page) => $page->has('latestNews', 2));
+        $this->actingAs($user)->getDashboard(true)->assertOk()->assertJsonCount(2, 'props.latestNews');
     }
 
     public function test_refresh_ingests_fresh_news_from_live_feeds(): void
@@ -224,10 +213,9 @@ class DashboardTest extends TestCase
 
         $this->assertSame(0, NewsItem::count());
 
-        $this->actingAs($user)->get('/dashboard?refresh=1')
-            ->assertInertia(fn (Assert $page) => $page
-                ->has('latestNews', 1)
-                ->where('latestNews.0.title', 'Nvidia hits record high on AI demand'));
+        $response = $this->actingAs($user)->getDashboard(true)->assertOk();
+        $response->assertJsonCount(1, 'props.latestNews');
+        $response->assertJsonPath('props.latestNews.0.title', 'Nvidia hits record high on AI demand');
 
         Http::assertSent(fn ($request) => str_contains($request->url(), 'feed-us.test'));
         $this->assertSame(1, NewsItem::count());
@@ -248,8 +236,7 @@ class DashboardTest extends TestCase
         // A recently-published item means the stored news is still fresh.
         $this->makeNewsItem('剛抓到的新聞');
 
-        $this->actingAs($user)->get('/dashboard')
-            ->assertInertia(fn (Assert $page) => $page->has('latestNews', 1));
+        $this->actingAs($user)->getDashboard()->assertOk()->assertJsonCount(1, 'props.latestNews');
 
         // No live feed was hit because the stored news was within the window.
         Http::assertNothingSent();
@@ -276,12 +263,9 @@ class DashboardTest extends TestCase
         $alert = new Alert(['instrument_id' => $instrument->id, 'type' => 'price_above', 'threshold' => 100]);
         $user->alerts()->save($alert);
 
-        $this->actingAs($user)
-            ->get('/dashboard')
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->has('triggeredAlerts', 1)
-                ->where('triggeredAlerts.0.symbol', 'NVDA'));
+        $response = $this->actingAs($user)->getDashboard()->assertOk();
+        $response->assertJsonCount(1, 'props.triggeredAlerts');
+        $response->assertJsonPath('props.triggeredAlerts.0.symbol', 'NVDA');
 
         $this->assertSame('triggered', $alert->refresh()->status);
     }

@@ -41,7 +41,8 @@ class DashboardWatchlistCoverageTest extends TestCase
      */
     private function props(User $user): array
     {
-        return $this->actingAs($user)->get('/dashboard')->assertOk()->viewData('page')['props'];
+        // watchlistMovers/watchlistCoverage 為 deferred props，需以 partial 請求解析。
+        return $this->actingAs($user)->getDashboard()->assertOk()->json('props');
     }
 
     public function test_coverage_reports_the_full_watchlist_size(): void

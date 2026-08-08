@@ -13,6 +13,7 @@ use App\Models\StockAnalysis;
 use App\Models\User;
 use App\Services\Alerts\AlertEvaluator;
 use App\Services\Chip\ChipDataService;
+use App\Services\Market\MarketBreadthService;
 use App\Services\News\NewsIngestionService;
 use App\Services\News\TransmissionMapper;
 use App\Services\SignalEngine;
@@ -35,6 +36,7 @@ class DashboardController extends Controller
         private readonly TechnicalIndicatorService $indicators,
         private readonly SignalEngine $signals,
         private readonly NewsIngestionService $newsIngestion,
+        private readonly MarketBreadthService $marketBreadth,
     ) {}
 
     public function __invoke(Request $request): Response
@@ -50,44 +52,75 @@ class DashboardController extends Controller
             Cache::forget($key);
         }
 
-        $payload = Cache::remember(
-            $key,
-            now()->addMinutes((int) config('session.lifetime', 120)),
-            function () use ($user, $forceRefresh): array {
-                // On a cache miss — the first entry of the session, or a forced
-                // refresh — pull fresh news from the live feeds before assembling
-                // the page. Without this, "refresh" would only re-read the same
-                // stored rows and the news would never actually change.
-                $this->refreshNewsIfNeeded($forceRefresh);
+        // 重資料（行情、新聞、大盤風向、警報評估）全部 defer：頁面外殼即時送出，前端
+        // 顯示 loading，這些區塊在後續 partial 請求中組裝。避免首次進頁 / ?refresh=1 時
+        // 瀏覽器卡在上一頁等 live provider。resolve() 本輪 memoize，一次 partial 只組一次。
+        $resolved = null;
+        $resolve = function () use (&$resolved, $user, $key, $forceRefresh): array {
+            if ($resolved !== null) {
+                return $resolved;
+            }
 
-                return $this->buildPayload($user);
-            },
-        );
+            $payload = Cache::remember(
+                $key,
+                now()->addMinutes((int) config('session.lifetime', 120)),
+                function () use ($user, $forceRefresh): array {
+                    // On a cache miss — the first entry of the session, or a forced
+                    // refresh — pull fresh news from the live feeds before assembling
+                    // the page. Without this, "refresh" would only re-read the same
+                    // stored rows and the news would never actually change.
+                    $this->refreshNewsIfNeeded($forceRefresh);
 
-        // 開頁被動檢查警報（best-effort），並把已觸發警報放快取外——
-        // 觸發要即時反映，不被 dashboard 的 session 快取凍住（同 hasLlmProvider）。
-        try {
-            app(AlertEvaluator::class)->evaluate($user);
-        } catch (\Throwable $exception) {
-            report($exception);
-        }
+                    return $this->buildPayload($user);
+                },
+            );
+
+            // 開頁被動檢查警報（best-effort）。放快取外：觸發要即時反映，不被 session 快取凍住。
+            try {
+                app(AlertEvaluator::class)->evaluate($user);
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
+
+            return $resolved = [...$payload, 'triggeredAlerts' => $this->triggeredAlerts($user)];
+        };
 
         return Inertia::render('Dashboard', [
-            ...$payload,
-            // 放在快取外：使用者新增 AI 模型後，提示要立即消失，不等快取過期。
+            // 即時（輕量）：靜態免責聲明與 AI 模型設定狀態。後者放快取外，新增模型後提示要立即消失。
+            'disclaimer' => self::DISCLAIMER,
             'hasLlmProvider' => $user->llmProviderSettings()->exists(),
-            'triggeredAlerts' => $user->alerts()->with('instrument')->where('status', 'triggered')->latest('triggered_at')->get()
-                ->map(fn (Alert $alert): array => [
-                    'id' => $alert->id,
-                    'symbol' => $alert->instrument->symbol,
-                    'name' => $alert->instrument->name,
-                    'type' => $alert->type,
-                    'threshold' => $alert->threshold === null ? null : (float) $alert->threshold,
-                    'signal_key' => $alert->signal_key,
-                    'triggered_price' => $alert->triggered_price === null ? null : (float) $alert->triggered_price,
-                    'triggered_at' => $alert->triggered_at?->toIso8601String(),
-                ])->all(),
+            // Deferred：同一 group 一次 partial 請求載齊。
+            'marketSnapshot' => Inertia::defer(fn (): array => $resolve()['marketSnapshot'], 'dashboard'),
+            'marketBreadth' => Inertia::defer(fn () => $resolve()['marketBreadth'], 'dashboard'),
+            'watchlistMovers' => Inertia::defer(fn (): array => $resolve()['watchlistMovers'], 'dashboard'),
+            'watchlistCoverage' => Inertia::defer(fn () => $resolve()['watchlistCoverage'], 'dashboard'),
+            'latestNews' => Inertia::defer(fn (): array => $resolve()['latestNews'], 'dashboard'),
+            'transmissionFocus' => Inertia::defer(fn (): array => $resolve()['transmissionFocus'], 'dashboard'),
+            'recentAnalyses' => Inertia::defer(fn (): array => $resolve()['recentAnalyses'], 'dashboard'),
+            'generatedAt' => Inertia::defer(fn () => $resolve()['generatedAt'], 'dashboard'),
+            'triggeredAlerts' => Inertia::defer(fn (): array => $resolve()['triggeredAlerts'], 'dashboard'),
         ]);
+    }
+
+    /**
+     * 使用者已觸發的警報。大盤層級警報（market_*）無個股標的，instrument 為 null。
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function triggeredAlerts(User $user): array
+    {
+        return $user->alerts()->with('instrument')->where('status', 'triggered')->latest('triggered_at')->get()
+            ->map(fn (Alert $alert): array => [
+                'id' => $alert->id,
+                'scope' => $alert->instrument_id === null ? 'market' : 'instrument',
+                'symbol' => $alert->instrument?->symbol,
+                'name' => $alert->instrument?->name,
+                'type' => $alert->type,
+                'threshold' => $alert->threshold === null ? null : (float) $alert->threshold,
+                'signal_key' => $alert->signal_key,
+                'triggered_price' => $alert->triggered_price === null ? null : (float) $alert->triggered_price,
+                'triggered_at' => $alert->triggered_at?->toIso8601String(),
+            ])->all();
     }
 
     /**
@@ -143,6 +176,8 @@ class DashboardController extends Controller
 
         return [
             'marketSnapshot' => $this->marketSnapshot(),
+            // 大盤風向：全市場三大法人現貨買賣超＋期貨/選擇權籌碼（best-effort，僅台股盤後）。
+            'marketBreadth' => $this->marketBreadth->snapshot(),
             'watchlistMovers' => $movers,
             // 顯示幾檔 vs 自選清單實際有幾檔。任何上限都會有人撞到，靜默截斷會被
             // 當成「儀表板和自選清單不同步」；抓不到行情而被略過的也算在差額裡。

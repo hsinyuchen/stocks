@@ -1,7 +1,13 @@
-import { Link, router } from '@inertiajs/react';
+import { Deferred, Link, router } from '@inertiajs/react';
 import { lazy, Suspense, useState } from 'react';
-import { Bell, Bot, LineChart, Newspaper, RefreshCw, Star, Waypoints } from 'lucide-react';
+import { Bell, Bot, Gauge, LineChart, Loader2, Newspaper, RefreshCw, Star, Waypoints } from 'lucide-react';
 import AppShell from '../Layouts/AppShell';
+
+// 大盤層級警報無個股標的，卡片標題用固定字樣。
+const MARKET_ALERT_TITLE = {
+    market_futures_flip: '大盤期貨翻空',
+    market_bearish_flip: '大盤真翻空',
+};
 
 // Sparkline 建立獨立的 Lightweight Charts 實例，按需載入讓首屏 bundle 保持精簡。
 const Sparkline = lazy(() => import('../Components/charts/Sparkline'));
@@ -101,6 +107,107 @@ function changeClass(value) {
     }
 
     return num > 0 ? 'is-up' : 'is-down';
+}
+
+// 金額（元）→ 億元字串，帶正負號。買超為正、賣超為負。
+function formatOku(value) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return '—';
+    }
+
+    const oku = Number(value) / 1e8;
+
+    return `${oku > 0 ? '+' : ''}${oku.toLocaleString('zh-TW', { maximumFractionDigits: 1 })} 億`;
+}
+
+// 口數，帶正負號（淨多為正、淨空為負）。
+function formatLots(value) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return '—';
+    }
+
+    const num = Number(value);
+
+    return `${num > 0 ? '+' : ''}${num.toLocaleString('zh-TW')} 口`;
+}
+
+/**
+ * 大盤風向：全市場三大法人現貨買賣超 ＋ 期貨/選擇權籌碼。
+ * 判斷「外資站買方還是賣方」「期貨留倉多空」的市場級訊號。僅台股盤後有資料。
+ */
+function MarketBreadth({ breadth }) {
+    if (!breadth) {
+        return null;
+    }
+
+    const inst = breadth.institutional ?? { available: false };
+    const fut = breadth.futures ?? { available: false, enabled: false };
+
+    // 兩區塊都拿不到就不顯示整個面板（例如非台股時段、或免費層額度冷卻中）。
+    if (!inst.available && !(fut.enabled && fut.available)) {
+        return null;
+    }
+
+    return (
+        <section className="table-panel">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">
+                        <Gauge aria-hidden="true" size={16} /> 大盤風向
+                    </p>
+                    <h2>法人與期貨籌碼</h2>
+                </div>
+                {inst.date || fut.date ? (
+                    <small className="dashboard-coverage">資料日 {inst.date ?? fut.date}</small>
+                ) : null}
+            </div>
+
+            <div className="metric-strip">
+                {inst.available ? (
+                    <>
+                        <article className="metric-card">
+                            <span>外資現貨</span>
+                            <strong className={changeClass(inst.foreign_net)}>{formatOku(inst.foreign_net)}</strong>
+                            <small>三大法人買賣超</small>
+                        </article>
+                        <article className="metric-card">
+                            <span>投信現貨</span>
+                            <strong className={changeClass(inst.trust_net)}>{formatOku(inst.trust_net)}</strong>
+                            <small>買賣超</small>
+                        </article>
+                        <article className="metric-card">
+                            <span>自營現貨</span>
+                            <strong className={changeClass(inst.dealer_net)}>{formatOku(inst.dealer_net)}</strong>
+                            <small>買賣超</small>
+                        </article>
+                    </>
+                ) : null}
+
+                {fut.enabled && fut.available ? (
+                    <>
+                        <article className="metric-card">
+                            <span>外資期貨</span>
+                            <strong className={changeClass(fut.foreign_net_oi)}>{formatLots(fut.foreign_net_oi)}</strong>
+                            <small>淨未平倉</small>
+                        </article>
+                        <article className="metric-card">
+                            <span>台指期未平倉</span>
+                            <strong>{fut.futures_open_interest !== null ? `${Number(fut.futures_open_interest).toLocaleString('zh-TW')} 口` : '—'}</strong>
+                            <small>近月{fut.futures_close !== null ? `｜收 ${Number(fut.futures_close).toLocaleString('zh-TW')}` : ''}</small>
+                        </article>
+                        <article className="metric-card">
+                            <span>選擇權 P/C</span>
+                            <strong>{fut.put_call_ratio !== null && fut.put_call_ratio !== undefined ? Number(fut.put_call_ratio).toFixed(2) : '—'}</strong>
+                            <small>&gt;1 偏空避險</small>
+                        </article>
+                    </>
+                ) : null}
+            </div>
+            <p className="dashboard-coverage-note">
+                外資現貨買超（正）代表資金站買方；外資期貨淨空、P/C &gt; 1 則偏空避險。僅供參考，非投資建議。
+            </p>
+        </section>
+    );
 }
 
 function MarketSnapshot({ items }) {
@@ -395,8 +502,19 @@ function RecentAnalyses({ items }) {
     );
 }
 
+// deferred 區塊載入中的骨架：外殼已顯示，這裡佔位到行情/新聞/籌碼資料補上。
+function DashboardLoading() {
+    return (
+        <section className="dashboard-loading" role="status" aria-live="polite" aria-busy="true">
+            <Loader2 aria-hidden="true" size={28} className="is-spinning" />
+            <p>正在讀取市場資料…</p>
+        </section>
+    );
+}
+
 export default function Dashboard({
     marketSnapshot = [],
+    marketBreadth = null,
     watchlistMovers = [],
     watchlistCoverage = null,
     latestNews = [],
@@ -463,38 +581,63 @@ export default function Dashboard({
                     </p>
                 ) : null}
 
-                {triggeredAlerts.length > 0 ? (
-                    <section className="table-panel">
-                        <div className="panel-heading">
-                            <div>
-                                <p className="section-kicker">
-                                    <Bell aria-hidden="true" size={16} /> 已觸發警報
-                                </p>
-                                <h2>價格警報</h2>
+                <Deferred
+                    data={[
+                        'marketSnapshot',
+                        'marketBreadth',
+                        'watchlistMovers',
+                        'watchlistCoverage',
+                        'latestNews',
+                        'transmissionFocus',
+                        'recentAnalyses',
+                        'triggeredAlerts',
+                    ]}
+                    fallback={<DashboardLoading />}
+                >
+                    {triggeredAlerts.length > 0 ? (
+                        <section className="table-panel">
+                            <div className="panel-heading">
+                                <div>
+                                    <p className="section-kicker">
+                                        <Bell aria-hidden="true" size={16} /> 已觸發警報
+                                    </p>
+                                    <h2>價格警報</h2>
+                                </div>
+                                <Link className="panel-link" href="/alerts">查看全部</Link>
                             </div>
-                            <Link className="panel-link" href="/alerts">查看全部</Link>
-                        </div>
-                        <ul className="dashboard-news-list">
-                            {triggeredAlerts.map((alert) => (
-                                <li className="dashboard-news-item" key={alert.id}>
-                                    <Link href={`/stocks/search?symbol=${encodeURIComponent(alert.symbol)}`}>
-                                        <strong>{alert.symbol}</strong> {alert.name}
-                                    </Link>
-                                    <small>
-                                        {alert.type === 'signal' ? `訊號 ${alert.signal_key}` : `${alert.type} ${alert.threshold}`}
-                                        {alert.triggered_price !== null ? `｜觸發價 ${alert.triggered_price}` : ''}
-                                    </small>
-                                </li>
-                            ))}
-                        </ul>
-                    </section>
-                ) : null}
+                            <ul className="dashboard-news-list">
+                                {triggeredAlerts.map((alert) => (
+                                    <li className="dashboard-news-item" key={alert.id}>
+                                        {alert.scope === 'market' ? (
+                                            <Link href="/alerts">
+                                                <strong>{MARKET_ALERT_TITLE[alert.type] ?? '大盤警報'}</strong>
+                                            </Link>
+                                        ) : (
+                                            <Link href={`/stocks/search?symbol=${encodeURIComponent(alert.symbol)}`}>
+                                                <strong>{alert.symbol}</strong> {alert.name}
+                                            </Link>
+                                        )}
+                                        <small>
+                                            {alert.scope === 'market'
+                                                ? (alert.type === 'market_bearish_flip' ? '四維共振翻空' : '外資期貨翻空')
+                                                : alert.type === 'signal'
+                                                    ? `訊號 ${alert.signal_key}`
+                                                    : `${alert.type} ${alert.threshold}`}
+                                            {alert.triggered_price !== null ? `｜觸發價 ${alert.triggered_price}` : ''}
+                                        </small>
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    ) : null}
 
-                <MarketSnapshot items={marketSnapshot} />
-                <WatchlistMovers coverage={watchlistCoverage} items={watchlistMovers} />
-                <LatestNews items={latestNews} />
-                <TransmissionFocus items={transmissionFocus} />
-                <RecentAnalyses items={recentAnalyses} />
+                    <MarketSnapshot items={marketSnapshot} />
+                    <MarketBreadth breadth={marketBreadth} />
+                    <WatchlistMovers coverage={watchlistCoverage} items={watchlistMovers} />
+                    <LatestNews items={latestNews} />
+                    <TransmissionFocus items={transmissionFocus} />
+                    <RecentAnalyses items={recentAnalyses} />
+                </Deferred>
 
                 {disclaimer ? <p className="dashboard-disclaimer">{disclaimer}</p> : null}
             </div>
