@@ -13,6 +13,7 @@ use App\Jobs\RunStockAnalysis;
 use App\Models\Instrument;
 use App\Models\LlmProviderSetting;
 use App\Models\StockAnalysis;
+use App\Models\StockChatTurn;
 use App\Models\User;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
@@ -28,6 +29,9 @@ use Inertia\Response;
 
 class StockSearchController extends Controller
 {
+    /** 個股頁顯示的問答輪數。 */
+    private const CHAT_TURNS_ON_PAGE = 12;
+
     public function __construct(
         private readonly MarketDataProvider $marketData,
         private readonly NewsProvider $news,
@@ -50,6 +54,18 @@ class StockSearchController extends Controller
         ]);
 
         $symbol = $data['symbol'];
+
+        // 輪詢走精簡路徑。Inertia 的 only 只縮小回傳的 props，不會跳過這個方法
+        // 裡的任何 PHP——沒有這個分支的話，每 3 秒的輪詢都會重跑報價、新聞刷新、
+        // 基本面、估值分位、籌碼與融資（其中數個在資料過期時還會打 FinMind）。
+        if ($this->isPollOnly($request) && ($instrument = $this->findBySymbol($symbol)) !== null) {
+            return Inertia::render('Stocks/Search', [
+                'symbol' => $instrument->symbol,
+                'analyses' => $this->analysisPayload($request, $instrument),
+                'chatTurns' => $this->chatPayload($request, $instrument),
+            ]);
+        }
+
         $name = isset($data['name']) ? trim((string) $data['name']) : '';
         $quote = $this->marketData->quote($symbol);
         $instrument = $this->findOrCreateInstrumentFromQuote($quote, $name !== '' ? $name : null);
@@ -79,6 +95,7 @@ class StockSearchController extends Controller
             'quote' => $this->quotePayload($quote),
             'news' => array_map(fn (object $item): array => $this->newsPayload($item), $news),
             'analyses' => $this->analysisPayload($request, $instrument),
+            'chatTurns' => $this->chatPayload($request, $instrument),
             'llmProviders' => $this->llmProvidersPayload($request),
             'fundamentals' => $fundamentals === null ? null : [
                 'per' => $fundamentals->per, 'pbr' => $fundamentals->pbr, 'dividend_yield' => $fundamentals->dividendYield,
@@ -195,6 +212,9 @@ class StockSearchController extends Controller
             'quote' => null,
             'news' => [],
             'analyses' => [],
+            // 必須存在：輪詢的 only: ['analyses','chatTurns'] 若落到這個分支而
+            // 少了這個 key，前端會拿到 undefined 並在 turns.some() 炸掉整頁。
+            'chatTurns' => [],
             'llmProviders' => [],
             'chipFlows' => [],
             'marginFlows' => [],
@@ -282,6 +302,58 @@ class StockSearchController extends Controller
             'related_symbols' => $item->relatedSymbols,
             'published_at' => $item->publishedAt,
         ];
+    }
+
+    /**
+     * 這次請求是不是只為了輪詢分析與問答狀態。
+     *
+     * 比對「請求的 props 是否完全落在這兩個之內」而不是只看有沒有帶標頭：頁面上
+     * 若日後出現其他部分重載，精簡分支不能把它需要的 props 一起吞掉。
+     */
+    private function isPollOnly(Request $request): bool
+    {
+        $partial = array_filter(array_map(
+            'trim',
+            explode(',', (string) $request->header('X-Inertia-Partial-Data')),
+        ));
+
+        return $partial !== [] && array_diff($partial, ['analyses', 'chatTurns']) === [];
+    }
+
+    private function findBySymbol(string $symbol): ?Instrument
+    {
+        // 輪詢時不走 marketData->quote()＋createOrFirst：使用者已經在這一檔的頁面
+        // 上，標的必然存在，為了拿它去打一次行情 API 不划算。
+        return Instrument::query()->where('symbol', $symbol)->first();
+    }
+
+    /**
+     * 頁面顯示 12 輪，送進 prompt 只有 6 輪——看得到的比記得住的多是刻意的。
+     *
+     * 以 id 排序而非 created_at：MySQL 的 timestamp 預設沒有微秒精度。
+     */
+    private function chatPayload(Request $request, Instrument $instrument): array
+    {
+        return $request->user()
+            ->stockChatTurns()
+            ->where('instrument_id', $instrument->id)
+            ->orderByDesc('id')
+            ->limit(self::CHAT_TURNS_ON_PAGE)
+            ->get()
+            ->reverse()
+            ->map(fn (StockChatTurn $turn): array => [
+                'id' => $turn->id,
+                'question' => $turn->question,
+                'answer' => $turn->answer,
+                'status' => $turn->status->value,
+                'provider_type' => $turn->provider_type,
+                'model' => $turn->model,
+                'metadata' => $turn->metadata ?? [],
+                'created_at' => $turn->created_at?->toIso8601String(),
+            ])
+            // reverse() 保留原 key，不 values() 會序列化成 JSON object。
+            ->values()
+            ->all();
     }
 
     private function analysisPayload(Request $request, Instrument $instrument): array

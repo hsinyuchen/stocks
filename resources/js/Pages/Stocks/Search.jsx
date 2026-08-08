@@ -5,6 +5,8 @@ import { Bot, LineChart, Newspaper, RotateCcw, Sparkles, Trash2 } from 'lucide-r
 import AppShell from '../../Layouts/AppShell';
 import StockSearchBox from '../../Components/StockSearchBox';
 import Markdown from '../../Components/Markdown';
+import StockChatPanel from '../../Components/StockChatPanel';
+import { FailureNote, QueueStalledHint, formatDateTime } from '../../Components/AnalysisFeedback';
 import StockChart from '../../Components/charts/StockChart';
 import CompareBox from '../../Components/charts/CompareBox';
 import TimeframeSwitcher from '../../Components/charts/TimeframeSwitcher';
@@ -469,35 +471,6 @@ function PendingAnalysisItem({ analysis }) {
     );
 }
 
-/**
- * AI 失敗的原因與下一步。
- *
- * 逾時、金鑰失效、模型名稱錯誤原本都顯示同一句話，使用者無從判斷該重試還是
- * 該去改設定；分類由後端 LlmFailureReason 提供，前端只負責呈現。
- */
-function FailureNote({ failure }) {
-    return (
-        <div className="analysis-failure">
-            <strong>{failure.message}</strong>
-            <span>{failure.hint}</span>
-        </div>
-    );
-}
-
-/**
- * 只在輪詢等到逾時才出現。最常見的原因是開發環境只啟動了 web server，
- * 沒有 queue worker，job 因此永遠不會被取出執行。
- */
-function QueueStalledHint() {
-    return (
-        <p className="queue-stalled-hint">
-            分析排隊超過 10 分鐘仍未完成，已停止等待。請確認佇列處理程序有在執行
-            （<code>composer dev</code> 會一併啟動，或另開終端機執行 <code>php artisan queue:work</code>），
-            重新整理後即可看到結果。
-        </p>
-    );
-}
-
 function AnalysisHistory({ analyses, stalled = false }) {
     if (analyses.length === 0) {
         return (
@@ -720,20 +693,6 @@ function ValuationPercentiles({ percentiles }) {
     );
 }
 
-function formatDateTime(value) {
-    if (!value) {
-        return '';
-    }
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-        return '';
-    }
-
-    return date.toLocaleString('zh-TW', { dateStyle: 'medium', timeStyle: 'short' });
-}
-
 /** 股 → 張（台股慣例，1 張 = 1000 股）。資料層一律存股，只在顯示時換算。 */
 function fmtLots(shares) {
     if (shares === null || shares === undefined) {
@@ -924,14 +883,18 @@ export default function StockSearch({
     quote = null,
     news = [],
     analyses = [],
+    chatTurns = [],
     llmProviders = [],
     fundamentals = null,
     chipFlows = [],
     marginFlows = [],
 }) {
-    // 分析在佇列執行，頁面回來時多半還是 pending，靠輪詢把結果補上。
-    const hasPending = analyses.some((analysis) => analysis.status === 'pending');
-    const stalled = useAnalysisPolling(hasPending, ['analyses']);
+    // 分析與問答都在佇列執行，頁面回來時多半還是 pending，靠輪詢把結果補上。
+    // 兩者共用同一個計時器：分開會讓同一頁每輪送出兩個 request，而 Inertia 的
+    // 部分重載本來就支援一次帶多個 prop。
+    const hasPending = analyses.some((analysis) => analysis.status === 'pending')
+        || chatTurns.some((turn) => turn.status === 'pending');
+    const stalled = useAnalysisPolling(hasPending, ['analyses', 'chatTurns']);
 
     return (
         <AppShell title="個股搜尋">
@@ -957,6 +920,12 @@ export default function StockSearch({
                     <aside className="stock-workspace__side">
                         <AnalyzeForm instrument={instrument} llmProviders={llmProviders} />
                         <AnalysisHistory analyses={analyses} stalled={stalled} />
+                        <StockChatPanel
+                            instrument={instrument}
+                            llmProviders={llmProviders}
+                            stalled={stalled}
+                            turns={chatTurns}
+                        />
                     </aside>
                 </div>
             </div>
