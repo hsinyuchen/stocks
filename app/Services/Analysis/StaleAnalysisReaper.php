@@ -4,6 +4,7 @@ namespace App\Services\Analysis;
 
 use App\Enums\AnalysisStatus;
 use App\Enums\LlmFailureReason;
+use App\Models\MarketWeightAnalysis;
 use App\Models\NewsAnalysis;
 use App\Models\StockAnalysis;
 use App\Models\StockChatTurn;
@@ -27,7 +28,7 @@ class StaleAnalysisReaper
     private const THROTTLE_KEY = 'analysis:reaper:last-run';
 
     /**
-     * @return array{stock: int, news: int, chat: int, watchlist: int, jobs: int}
+     * @return array{stock: int, news: int, chat: int, watchlist: int, weight: int, jobs: int}
      */
     public function reap(): array
     {
@@ -39,6 +40,7 @@ class StaleAnalysisReaper
             'news' => $this->reapNews($cutoff),
             'chat' => $this->reapChat($cutoff),
             'watchlist' => $this->reapWatchlist($cutoff),
+            'weight' => $this->reapWeight($cutoff),
             'jobs' => $this->discardStaleJobs($cutoff),
         ];
     }
@@ -46,7 +48,7 @@ class StaleAnalysisReaper
     /**
      * 節流版本：超時是分鐘級事件，不需要每個 request 都掃一次。
      *
-     * @return array{stock: int, news: int, chat: int, watchlist: int, jobs: int}|null null 代表這次跳過
+     * @return array{stock: int, news: int, chat: int, watchlist: int, weight: int, jobs: int}|null null 代表這次跳過
      */
     public function reapThrottled(): ?array
     {
@@ -123,6 +125,28 @@ class StaleAnalysisReaper
             $reaped += $this->markFailed(WatchlistAnalysis::query()->whereKey($row->getKey()), [
                 'provider_type' => 'error',
                 'summary' => '晚間快報排隊超過時限仍未執行，已自動結束。'.$failure['hint'],
+                'raw_output' => $this->encode(['error' => true, 'failure' => $failure, 'reaped' => true]),
+            ]);
+        }
+
+        return $reaped;
+    }
+
+    private function reapWeight(Carbon $cutoff): int
+    {
+        $rows = MarketWeightAnalysis::query()
+            ->where('status', AnalysisStatus::Pending->value)
+            ->where('created_at', '<', $cutoff)
+            ->get();
+
+        $reaped = 0;
+
+        foreach ($rows as $row) {
+            $failure = LlmFailureReason::Timeout->toArray();
+
+            $reaped += $this->markFailed(MarketWeightAnalysis::query()->whereKey($row->getKey()), [
+                'provider_type' => 'error',
+                'summary' => '權值股大盤分析排隊超過時限仍未執行，已自動結束。'.$failure['hint'],
                 'raw_output' => $this->encode(['error' => true, 'failure' => $failure, 'reaped' => true]),
             ]);
         }

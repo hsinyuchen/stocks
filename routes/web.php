@@ -6,7 +6,9 @@ use App\Http\Controllers\AlertController;
 use App\Http\Controllers\AnalysesController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\FinMindSettingController;
 use App\Http\Controllers\LlmProviderSettingController;
+use App\Http\Controllers\MarketWeightAnalysisController;
 use App\Http\Controllers\NewsAnalysisController;
 use App\Http\Controllers\NewsController;
 use App\Http\Controllers\PasswordResetController;
@@ -32,6 +34,8 @@ Route::post('/reset-password', [PasswordResetController::class, 'store'])->name(
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::get('/market/weight-analysis', [MarketWeightAnalysisController::class, 'show'])->name('market.weight-analysis');
+    Route::post('/market/weight-analysis', [MarketWeightAnalysisController::class, 'store'])->name('market.weight-analysis.store');
     Route::get('/news', [NewsController::class, 'index'])->name('news.index');
     Route::post('/news/daily-summary', [NewsAnalysisController::class, 'dailySummary'])->name('news.daily-summary');
     Route::post('/news/{newsItem}/analyses', [NewsAnalysisController::class, 'store'])->name('news.analyses.store');
@@ -75,6 +79,10 @@ Route::middleware('auth')->group(function (): void {
     Route::patch('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
     Route::patch('/profile/preferences', [ProfileController::class, 'updatePreferences'])->name('profile.preferences');
     Route::get('/settings', [LlmProviderSettingController::class, 'index'])->name('settings.index');
+    // FinMind 台股資料源 token（每人一組）。靜態路徑須排在下方 /settings/{llmProviderSetting}
+    // 動態綁定之前，否則 DELETE /settings/finmind 會被當成 model binding 而 404。
+    Route::post('/settings/finmind', [FinMindSettingController::class, 'store'])->name('settings.finmind.store');
+    Route::delete('/settings/finmind', [FinMindSettingController::class, 'destroy'])->name('settings.finmind.destroy');
     Route::post('/settings', [LlmProviderSettingController::class, 'store'])->name('settings.store');
     Route::patch('/settings/{llmProviderSetting}', [LlmProviderSettingController::class, 'update'])->name('settings.update');
     Route::delete('/settings/{llmProviderSetting}', [LlmProviderSettingController::class, 'destroy'])->name('settings.destroy');

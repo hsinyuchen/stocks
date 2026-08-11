@@ -4,6 +4,7 @@ import {
     BarChart3,
     Bell,
     Bot,
+    Layers,
     ListChecks,
     LogOut,
     Moon,
@@ -22,6 +23,7 @@ import ThemeToggle from '../Components/ThemeToggle';
 
 const baseMenuItems = [
     { href: '/dashboard', label: '市場儀表板', icon: BarChart3 },
+    { href: '/market/weight-analysis', label: '權值股大盤', icon: Layers },
     { href: '/news', label: '即時新聞', icon: Newspaper },
     { href: '/watchlists', label: '自選清單', icon: Star },
     { href: '/watchlists/analysis', label: '自選快報', icon: Moon },

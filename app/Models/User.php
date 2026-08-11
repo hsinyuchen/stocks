@@ -117,9 +117,24 @@ class User extends Authenticatable
         return $this->hasMany(WatchlistAnalysis::class);
     }
 
+    /**
+     * 權值股籃子大盤分析。分析對象（台灣50 前 N 大權值股）雖為全站共通，但紀錄仍屬
+     * 個別使用者：用誰的 LLM 設定觸發、誰看報告。
+     */
+    public function marketWeightAnalyses(): HasMany
+    {
+        return $this->hasMany(MarketWeightAnalysis::class);
+    }
+
     public function llmProviderSettings(): HasMany
     {
         return $this->hasMany(LlmProviderSetting::class);
+    }
+
+    /** 使用者自管的 FinMind API token（一人一組）。沒設定則各功能退回全站 env token。 */
+    public function finmindSetting(): HasOne
+    {
+        return $this->hasOne(FinMindSetting::class);
     }
 
     public function defaultLlmSetting(): ?LlmProviderSetting
