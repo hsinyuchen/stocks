@@ -3,6 +3,7 @@
 namespace Tests\Feature\Fundamentals;
 
 use App\Services\Fundamentals\FinMindFundamentalsProvider;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -64,7 +65,7 @@ class FinMindFundamentalsProviderTest extends TestCase
     {
         $this->fakeFinMind();
 
-        $data = (new FinMindFundamentalsProvider('token', 20))->fetch('2330.TW');
+        $data = (new FinMindFundamentalsProvider(new FinMindTokenResolver, 20))->fetch('2330.TW');
 
         $this->assertSame(33.14, $data->per);         // 最新一列
         $this->assertSame(10.85, $data->pbr);
@@ -85,7 +86,7 @@ class FinMindFundamentalsProviderTest extends TestCase
     {
         $this->fakeFinMind();
 
-        (new FinMindFundamentalsProvider('token', 20))->fetch('2330.TW');
+        (new FinMindFundamentalsProvider(new FinMindTokenResolver, 20))->fetch('2330.TW');
 
         Http::assertSent(fn ($request) => ($request['data_id'] ?? '') === '2330');
     }
@@ -94,7 +95,7 @@ class FinMindFundamentalsProviderTest extends TestCase
     {
         Http::fake(['api.finmindtrade.com/*' => Http::response(['status' => 200, 'data' => []])]);
 
-        $data = (new FinMindFundamentalsProvider('token', 20))->fetch('2330.TW');
+        $data = (new FinMindFundamentalsProvider(new FinMindTokenResolver, 20))->fetch('2330.TW');
 
         $this->assertNull($data->per);
         $this->assertNull($data->eps);

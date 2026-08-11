@@ -5,6 +5,7 @@ namespace App\Services\Margin;
 use App\Contracts\MarginDataProvider;
 use App\Data\MarginFlowData;
 use App\Support\FinMindGate;
+use App\Support\FinMindTokenResolver;
 use App\Support\MarketResolver;
 use Illuminate\Support\Facades\Http;
 
@@ -18,7 +19,7 @@ class FinMindMarginDataProvider implements MarginDataProvider
     private const SHARES_PER_LOT = 1000;
 
     public function __construct(
-        private readonly ?string $token,
+        private readonly FinMindTokenResolver $tokens,
         private readonly int $timeoutSeconds = 20,
     ) {}
 
@@ -38,7 +39,7 @@ class FinMindMarginDataProvider implements MarginDataProvider
             'dataset' => self::DATASET,
             'data_id' => MarketResolver::taiwanCode($symbol),   // 2330.TW → 2330
             'start_date' => now()->subDays($days)->toDateString(),
-            'token' => $this->token ?: null,
+            'token' => $this->tokens->resolve() ?: null,
         ]));
 
         if (FinMindGate::limited($response) || $response->failed()) {

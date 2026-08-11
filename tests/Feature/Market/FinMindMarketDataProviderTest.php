@@ -3,6 +3,7 @@
 namespace Tests\Feature\Market;
 
 use App\Services\Market\FinMindMarketDataProvider;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -24,7 +25,7 @@ class FinMindMarketDataProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response($this->payload(), 200)]);
 
-        $prices = (new FinMindMarketDataProvider(null))->dailyPrices('2330.TW', 2);
+        $prices = (new FinMindMarketDataProvider(new FinMindTokenResolver))->dailyPrices('2330.TW', 2);
 
         $this->assertCount(2, $prices);
         $this->assertSame('2330.TW', $prices[0]->symbol);
@@ -42,7 +43,9 @@ class FinMindMarketDataProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response($this->payload(), 200)]);
 
-        (new FinMindMarketDataProvider('finmind-token-xyz'))->dailyPrices('2330.TWO', 1);
+        $resolver = new FinMindTokenResolver;
+        $resolver->useToken('finmind-token-xyz');
+        (new FinMindMarketDataProvider($resolver))->dailyPrices('2330.TWO', 1);
 
         Http::assertSent(fn ($request) => str_contains($request->url(), 'token=finmind-token-xyz')
             && str_contains($request->url(), 'data_id=2330'));
@@ -52,7 +55,7 @@ class FinMindMarketDataProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response($this->payload(), 200)]);
 
-        $quote = (new FinMindMarketDataProvider(null))->quote('2330.TW');
+        $quote = (new FinMindMarketDataProvider(new FinMindTokenResolver))->quote('2330.TW');
 
         $this->assertSame('2330.TW', $quote->symbol);
         $this->assertSame(1030.0, $quote->price);

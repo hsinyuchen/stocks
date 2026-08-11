@@ -8,6 +8,7 @@ use App\Models\Instrument;
 use App\Services\Analysis\WatchlistAnalysisService;
 use App\Services\Futures\FinMindFuturesDataProvider;
 use App\Services\Futures\FuturesDataService;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -52,7 +53,7 @@ class FuturesDataTest extends TestCase
     {
         $this->fakeFinMind();
 
-        $snapshot = (new FinMindFuturesDataProvider(token: null))->snapshot();
+        $snapshot = (new FinMindFuturesDataProvider(new FinMindTokenResolver))->snapshot();
 
         $this->assertSame('2026-08-07', $snapshot->date);
         // 近月（202608）一般盤，非價差、非盤後。
@@ -87,7 +88,7 @@ class FuturesDataTest extends TestCase
             }], 200);
         }]);
 
-        $snapshot = (new FinMindFuturesDataProvider(token: null))->snapshot();
+        $snapshot = (new FinMindFuturesDataProvider(new FinMindTokenResolver))->snapshot();
 
         $this->assertNull($snapshot->foreignNetOi);
         $this->assertSame(92000, $snapshot->futuresOpenInterest);
@@ -101,7 +102,7 @@ class FuturesDataTest extends TestCase
         $this->fakeFinMind();
 
         // 綁定真實 FinMind provider（fakeFinMind 攔在 HTTP 層）。
-        $this->app->bind(FuturesDataProvider::class, fn () => new FinMindFuturesDataProvider(token: null));
+        $this->app->bind(FuturesDataProvider::class, fn () => new FinMindFuturesDataProvider(new FinMindTokenResolver));
 
         $service = app(FuturesDataService::class);
         $service->snapshot();
@@ -142,7 +143,7 @@ class FuturesDataTest extends TestCase
             ]], 200);
         }]);
 
-        $series = (new FinMindFuturesDataProvider(token: null))->foreignNetOiSeries(3);
+        $series = (new FinMindFuturesDataProvider(new FinMindTokenResolver))->foreignNetOiSeries(3);
 
         $this->assertSame([
             ['date' => '2026-08-04', 'net' => -26000],

@@ -7,6 +7,7 @@ use App\Enums\LlmFailureReason;
 use App\Models\StockChatTurn;
 use App\Services\Analysis\StockChatService;
 use App\Services\Llm\LlmProviderFactory;
+use App\Support\FinMindTokenResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -45,7 +46,7 @@ class RunStockChatReply implements ShouldQueue
         private readonly string $model,
     ) {}
 
-    public function handle(StockChatService $chat, LlmProviderFactory $factory): void
+    public function handle(StockChatService $chat, LlmProviderFactory $factory, FinMindTokenResolver $tokens): void
     {
         $turn = StockChatTurn::query()->with('instrument')->find($this->turnId);
 
@@ -54,44 +55,52 @@ class RunStockChatReply implements ShouldQueue
             return;
         }
 
-        // 經由 user 關聯查詢：同時處理「排隊期間設定被刪除」與擁有權檢查。
-        $setting = $turn->user?->llmProviderSettings()->whereKey($this->settingId)->first();
+        // 用提問者的 FinMind token 抓台股（未設定則退回全站）；finally 重置，避免
+        // override 在常駐 worker 跨 job 殘留。
+        $tokens->useUserToken($turn->user);
 
-        if ($setting === null) {
-            // 聊天沒有可降級的本地內容（不像個股分析還有規則訊號），只能標失敗，
-            // 讓輪詢結束並顯示原因。
-            $failure = LlmFailureReason::ModelNotFound->toArray();
+        try {
+            // 經由 user 關聯查詢：同時處理「排隊期間設定被刪除」與擁有權檢查。
+            $setting = $turn->user?->llmProviderSettings()->whereKey($this->settingId)->first();
+
+            if ($setting === null) {
+                // 聊天沒有可降級的本地內容（不像個股分析還有規則訊號），只能標失敗，
+                // 讓輪詢結束並顯示原因。
+                $failure = LlmFailureReason::ModelNotFound->toArray();
+
+                $this->finish($turn, [
+                    'provider_type' => 'error',
+                    'status' => AnalysisStatus::Failed,
+                    'answer' => '這次提問使用的 AI 模型設定已被刪除。'.$failure['hint'],
+                    'metadata' => ['error' => true, 'failure' => $failure],
+                ]);
+
+                return;
+            }
+
+            $history = StockChatTurn::historyBefore($turn, StockChatService::HISTORY_TURNS);
+
+            $result = $chat->answer(
+                $turn->instrument,
+                (string) $turn->question,
+                $history,
+                $this->model,
+                $factory->make($setting),
+            );
 
             $this->finish($turn, [
-                'provider_type' => 'error',
-                'status' => AnalysisStatus::Failed,
-                'answer' => '這次提問使用的 AI 模型設定已被刪除。'.$failure['hint'],
-                'metadata' => ['error' => true, 'failure' => $failure],
+                'provider_type' => $result['provider'],
+                'model' => $result['model'],
+                // provider 'error' 代表 service 已攔下 LLM 例外；使用者要看得出這題
+                // 沒有答成功。
+                'status' => $result['provider'] === 'error' ? AnalysisStatus::Failed : AnalysisStatus::Completed,
+                'answer' => $result['answer'],
+                'metadata' => $result['metadata'],
+                'data_as_of' => CarbonImmutable::parse($result['data_as_of']),
             ]);
-
-            return;
+        } finally {
+            $tokens->reset();
         }
-
-        $history = StockChatTurn::historyBefore($turn, StockChatService::HISTORY_TURNS);
-
-        $result = $chat->answer(
-            $turn->instrument,
-            (string) $turn->question,
-            $history,
-            $this->model,
-            $factory->make($setting),
-        );
-
-        $this->finish($turn, [
-            'provider_type' => $result['provider'],
-            'model' => $result['model'],
-            // provider 'error' 代表 service 已攔下 LLM 例外；使用者要看得出這題
-            // 沒有答成功。
-            'status' => $result['provider'] === 'error' ? AnalysisStatus::Failed : AnalysisStatus::Completed,
-            'answer' => $result['answer'],
-            'metadata' => $result['metadata'],
-            'data_as_of' => CarbonImmutable::parse($result['data_as_of']),
-        ]);
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Models\Instrument;
 use App\Models\WatchlistAnalysis;
 use App\Services\Analysis\WatchlistAnalysisService;
 use App\Services\Llm\LlmProviderFactory;
+use App\Support\FinMindTokenResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Builder;
@@ -41,7 +42,7 @@ class RunWatchlistAnalysis implements ShouldQueue
         private readonly string $model,
     ) {}
 
-    public function handle(WatchlistAnalysisService $service, LlmProviderFactory $factory): void
+    public function handle(WatchlistAnalysisService $service, LlmProviderFactory $factory, FinMindTokenResolver $tokens): void
     {
         $analysis = WatchlistAnalysis::query()->find($this->analysisId);
 
@@ -49,40 +50,48 @@ class RunWatchlistAnalysis implements ShouldQueue
             return;
         }
 
-        // setting 可能在排隊期間被刪除；此時退化成資料面摘要（provider none），而非
-        // 整筆失敗——風險溫度與逐檔訊號對使用者仍有價值，與個股分析的降級一致。
-        $setting = $this->settingId === null
-            ? null
-            : $analysis->user?->llmProviderSettings()->whereKey($this->settingId)->first();
+        // 用該分析擁有者的 FinMind token 抓台股（未設定則退回全站）；finally 重置，
+        // 避免 override 在常駐 worker 跨 job 殘留。
+        $tokens->useUserToken($analysis->user);
 
-        $llm = $setting === null ? null : $factory->make($setting);
+        try {
+            // setting 可能在排隊期間被刪除；此時退化成資料面摘要（provider none），而非
+            // 整筆失敗——風險溫度與逐檔訊號對使用者仍有價值，與個股分析的降級一致。
+            $setting = $this->settingId === null
+                ? null
+                : $analysis->user?->llmProviderSettings()->whereKey($this->settingId)->first();
 
-        [$instruments, $omitted] = $this->instrumentsFor($analysis);
+            $llm = $setting === null ? null : $factory->make($setting);
 
-        $result = $service->analyze($instruments, $llm, $this->model, $omitted);
-        $provider = (string) ($result['provider'] ?? 'unknown');
+            [$instruments, $omitted] = $this->instrumentsFor($analysis);
 
-        // 只在仍是 pending 時寫入：reaper 可能已因逾時把它標成失敗，這裡再寫回完成
-        // 會讓狀態在畫面上來回跳。
-        WatchlistAnalysis::query()
-            ->whereKey($analysis->getKey())
-            ->where('status', AnalysisStatus::Pending->value)
-            ->update([
-                'provider_type' => $provider,
-                'model' => (string) ($result['model'] ?? $this->model),
-                // provider 'error' 代表 service 已攔下 LLM 例外並降級；資料層仍在，
-                // 但使用者要看得出 AI 那段沒跑成功。
-                'status' => $provider === 'error' ? AnalysisStatus::Failed->value : AnalysisStatus::Completed->value,
-                'summary' => $result['summary'] ?? null,
-                'payload' => json_encode($result['payload'] ?? [], JSON_UNESCAPED_UNICODE),
-                'raw_output' => json_encode(
-                    ['points' => $result['points'] ?? [], ...$result['raw'] ?? []],
-                    JSON_UNESCAPED_UNICODE,
-                ),
-                'related_symbols' => json_encode($result['symbols'] ?? [], JSON_UNESCAPED_UNICODE),
-                'data_as_of' => CarbonImmutable::parse($result['data_as_of'] ?? CarbonImmutable::now()->toIso8601String()),
-                'updated_at' => now(),
-            ]);
+            $result = $service->analyze($instruments, $llm, $this->model, $omitted);
+            $provider = (string) ($result['provider'] ?? 'unknown');
+
+            // 只在仍是 pending 時寫入：reaper 可能已因逾時把它標成失敗，這裡再寫回完成
+            // 會讓狀態在畫面上來回跳。
+            WatchlistAnalysis::query()
+                ->whereKey($analysis->getKey())
+                ->where('status', AnalysisStatus::Pending->value)
+                ->update([
+                    'provider_type' => $provider,
+                    'model' => (string) ($result['model'] ?? $this->model),
+                    // provider 'error' 代表 service 已攔下 LLM 例外並降級；資料層仍在，
+                    // 但使用者要看得出 AI 那段沒跑成功。
+                    'status' => $provider === 'error' ? AnalysisStatus::Failed->value : AnalysisStatus::Completed->value,
+                    'summary' => $result['summary'] ?? null,
+                    'payload' => json_encode($result['payload'] ?? [], JSON_UNESCAPED_UNICODE),
+                    'raw_output' => json_encode(
+                        ['points' => $result['points'] ?? [], ...$result['raw'] ?? []],
+                        JSON_UNESCAPED_UNICODE,
+                    ),
+                    'related_symbols' => json_encode($result['symbols'] ?? [], JSON_UNESCAPED_UNICODE),
+                    'data_as_of' => CarbonImmutable::parse($result['data_as_of'] ?? CarbonImmutable::now()->toIso8601String()),
+                    'updated_at' => now(),
+                ]);
+        } finally {
+            $tokens->reset();
+        }
     }
 
     /**

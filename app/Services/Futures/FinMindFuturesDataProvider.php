@@ -5,6 +5,7 @@ namespace App\Services\Futures;
 use App\Contracts\FuturesDataProvider;
 use App\Data\FuturesMarketData;
 use App\Support\FinMindGate;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -27,7 +28,7 @@ class FinMindFuturesDataProvider implements FuturesDataProvider
     ];
 
     public function __construct(
-        private readonly ?string $token,
+        private readonly FinMindTokenResolver $tokens,
         private readonly string $futuresId = 'TX',
         private readonly string $optionId = 'TXO',
         private readonly int $timeoutSeconds = 20,
@@ -69,7 +70,7 @@ class FinMindFuturesDataProvider implements FuturesDataProvider
                 'dataset' => $dataset,
                 'data_id' => $dataId,
                 'start_date' => now()->subDays($startDays ?? $this->lookbackDays)->toDateString(),
-                'token' => $this->token ?: null,
+                'token' => $this->tokens->resolve() ?: null,
             ]));
 
             if (FinMindGate::limited($response) || $response->failed()) {

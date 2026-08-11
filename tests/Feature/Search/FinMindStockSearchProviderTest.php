@@ -3,6 +3,7 @@
 namespace Tests\Feature\Search;
 
 use App\Services\Search\FinMindStockSearchProvider;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -34,7 +35,7 @@ class FinMindStockSearchProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response($this->payload(), 200)]);
 
-        $results = (new FinMindStockSearchProvider(null))->search('台積電');
+        $results = (new FinMindStockSearchProvider(new FinMindTokenResolver))->search('台積電');
 
         $this->assertContains(
             ['symbol' => '2330.TW', 'name' => '台積電', 'market' => 'TW'],
@@ -46,7 +47,7 @@ class FinMindStockSearchProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response($this->payload(), 200)]);
 
-        $results = (new FinMindStockSearchProvider(null))->search('2330');
+        $results = (new FinMindStockSearchProvider(new FinMindTokenResolver))->search('2330');
 
         $symbols = array_column($results, 'symbol');
         $this->assertContains('2330.TW', $symbols);
@@ -56,7 +57,7 @@ class FinMindStockSearchProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response($this->payload(), 200)]);
 
-        $results = (new FinMindStockSearchProvider(null))->search('6446');
+        $results = (new FinMindStockSearchProvider(new FinMindTokenResolver))->search('6446');
 
         $this->assertContains(
             ['symbol' => '6446.TWO', 'name' => '藥華藥', 'market' => 'TW'],
@@ -68,7 +69,7 @@ class FinMindStockSearchProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response($this->payload(), 200)]);
 
-        $results = (new FinMindStockSearchProvider(null))->search('2330');
+        $results = (new FinMindStockSearchProvider(new FinMindTokenResolver))->search('2330');
 
         $matching = array_filter($results, fn ($row) => $row['symbol'] === '2330.TW');
         $this->assertCount(1, $matching);
@@ -78,8 +79,8 @@ class FinMindStockSearchProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response($this->payload(), 200)]);
 
-        $this->assertSame([], (new FinMindStockSearchProvider(null))->search(''));
-        $this->assertSame([], (new FinMindStockSearchProvider(null))->search('   '));
+        $this->assertSame([], (new FinMindStockSearchProvider(new FinMindTokenResolver))->search(''));
+        $this->assertSame([], (new FinMindStockSearchProvider(new FinMindTokenResolver))->search('   '));
 
         Http::assertNothingSent();
     }
@@ -88,7 +89,9 @@ class FinMindStockSearchProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response($this->payload(), 200)]);
 
-        (new FinMindStockSearchProvider('finmind-token-xyz'))->search('台積電');
+        $resolver = new FinMindTokenResolver;
+        $resolver->useToken('finmind-token-xyz');
+        (new FinMindStockSearchProvider($resolver))->search('台積電');
 
         Http::assertSent(fn ($request) => str_contains($request->url(), 'dataset=TaiwanStockInfo')
             && str_contains($request->url(), 'token=finmind-token-xyz'));
@@ -98,7 +101,7 @@ class FinMindStockSearchProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response('', 500)]);
 
-        $this->assertSame([], (new FinMindStockSearchProvider(null))->search('台積電'));
+        $this->assertSame([], (new FinMindStockSearchProvider(new FinMindTokenResolver))->search('台積電'));
         $this->assertNull(Cache::get('stock:search:tw-universe'));
     }
 
@@ -106,7 +109,7 @@ class FinMindStockSearchProviderTest extends TestCase
     {
         Http::fake(['*api.finmindtrade.com*' => Http::response($this->payload(), 200)]);
 
-        (new FinMindStockSearchProvider(null))->search('台積電');
+        (new FinMindStockSearchProvider(new FinMindTokenResolver))->search('台積電');
 
         $cached = Cache::get('stock:search:tw-universe');
         $this->assertIsArray($cached);
@@ -124,7 +127,7 @@ class FinMindStockSearchProviderTest extends TestCase
         }
         Http::fake(['*api.finmindtrade.com*' => Http::response(['msg' => 'success', 'data' => $rows], 200)]);
 
-        $results = (new FinMindStockSearchProvider(null))->search('公司');
+        $results = (new FinMindStockSearchProvider(new FinMindTokenResolver))->search('公司');
 
         $this->assertCount(15, $results);
     }

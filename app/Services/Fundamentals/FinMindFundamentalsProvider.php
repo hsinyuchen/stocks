@@ -5,6 +5,7 @@ namespace App\Services\Fundamentals;
 use App\Contracts\FundamentalsProvider;
 use App\Data\FundamentalsData;
 use App\Support\FinMindGate;
+use App\Support\FinMindTokenResolver;
 use App\Support\MarketResolver;
 use Illuminate\Support\Facades\Http;
 
@@ -13,7 +14,7 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
     private const ENDPOINT = 'https://api.finmindtrade.com/api/v4/data';
 
     public function __construct(
-        private readonly ?string $token,
+        private readonly FinMindTokenResolver $tokens,
         private readonly int $timeoutSeconds = 20,
     ) {}
 
@@ -56,7 +57,7 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
             'dataset' => $dataset,
             'data_id' => $dataId,
             'start_date' => $startDate,
-            'token' => $this->token ?: null,
+            'token' => $this->tokens->resolve() ?: null,
         ]));
 
         if (FinMindGate::limited($response) || $response->failed()) {

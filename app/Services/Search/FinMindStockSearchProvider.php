@@ -3,6 +3,7 @@
 namespace App\Services\Search;
 
 use App\Contracts\StockSearchProvider;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
@@ -14,7 +15,7 @@ class FinMindStockSearchProvider implements StockSearchProvider
     private const MAX_RESULTS = 15;
 
     public function __construct(
-        private readonly ?string $token,
+        private readonly FinMindTokenResolver $tokens,
         private readonly int $timeoutSeconds = 20,
     ) {}
 
@@ -86,8 +87,10 @@ class FinMindStockSearchProvider implements StockSearchProvider
     {
         $query = ['dataset' => 'TaiwanStockInfo'];
 
-        if ($this->token !== null && $this->token !== '') {
-            $query['token'] = $this->token;
+        $token = $this->tokens->resolve();
+
+        if ($token !== null && $token !== '') {
+            $query['token'] = $token;
         }
 
         try {

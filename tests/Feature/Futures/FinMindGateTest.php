@@ -5,6 +5,7 @@ namespace Tests\Feature\Futures;
 use App\Services\Chip\FinMindChipDataProvider;
 use App\Services\Futures\FinMindFuturesDataProvider;
 use App\Support\FinMindGate;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -30,13 +31,13 @@ class FinMindGateTest extends TestCase
             'api.finmindtrade.com/*' => Http::response(['msg' => 'Requests reach the maximum limit.'], 402),
         ]);
 
-        $chip = new FinMindChipDataProvider(token: null);
+        $chip = new FinMindChipDataProvider(new FinMindTokenResolver);
 
         $this->assertSame([], $chip->fetch('2330.TW', 30));
         $this->assertTrue(FinMindGate::isTripped(), '撞限後應開啟冷卻。');
 
         // 冷卻中：第二次呼叫（即使不同 provider）直接跳過，不再發 HTTP。
-        $futures = new FinMindFuturesDataProvider(token: null);
+        $futures = new FinMindFuturesDataProvider(new FinMindTokenResolver);
         $snapshot = $futures->snapshot();
 
         $this->assertFalse($snapshot->hasAny());
@@ -50,7 +51,7 @@ class FinMindGateTest extends TestCase
             'api.finmindtrade.com/*' => Http::response(['msg' => 'Your level is free. Please update your user level.'], 400),
         ]);
 
-        (new FinMindChipDataProvider(token: null))->fetch('2330.TW', 30);
+        (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30);
 
         $this->assertTrue(FinMindGate::isTripped());
     }
@@ -62,7 +63,7 @@ class FinMindGateTest extends TestCase
             'api.finmindtrade.com/*' => Http::response([], 500),
         ]);
 
-        $this->assertSame([], (new FinMindChipDataProvider(token: null))->fetch('2330.TW', 30));
+        $this->assertSame([], (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30));
         $this->assertFalse(FinMindGate::isTripped(), '一般 5xx 不應開啟冷卻。');
     }
 
@@ -72,7 +73,7 @@ class FinMindGateTest extends TestCase
             'api.finmindtrade.com/*' => Http::response(['msg' => 'success', 'data' => []], 200),
         ]);
 
-        (new FinMindChipDataProvider(token: null))->fetch('2330.TW', 30);
+        (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30);
 
         $this->assertFalse(FinMindGate::isTripped());
     }
@@ -84,7 +85,7 @@ class FinMindGateTest extends TestCase
             'api.finmindtrade.com/*' => Http::response(['msg' => 'limit reached'], 429),
         ]);
 
-        (new FinMindChipDataProvider(token: null))->fetch('2330.TW', 30);
+        (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30);
 
         $this->assertFalse(FinMindGate::isTripped(), '關閉守門時不得開啟冷卻。');
     }

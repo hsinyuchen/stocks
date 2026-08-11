@@ -10,6 +10,7 @@ use App\Models\StockChatTurn;
 use App\Models\User;
 use App\Services\Analysis\StockChatService;
 use App\Services\Llm\LlmProviderFactory;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -218,6 +219,7 @@ class StockChatTest extends TestCase
         (new RunStockChatReply($turn->id, $setting->id, 'llama3.1'))->handle(
             app(StockChatService::class),
             app(LlmProviderFactory::class),
+            app(FinMindTokenResolver::class),
         );
 
         $this->assertDatabaseCount('stock_chat_turns', 0);
@@ -247,6 +249,7 @@ class StockChatTest extends TestCase
         (new RunStockChatReply($turn->id, $settingId, 'llama3.1'))->handle(
             app(StockChatService::class),
             app(LlmProviderFactory::class),
+            app(FinMindTokenResolver::class),
         );
 
         $fresh = $turn->fresh();

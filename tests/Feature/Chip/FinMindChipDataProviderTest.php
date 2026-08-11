@@ -3,6 +3,7 @@
 namespace Tests\Feature\Chip;
 
 use App\Services\Chip\FinMindChipDataProvider;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -39,7 +40,7 @@ class FinMindChipDataProviderTest extends TestCase
     {
         Http::fake(['api.finmindtrade.com/*' => Http::response($this->payload(), 200)]);
 
-        $rows = (new FinMindChipDataProvider(null))->fetch('2330.TW', 30);
+        $rows = (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30);
 
         $this->assertCount(2, $rows);
 
@@ -53,7 +54,7 @@ class FinMindChipDataProviderTest extends TestCase
     {
         Http::fake(['api.finmindtrade.com/*' => Http::response($this->payload(), 200)]);
 
-        $rows = (new FinMindChipDataProvider(null))->fetch('2330.TW', 30);
+        $rows = (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30);
 
         $this->assertSame(-1_672_128, $rows[0]->foreignNet);
         $this->assertSame(1_048_697, $rows[0]->trustNet);          // 2,063,697 - 1,015,000
@@ -64,7 +65,7 @@ class FinMindChipDataProviderTest extends TestCase
     {
         Http::fake(['api.finmindtrade.com/*' => Http::response($this->payload(), 200)]);
 
-        $rows = (new FinMindChipDataProvider(null))->fetch('2330.TW', 30);
+        $rows = (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30);
 
         // (621,250 - 630,101) + (5,224,520 - 589,832) = -8,851 + 4,634,688
         $this->assertSame(4_625_837, $rows[0]->dealerNet);
@@ -75,7 +76,7 @@ class FinMindChipDataProviderTest extends TestCase
     {
         Http::fake(['api.finmindtrade.com/*' => Http::response($this->payload(), 200)]);
 
-        $row = (new FinMindChipDataProvider(null))->fetch('2330.TW', 30)[1];
+        $row = (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30)[1];
 
         // 22,804,480 - 17,828,751 = 4,975,729，外資自營商當日為 0。
         $this->assertSame(4_975_729, $row->foreignNet);
@@ -92,7 +93,7 @@ class FinMindChipDataProviderTest extends TestCase
             ],
         ], 200)]);
 
-        $rows = (new FinMindChipDataProvider(null))->fetch('2330.TW', 30);
+        $rows = (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30);
 
         $this->assertSame(1000, $rows[0]->foreignNet);
         $this->assertSame(1000, $rows[0]->totalNet);
@@ -102,14 +103,14 @@ class FinMindChipDataProviderTest extends TestCase
     {
         Http::fake(['api.finmindtrade.com/*' => Http::response('rate limited', 402)]);
 
-        $this->assertSame([], (new FinMindChipDataProvider(null))->fetch('2330.TW', 30));
+        $this->assertSame([], (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30));
     }
 
     public function test_non_positive_days_short_circuits_without_calling_upstream(): void
     {
         Http::fake();
 
-        $this->assertSame([], (new FinMindChipDataProvider(null))->fetch('2330.TW', 0));
+        $this->assertSame([], (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 0));
 
         Http::assertNothingSent();
     }
@@ -119,7 +120,7 @@ class FinMindChipDataProviderTest extends TestCase
     {
         Http::fake(['api.finmindtrade.com/*' => Http::response($this->payload(), 200)]);
 
-        (new FinMindChipDataProvider(null))->fetch('2330.TW', 30);
+        (new FinMindChipDataProvider(new FinMindTokenResolver))->fetch('2330.TW', 30);
 
         Http::assertSent(fn ($request) => $request['data_id'] === '2330'
             && $request['dataset'] === 'TaiwanStockInstitutionalInvestorsBuySell');

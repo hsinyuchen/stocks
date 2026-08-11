@@ -6,6 +6,7 @@ use App\Contracts\MarketDataProvider;
 use App\Data\DailyPriceData;
 use App\Data\MarketQuoteData;
 use App\Support\FinMindGate;
+use App\Support\FinMindTokenResolver;
 use App\Support\MarketResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
@@ -14,7 +15,7 @@ use RuntimeException;
 class FinMindMarketDataProvider implements MarketDataProvider
 {
     public function __construct(
-        private readonly ?string $token,
+        private readonly FinMindTokenResolver $tokens,
         private readonly int $timeoutSeconds = 20,
     ) {}
 
@@ -58,8 +59,10 @@ class FinMindMarketDataProvider implements MarketDataProvider
             'start_date' => CarbonImmutable::now()->subDays(max($days * 2, 30))->toDateString(),
         ];
 
-        if ($this->token !== null && $this->token !== '') {
-            $query['token'] = $this->token;
+        $token = $this->tokens->resolve();
+
+        if ($token !== null && $token !== '') {
+            $query['token'] = $token;
         }
 
         $response = Http::timeout($this->timeoutSeconds)

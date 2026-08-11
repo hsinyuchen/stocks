@@ -5,6 +5,7 @@ namespace App\Services\Chip;
 use App\Contracts\ChipDataProvider;
 use App\Data\ChipFlowData;
 use App\Support\FinMindGate;
+use App\Support\FinMindTokenResolver;
 use App\Support\MarketResolver;
 use Illuminate\Support\Facades\Http;
 
@@ -30,7 +31,7 @@ class FinMindChipDataProvider implements ChipDataProvider
     ];
 
     public function __construct(
-        private readonly ?string $token,
+        private readonly FinMindTokenResolver $tokens,
         private readonly int $timeoutSeconds = 20,
     ) {}
 
@@ -50,7 +51,7 @@ class FinMindChipDataProvider implements ChipDataProvider
             'dataset' => self::DATASET,
             'data_id' => MarketResolver::taiwanCode($symbol),   // 2330.TW → 2330
             'start_date' => now()->subDays($days)->toDateString(),
-            'token' => $this->token ?: null,
+            'token' => $this->tokens->resolve() ?: null,
         ]));
 
         // 撞到額度/等級上限即開啟全站冷卻；一般失敗維持原本的 best-effort 回空。

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -18,22 +19,39 @@ use Illuminate\Support\Facades\Cache;
  * 與各 provider 既有的 per-symbol failure throttle 互補：那個防的是「單一標的
  * 反覆失敗」，這個防的是「整批對已耗盡的額度雪崩式重打」。
  *
- * 無狀態，狀態存 Cache（全站共用）。
+ * 無狀態，狀態存 Cache。冷卻 key 綁「當前使用的 token」（per-token）：token 為 per-user
+ * 後，某人的 token 撞限只冷卻該 token，用全站或別人 token 的請求不被拖垮。
  */
 class FinMindGate
 {
-    private const KEY = 'finmind:cooldown';
+    private const KEY_PREFIX = 'finmind:cooldown';
 
     /** 冷卻中：呼叫端應跳過 FinMind、走降級。 */
     public static function isTripped(): bool
     {
-        return self::enabled() && Cache::has(self::KEY);
+        return self::enabled() && Cache::has(self::key());
     }
 
     /** 開啟冷卻。TTL 由 config 決定，預設 10 分鐘（免費層上限多為每小時，10 分足以讓額度回補一部分）。 */
     public static function trip(): void
     {
-        Cache::put(self::KEY, true, now()->addMinutes(max(1, (int) config('finmind.cooldown_minutes', 10))));
+        Cache::put(self::key(), true, now()->addMinutes(max(1, (int) config('finmind.cooldown_minutes', 10))));
+    }
+
+    /**
+     * 冷卻 cache key，綁當前 resolver 決定的 token。
+     *
+     * token 不入 key 明文，改用短 hash（避免把憑證寫進 cache key）；全站/無 token 用
+     * 固定後綴。resolver 從容器取（singleton），與各 provider 打 FinMind 時取到的是同一
+     * token，冷卻歸屬才會與實際發出請求的 token 一致。
+     */
+    private static function key(): string
+    {
+        $token = App::make(FinMindTokenResolver::class)->resolve();
+
+        $suffix = ($token === null || $token === '') ? 'global' : substr(sha1($token), 0, 16);
+
+        return self::KEY_PREFIX.':'.$suffix;
     }
 
     /**

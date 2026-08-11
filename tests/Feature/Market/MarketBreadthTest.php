@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\Market\FinMindMarketInstitutionalProvider;
 use App\Services\Market\MarketBreadthService;
 use App\Support\FinMindGate;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -34,7 +35,7 @@ class MarketBreadthTest extends TestCase
             ]], 200),
         ]);
 
-        $data = (new FinMindMarketInstitutionalProvider(token: null))->latest();
+        $data = (new FinMindMarketInstitutionalProvider(new FinMindTokenResolver))->latest();
 
         $this->assertSame('2026-08-07', $data->date);
         // 外資 = (300-350) + (10-5) = -45；投信 = 12；自營 = (9-8)+(24-26) = -1。
@@ -57,7 +58,7 @@ class MarketBreadthTest extends TestCase
             ]], 200),
         ]);
 
-        $series = (new FinMindMarketInstitutionalProvider(token: null))->foreignNetSeries(3);
+        $series = (new FinMindMarketInstitutionalProvider(new FinMindTokenResolver))->foreignNetSeries(3);
 
         $this->assertSame([
             ['date' => '2026-08-04', 'net' => -50],   // 200-250
@@ -70,7 +71,7 @@ class MarketBreadthTest extends TestCase
     {
         Http::fake(['api.finmindtrade.com/*' => Http::response([], 500)]);
 
-        $data = (new FinMindMarketInstitutionalProvider(token: null))->latest();
+        $data = (new FinMindMarketInstitutionalProvider(new FinMindTokenResolver))->latest();
 
         $this->assertFalse($data->hasAny());
     }
@@ -80,7 +81,7 @@ class MarketBreadthTest extends TestCase
         FinMindGate::trip();
         Http::fake(['api.finmindtrade.com/*' => Http::response(['data' => []], 200)]);
 
-        $data = (new FinMindMarketInstitutionalProvider(token: null))->latest();
+        $data = (new FinMindMarketInstitutionalProvider(new FinMindTokenResolver))->latest();
 
         $this->assertFalse($data->hasAny());
         Http::assertNothingSent();

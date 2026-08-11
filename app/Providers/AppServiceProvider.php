@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Contracts\BrokerBranchDataProvider;
 use App\Contracts\ChipDataProvider;
 use App\Contracts\FundamentalsProvider;
 use App\Contracts\FuturesDataProvider;
@@ -11,7 +12,9 @@ use App\Contracts\MarketInstitutionalProvider;
 use App\Contracts\NewsProvider;
 use App\Contracts\SymbolNewsProvider;
 use App\Contracts\YoutubeWorkerRunner;
+use App\Services\BrokerBranch\FinMindBrokerBranchDataProvider;
 use App\Services\Chip\FinMindChipDataProvider;
+use App\Services\Fake\FakeBrokerBranchDataProvider;
 use App\Services\Fake\FakeChipDataProvider;
 use App\Services\Fake\FakeFundamentalsProvider;
 use App\Services\Fake\FakeFuturesDataProvider;
@@ -32,6 +35,7 @@ use App\Services\News\DbNewsProvider;
 use App\Services\News\GoogleNewsSymbolNewsProvider;
 use App\Services\News\ProcessYoutubeWorkerRunner;
 use App\Services\Search\FinMindStockSearchProvider;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -41,6 +45,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // FinMind token 解析器：per-user 覆蓋、全站 env 後備。註冊為 singleton，讓 7 個
+        // FinMind provider、middleware 與 job 共用同一實例（override 為 request/job-scoped）。
+        $this->app->singleton(FinMindTokenResolver::class);
+
         $this->app->bind(NewsProvider::class, function ($app): NewsProvider {
             return config('services.news.driver') === 'fake'
                 ? $app->make(FakeNewsProvider::class)
@@ -65,7 +73,7 @@ class AppServiceProvider extends ServiceProvider
             // unreliable in live testing (returns no rows / rate-limits). Stooq
             // remains available as a class and can be re-wired if it stabilizes.
             $routing = new RoutingMarketDataProvider(
-                taiwan: new FinMindMarketDataProvider(config('services.finmind.token')),
+                taiwan: new FinMindMarketDataProvider($app->make(FinMindTokenResolver::class)),
                 unitedStates: new YahooChartMarketDataProvider,
                 fallback: new YahooChartMarketDataProvider,
             );
@@ -79,8 +87,8 @@ class AppServiceProvider extends ServiceProvider
 
         // FinMind Taiwan stock search needs the configured (optional) API token.
         // Yahoo's provider has no required dependencies and auto-resolves.
-        $this->app->bind(FinMindStockSearchProvider::class, function (): FinMindStockSearchProvider {
-            return new FinMindStockSearchProvider(config('services.finmind.token'));
+        $this->app->bind(FinMindStockSearchProvider::class, function ($app): FinMindStockSearchProvider {
+            return new FinMindStockSearchProvider($app->make(FinMindTokenResolver::class));
         });
 
         // 台股基本面：沿用 market_data.driver 開關（測試 fake，正式走 FinMind）。
@@ -88,14 +96,22 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(FundamentalsProvider::class, function ($app): FundamentalsProvider {
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeFundamentalsProvider::class)
-                : new FinMindFundamentalsProvider(config('services.finmind.token'));
+                : new FinMindFundamentalsProvider($app->make(FinMindTokenResolver::class));
         });
 
         // 台股籌碼面（三大法人買賣超）：同樣沿用 market_data.driver 開關。
         $this->app->bind(ChipDataProvider::class, function ($app): ChipDataProvider {
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeChipDataProvider::class)
-                : new FinMindChipDataProvider(config('services.finmind.token'));
+                : new FinMindChipDataProvider($app->make(FinMindTokenResolver::class));
+        });
+
+        // 券商分點進出（Sponsor 付費 dataset）：沿用同一 driver 開關。正式走 FinMind、
+        // 用 per-user token；測試 fake、不打網路。
+        $this->app->bind(BrokerBranchDataProvider::class, function ($app): BrokerBranchDataProvider {
+            return config('services.market_data.driver') === 'fake'
+                ? $app->make(FakeBrokerBranchDataProvider::class)
+                : new FinMindBrokerBranchDataProvider($app->make(FinMindTokenResolver::class));
         });
 
         // 融資融券與籌碼同源（FinMind、同一組 token），因此沿用同一個 driver 開關：
@@ -103,7 +119,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(MarginDataProvider::class, function ($app): MarginDataProvider {
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeMarginDataProvider::class)
-                : new FinMindMarginDataProvider(config('services.finmind.token'));
+                : new FinMindMarginDataProvider($app->make(FinMindTokenResolver::class));
         });
 
         // 台股期貨/選擇權大盤籌碼（台指期未平倉、三大法人期貨淨留倉、選擇權 P/C）：
@@ -112,7 +128,7 @@ class AppServiceProvider extends ServiceProvider
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeFuturesDataProvider::class)
                 : new FinMindFuturesDataProvider(
-                    config('services.finmind.token'),
+                    $app->make(FinMindTokenResolver::class),
                     (string) config('brief.futures.futures_id', 'TX'),
                     (string) config('brief.futures.option_id', 'TXO'),
                 );
@@ -122,7 +138,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(MarketInstitutionalProvider::class, function ($app): MarketInstitutionalProvider {
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeMarketInstitutionalProvider::class)
-                : new FinMindMarketInstitutionalProvider(config('services.finmind.token'));
+                : new FinMindMarketInstitutionalProvider($app->make(FinMindTokenResolver::class));
         });
 
         // YouTube captions worker (2C). The real runner shells out to the Python

@@ -5,6 +5,7 @@ namespace App\Services\Market;
 use App\Contracts\MarketInstitutionalProvider;
 use App\Data\MarketInstitutionalData;
 use App\Support\FinMindGate;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -31,7 +32,7 @@ class FinMindMarketInstitutionalProvider implements MarketInstitutionalProvider
     ];
 
     public function __construct(
-        private readonly ?string $token,
+        private readonly FinMindTokenResolver $tokens,
         private readonly int $timeoutSeconds = 20,
         private readonly int $lookbackDays = 14,
     ) {}
@@ -123,7 +124,7 @@ class FinMindMarketInstitutionalProvider implements MarketInstitutionalProvider
             $response = Http::timeout($this->timeoutSeconds)->get(self::ENDPOINT, array_filter([
                 'dataset' => self::DATASET,
                 'start_date' => now()->subDays($startDays ?? $this->lookbackDays)->toDateString(),
-                'token' => $this->token ?: null,
+                'token' => $this->tokens->resolve() ?: null,
             ]));
 
             if (FinMindGate::limited($response) || $response->failed()) {

@@ -1,6 +1,6 @@
 import { router, useForm } from '@inertiajs/react';
 import { useEffect } from 'react';
-import { KeyRound, Plus, Save, Star, Trash2 } from 'lucide-react';
+import { Database, ExternalLink, KeyRound, Plus, Save, Star, Trash2 } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 
 const providerOptions = [
@@ -182,6 +182,86 @@ function ProviderFormFields({ form, setting = null }) {
     );
 }
 
+/**
+ * FinMind 台股資料源 token（每人一組）。填自己的 token 用自己的免費額度抓台股行情/
+ * 籌碼；不填則沿用全站預設。抓回的資料仍全站共用，token 只決定用誰的額度抓。
+ */
+function FinMindPanel({ finmind }) {
+    const form = useForm({ token: '' });
+
+    const submit = (event) => {
+        event.preventDefault();
+        form.post('/settings/finmind', {
+            preserveScroll: true,
+            onSuccess: () => form.reset('token'),
+        });
+    };
+
+    const clear = () => {
+        router.delete('/settings/finmind', { preserveScroll: true });
+    };
+
+    return (
+        <form className="settings-panel" onSubmit={submit}>
+            <div className="settings-panel__head">
+                <div>
+                    <p className="section-kicker">FinMind 台股資料源</p>
+                    <h2>你的 FinMind API Token</h2>
+                    <p>
+                        填入自己的 FinMind token，台股行情、籌碼、基本面就會用你自己的免費額度抓取，
+                        不再與其他使用者共用同一組額度而互相排擠。抓回的資料仍全站共用；不填則沿用全站預設 token。
+                    </p>
+                    <p>
+                        還沒有 token？
+                        {' '}
+                        <a
+                            href="https://finmindtrade.com/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="settings-external-link"
+                        >
+                            前往 FinMind 官網註冊
+                            <ExternalLink aria-hidden="true" size={14} />
+                        </a>
+                        {' '}
+                        ，登入後在會員中心／API Token 頁面取得。
+                    </p>
+                </div>
+                <button className="button-primary" disabled={form.processing} type="submit">
+                    <Save aria-hidden="true" size={18} />
+                    <span>儲存 Token</span>
+                </button>
+            </div>
+
+            <div className="settings-form-grid">
+                <TextField
+                    autoComplete="new-password"
+                    error={form.errors.token}
+                    help={finmind?.has_token ? '已儲存 token。留空並儲存不會清除，請用「清除」按鈕移除。' : '會以加密方式儲存。留空則使用全站預設額度。'}
+                    label="FinMind API Token"
+                    maxLength="255"
+                    onChange={(event) => form.setData('token', event.target.value)}
+                    placeholder={finmind?.has_token ? '輸入新 token 以覆蓋既有設定' : '貼上你的 FinMind token'}
+                    type="password"
+                    value={form.data.token}
+                />
+            </div>
+
+            <div className="settings-provider__actions">
+                <span className={`key-status ${finmind?.has_token ? 'key-status--active' : ''}`}>
+                    <Database aria-hidden="true" size={15} />
+                    {finmind?.has_token ? '已設定個人 token' : '未設定，使用全站預設'}
+                </span>
+                {finmind?.has_token ? (
+                    <button className="icon-button icon-button--danger" onClick={clear} title="清除 token" type="button">
+                        <Trash2 aria-hidden="true" size={18} />
+                    </button>
+                ) : null}
+            </div>
+        </form>
+    );
+}
+
 function CreateProviderForm() {
     const form = useForm(emptyForm);
 
@@ -284,10 +364,12 @@ function EditProviderForm({ setting }) {
     );
 }
 
-export default function SettingsIndex({ settings = [] }) {
+export default function SettingsIndex({ settings = [], finmind = { has_token: false, updated_at: null } }) {
     return (
         <AppShell title="系統設定">
             <div className="settings-page">
+                <FinMindPanel finmind={finmind} />
+
                 <CreateProviderForm />
 
                 <section className="settings-stack" aria-label="已儲存的 LLM 供應器設定">

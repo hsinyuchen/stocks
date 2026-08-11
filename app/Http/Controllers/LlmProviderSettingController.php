@@ -36,8 +36,17 @@ class LlmProviderSettingController extends Controller
             ])
             ->values();
 
+        // 用 relation method 查詢而非屬性：ApplyFinMindToken middleware 在本請求稍早已
+        // 存取過 finmindSetting 屬性（可能快取了舊狀態），這裡要讀 DB 最新值。
+        $finmind = $request->user()->finmindSetting()->first();
+
         return Inertia::render('Settings/Index', [
             'settings' => $settings,
+            // FinMind token 每人一組；只回是否已設定與更新時間，永不回傳明文 token。
+            'finmind' => [
+                'has_token' => $finmind !== null,
+                'updated_at' => $finmind?->updated_at?->toIso8601String(),
+            ],
         ]);
     }
 
