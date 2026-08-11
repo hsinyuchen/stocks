@@ -9,6 +9,7 @@ use App\Data\MarginFlowData;
 use App\Enums\LlmFailureReason;
 use App\Exceptions\LlmRequestException;
 use App\Models\Instrument;
+use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
 use App\Services\Futures\FuturesDataService;
 use App\Services\Llm\LlmJsonParser;
@@ -45,6 +46,7 @@ class WatchlistAnalysisService
         private readonly ChipDataService $chipData,
         private readonly MarginDataService $marginData,
         private readonly FuturesDataService $futures,
+        private readonly BrokerBranchDataService $brokerData,
         private readonly LlmJsonParser $json = new LlmJsonParser,
     ) {}
 
@@ -249,6 +251,8 @@ class WatchlistAnalysisService
         // 籌碼/融資 service 內部已 best-effort（不拋、回既有快取）。非台股回空陣列。
         $chipFlows = $this->chipData->forInstrument($instrument);
         $marginFlows = $this->marginData->forInstrument($instrument);
+        // 券商分點主力摘要（Sponsor 付費；非台股/免費 token 回 null）。
+        $brokerBranch = $this->brokerData->summaryFor($instrument);
 
         if ($prices === []) {
             return [
@@ -261,6 +265,7 @@ class WatchlistAnalysisService
                 'technical' => null,
                 'chip' => $this->chipSummary($chipFlows),
                 'margin' => $this->marginSummary($marginFlows),
+                'broker_branch' => $brokerBranch,
             ];
         }
 
@@ -286,6 +291,7 @@ class WatchlistAnalysisService
             ],
             'chip' => $this->chipSummary($chipFlows),
             'margin' => $this->marginSummary($marginFlows),
+            'broker_branch' => $brokerBranch,
         ];
     }
 
@@ -310,6 +316,32 @@ class WatchlistAnalysisService
             'foreign_net_sum' => $foreignSum,
             'days' => count($recent),
         ];
+    }
+
+    /**
+     * 券商分點主力一行摘要，供逐檔 prompt 併入。無資料（非台股/需贊助等級）回 null。
+     *
+     * @param  array<string, mixed>|null  $bb
+     */
+    private function brokerBranchNote(?array $bb): ?string
+    {
+        if (! is_array($bb) || ! ($bb['available'] ?? false)) {
+            return null;
+        }
+
+        // 對外文案用「張」（1 張 = 1000 股）。
+        $lots = static fn (int $shares): string => number_format($shares / 1000);
+        $parts = [];
+
+        if (($buyer = $bb['top_buyers'][0] ?? null) !== null) {
+            $parts[] = sprintf('主力買超 %s（%s張，連%d日）', $buyer['broker'], $lots((int) $buyer['net_shares']), (int) $buyer['streak_days']);
+        }
+
+        if (($seller = $bb['top_sellers'][0] ?? null) !== null) {
+            $parts[] = sprintf('主力賣超 %s（%s張，連%d日）', $seller['broker'], $lots(abs((int) $seller['net_shares'])), (int) $seller['streak_days']);
+        }
+
+        return $parts === [] ? null : implode('，', $parts);
     }
 
     /**
@@ -544,6 +576,10 @@ PROMPT;
 
             if (($margin = $stock['margin'] ?? null) !== null && $margin['usage_percent'] !== null) {
                 $parts[] = sprintf('融資使用率 %s%%', $this->num($margin['usage_percent']));
+            }
+
+            if (($note = $this->brokerBranchNote($stock['broker_branch'] ?? null)) !== null) {
+                $parts[] = $note;
             }
 
             $lines[] = $head.'：'.implode('，', array_filter($parts));

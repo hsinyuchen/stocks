@@ -36,7 +36,7 @@ final class SignalFieldGuide
 
             // 仍要走融資指南：兩者各自 best-effort，籌碼抓失敗而融資成功時，
             // rule_signal 裡會有沒被說明的 margin 欄位。
-            return implode("\n", $this->appendMarginGuide($lines, $ruleSignal));
+            return implode("\n", $this->appendBrokerBranchGuide($this->appendMarginGuide($lines, $ruleSignal), $ruleSignal));
         }
 
         $lines[] = '- rule_signal.chip 為台股三大法人買賣超，單位是「股」（1 張 = 1000 股），正值買超、負值賣超；數值為買進減賣出的淨額。';
@@ -47,7 +47,7 @@ final class SignalFieldGuide
         $lines[] = '- 單日買賣超雜訊大。請以 chip.days 期間的合計與 foreign_streak 為主要依據，不要只憑最後一日下結論。';
         $lines[] = '- 籌碼只反映資金流向，不等於基本面或估值判斷，也不保證後續走勢。';
 
-        return implode("\n", $this->appendMarginGuide($lines, $ruleSignal));
+        return implode("\n", $this->appendBrokerBranchGuide($this->appendMarginGuide($lines, $ruleSignal), $ruleSignal));
     }
 
     /**
@@ -78,6 +78,35 @@ final class SignalFieldGuide
         $lines[] = '- 重要：融資增加本身不等於看空。多頭初升段融資與股價同步上升是正常現象。只有在融資增速遠超股價漲幅、或融資增加同時法人賣出時，才構成警訊。';
         $lines[] = '- margin.crossover 是融資與外資的交叉判定，資訊量高於單看融資：retail_chasing（融資增＋外資賣，散戶接刀，套牢籌碼累積）、smart_money_absorbing（融資減＋外資買，籌碼由散戶換手到法人）、aligned_long（兩者同步做多，但槓桿在累積）、aligned_short（多殺多，賣壓可能已宣洩）、none（資料不足或任一方中性，不得強行解讀）。';
         $lines[] = '- 融資資料為收盤後公佈的 T 日數字，不反映盤中變化，也不保證後續走勢。';
+
+        return $lines;
+    }
+
+    /**
+     * 券商分點的欄位指南。
+     *
+     * 分點是「哪一家券商在買/賣」，反映主力（特定分點）的資金流向，與三大法人籌碼
+     * 互補。資料源為 FinMind 贊助等級 dataset，免費 token 抓不到，此時明示未提供、
+     * 不得臆測，避免模型編造主力券商。
+     *
+     * @param  list<string>  $lines
+     * @param  array<string, mixed>  $ruleSignal
+     * @return list<string>
+     */
+    private function appendBrokerBranchGuide(array $lines, array $ruleSignal): array
+    {
+        $broker = $ruleSignal['broker_branch'] ?? null;
+
+        if (! is_array($broker) || ! ($broker['available'] ?? false)) {
+            $lines[] = '- 本次未提供券商分點資料（非台股、需 FinMind 贊助等級、或抓取失敗）。不得臆測主力券商、分點買賣超或特定券商進出。';
+
+            return $lines;
+        }
+
+        $lines[] = '- rule_signal.broker_branch 為券商分點主力摘要，反映「哪些券商分點在買/賣」，單位是「股」（1 張 = 1000 股）。window_days 為採計交易日數。';
+        $lines[] = '- broker_branch.top_buyers / top_sellers 為近期累計淨買超 / 淨賣超前幾大券商，各含 net_shares（淨額）、streak_days（連續同向天數）、days_active（出現天數）。';
+        $lines[] = '- broker_branch.concentration.buy_topn_ratio / sell_topn_ratio 為前幾大券商淨額佔全體同向淨額的比率（0~1）：越接近 1 代表買/賣方越集中於少數主力，越低代表越分散。';
+        $lines[] = '- 主力券商連續多日買超且集中度高，代表特定資金積極布局；連續賣超且集中，代表主力調節。分點只反映資金流向，非基本面或估值判斷，也不保證後續走勢，且不等於三大法人（外資/投信/自營）。';
 
         return $lines;
     }

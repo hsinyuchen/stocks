@@ -43,8 +43,13 @@ final class SymbolContextService
      * false 時 technical_snapshot 為空陣列、rule_signal 為 insufficient_data，
      * 呼叫端據此決定要不要繼續往下走。
      *
+     * $brokerBranch 為券商分點主力摘要（BrokerBranchDataService::summaryFor 的產物），
+     * 由呼叫端傳入並直接掛在 rule_signal.broker_branch。它已是聚合摘要而非原始序列，
+     * 故不經 SignalEngine 計算（保持 stance/score 語意不變）。null 代表無此資料。
+     *
      * @param  list<ChipFlowData>  $chipFlows
      * @param  list<MarginFlowData>  $marginFlows
+     * @param  array<string, mixed>|null  $brokerBranch
      * @return array{
      *     symbol: string,
      *     quote: MarketQuoteData,
@@ -55,7 +60,7 @@ final class SymbolContextService
      *     has_prices: bool
      * }
      */
-    public function forSymbol(string $symbol, array $chipFlows = [], array $marginFlows = []): array
+    public function forSymbol(string $symbol, array $chipFlows = [], array $marginFlows = [], ?array $brokerBranch = null): array
     {
         $quote = $this->marketData->quote($symbol);
         $prices = $this->marketData->dailyPrices($symbol, self::PRICE_BARS);
@@ -66,11 +71,11 @@ final class SymbolContextService
                 'symbol' => $symbol,
                 'quote' => $quote,
                 'technical_snapshot' => [],
-                'rule_signal' => [
+                'rule_signal' => $this->withBrokerBranch([
                     'stance' => 'insufficient_data',
                     'score' => 0,
                     'reasons' => ['缺少價格歷史資料，暫時無法完成個股分析。'],
-                ],
+                ], $brokerBranch),
                 'news' => $news,
                 'data_as_of' => $quote->asOf,
                 'has_prices' => false,
@@ -83,10 +88,30 @@ final class SymbolContextService
             'symbol' => $symbol,
             'quote' => $quote,
             'technical_snapshot' => $technicalSnapshot,
-            'rule_signal' => $this->signals->evaluate($technicalSnapshot, $chipFlows, $marginFlows),
+            'rule_signal' => $this->withBrokerBranch(
+                $this->signals->evaluate($technicalSnapshot, $chipFlows, $marginFlows),
+                $brokerBranch,
+            ),
             'news' => $news,
             'data_as_of' => $quote->asOf,
             'has_prices' => true,
         ];
+    }
+
+    /**
+     * 把券商分點主力摘要掛進 rule_signal（正交維度，不影響 stance/score）。
+     * null 時完全不加欄位，與 chip/margin 缺資料的處理一致。
+     *
+     * @param  array<string, mixed>  $ruleSignal
+     * @param  array<string, mixed>|null  $brokerBranch
+     * @return array<string, mixed>
+     */
+    private function withBrokerBranch(array $ruleSignal, ?array $brokerBranch): array
+    {
+        if (is_array($brokerBranch)) {
+            $ruleSignal['broker_branch'] = $brokerBranch;
+        }
+
+        return $ruleSignal;
     }
 }

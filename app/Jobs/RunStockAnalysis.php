@@ -4,10 +4,12 @@ namespace App\Jobs;
 
 use App\Enums\AnalysisStatus;
 use App\Models\StockAnalysis;
+use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
 use App\Services\Llm\LlmProviderFactory;
 use App\Services\Margin\MarginDataService;
 use App\Services\StockAnalysisService;
+use App\Support\FinMindTokenResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -52,6 +54,8 @@ class RunStockAnalysis implements ShouldQueue
         LlmProviderFactory $factory,
         ChipDataService $chipData,
         MarginDataService $marginData,
+        BrokerBranchDataService $brokerData,
+        FinMindTokenResolver $tokens,
     ): void {
         $analysis = StockAnalysis::query()->with('instrument')->find($this->analysisId);
 
@@ -59,36 +63,46 @@ class RunStockAnalysis implements ShouldQueue
             return;
         }
 
-        // setting 可能在排隊期間被刪除；此時退化成純規則訊號，而不是整筆失敗——
-        // 技術指標對使用者仍有價值。
-        $setting = $this->settingId === null
-            ? null
-            : $analysis->user?->llmProviderSettings()->whereKey($this->settingId)->first();
+        // 用該分析擁有者的 FinMind token 抓台股（未設定則退回全站）；finally 重置，
+        // 避免 override 在常駐 worker 跨 job 殘留。
+        $tokens->useUserToken($analysis->user);
 
-        $llm = $setting === null ? null : $factory->make($setting);
-        $chipFlows = $chipData->forInstrument($analysis->instrument);
-        // 融資與籌碼同為 best-effort：抓不到就少一個維度，不影響其餘分析。
-        $marginFlows = $marginData->forInstrument($analysis->instrument);
+        try {
+            // setting 可能在排隊期間被刪除；此時退化成純規則訊號，而不是整筆失敗——
+            // 技術指標對使用者仍有價值。
+            $setting = $this->settingId === null
+                ? null
+                : $analysis->user?->llmProviderSettings()->whereKey($this->settingId)->first();
 
-        $result = $analysisService->analyze($analysis->instrument->symbol, $this->model, $llm, $chipFlows, $marginFlows);
-        $provider = (string) ($result['llm']['provider'] ?? 'unknown');
+            $llm = $setting === null ? null : $factory->make($setting);
+            $chipFlows = $chipData->forInstrument($analysis->instrument);
+            // 融資與籌碼同為 best-effort：抓不到就少一個維度，不影響其餘分析。
+            $marginFlows = $marginData->forInstrument($analysis->instrument);
+            // 券商分點為 Sponsor 付費資料：免費 token 回 null，走降級不影響其餘分析。
+            $brokerBranch = $brokerData->summaryFor($analysis->instrument);
 
-        // 只在仍是 pending 時寫入：reaper 可能已因逾時把它標成失敗，這裡再寫回
-        // 完成會讓狀態在畫面上來回跳。
-        StockAnalysis::query()
-            ->whereKey($analysis->getKey())
-            ->where('status', AnalysisStatus::Pending->value)
-            ->update([
-                'provider_type' => $provider,
-                'model' => (string) ($result['llm']['model'] ?? $this->model),
-                // provider 'error' 代表 service 已攔下 LLM 例外並降級；規則訊號仍在，
-                // 但使用者要看得出 AI 那段沒跑成功。
-                'status' => $provider === 'error' ? AnalysisStatus::Failed->value : AnalysisStatus::Completed->value,
-                'rule_signal' => json_encode($result['rule_signal'] ?? [], JSON_UNESCAPED_UNICODE),
-                'llm_output' => json_encode($result['llm'] ?? [], JSON_UNESCAPED_UNICODE),
-                'data_as_of' => CarbonImmutable::parse($result['data_as_of']),
-                'updated_at' => now(),
-            ]);
+            $result = $analysisService->analyze($analysis->instrument->symbol, $this->model, $llm, $chipFlows, $marginFlows, $brokerBranch);
+            $provider = (string) ($result['llm']['provider'] ?? 'unknown');
+
+            // 只在仍是 pending 時寫入：reaper 可能已因逾時把它標成失敗，這裡再寫回
+            // 完成會讓狀態在畫面上來回跳。
+            StockAnalysis::query()
+                ->whereKey($analysis->getKey())
+                ->where('status', AnalysisStatus::Pending->value)
+                ->update([
+                    'provider_type' => $provider,
+                    'model' => (string) ($result['llm']['model'] ?? $this->model),
+                    // provider 'error' 代表 service 已攔下 LLM 例外並降級；規則訊號仍在，
+                    // 但使用者要看得出 AI 那段沒跑成功。
+                    'status' => $provider === 'error' ? AnalysisStatus::Failed->value : AnalysisStatus::Completed->value,
+                    'rule_signal' => json_encode($result['rule_signal'] ?? [], JSON_UNESCAPED_UNICODE),
+                    'llm_output' => json_encode($result['llm'] ?? [], JSON_UNESCAPED_UNICODE),
+                    'data_as_of' => CarbonImmutable::parse($result['data_as_of']),
+                    'updated_at' => now(),
+                ]);
+        } finally {
+            $tokens->reset();
+        }
     }
 
     /**

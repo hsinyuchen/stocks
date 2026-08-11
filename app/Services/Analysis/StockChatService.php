@@ -9,6 +9,7 @@ use App\Data\NewsItemData;
 use App\Enums\LlmFailureReason;
 use App\Exceptions\LlmRequestException;
 use App\Models\Instrument;
+use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
 use App\Services\Llm\LlmJsonParser;
@@ -56,6 +57,7 @@ final class StockChatService
         private readonly FundamentalsService $fundamentals,
         private readonly ChipDataService $chip,
         private readonly MarginDataService $margin,
+        private readonly BrokerBranchDataService $brokerBranch,
         private readonly LlmJsonParser $json = new LlmJsonParser,
     ) {}
 
@@ -72,7 +74,10 @@ final class StockChatService
     {
         $chipFlows = $this->chip->forInstrument($instrument);
         $marginFlows = $this->margin->forInstrument($instrument);
-        $base = $this->context->forSymbol($instrument->symbol, $chipFlows, $marginFlows);
+        // 券商分點主力摘要（Sponsor 付費；免費 token 回 null 走降級）。掛進 rule_signal，
+        // 隨 BEGIN_RULE_SIGNAL 一起進 prompt，欄位指南已涵蓋解讀。
+        $brokerBranch = $this->brokerBranch->summaryFor($instrument);
+        $base = $this->context->forSymbol($instrument->symbol, $chipFlows, $marginFlows, $brokerBranch);
         $fundamentals = $this->fundamentals->forInstrument($instrument);
 
         return [

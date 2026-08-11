@@ -9,10 +9,12 @@ use App\Jobs\RunStockAnalysis;
 use App\Models\Instrument;
 use App\Models\StockAnalysis;
 use App\Models\User;
+use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
 use App\Services\Llm\LlmProviderFactory;
 use App\Services\Margin\MarginDataService;
 use App\Services\StockAnalysisService;
+use App\Support\FinMindTokenResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia;
@@ -378,6 +380,8 @@ class StockSearchTest extends TestCase
             app(LlmProviderFactory::class),
             app(ChipDataService::class),
             app(MarginDataService::class),
+            app(BrokerBranchDataService::class),
+            app(FinMindTokenResolver::class),
         );
 
         $this->assertSame(0, StockAnalysis::query()->count());

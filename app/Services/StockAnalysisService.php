@@ -47,6 +47,7 @@ class StockAnalysisService
      *
      * @param  list<ChipFlowData>  $chipFlows
      * @param  list<MarginFlowData>  $marginFlows
+     * @param  array<string, mixed>|null  $brokerBranch  券商分點主力摘要（summaryFor 產物）
      */
     public function analyze(
         string $symbol,
@@ -54,8 +55,9 @@ class StockAnalysisService
         ?LlmProvider $llm = null,
         array $chipFlows = [],
         array $marginFlows = [],
+        ?array $brokerBranch = null,
     ): array {
-        $context = $this->context->forSymbol($symbol, $chipFlows, $marginFlows);
+        $context = $this->context->forSymbol($symbol, $chipFlows, $marginFlows, $brokerBranch);
         $quote = $context['quote'];
         $technicalSnapshot = $context['technical_snapshot'];
         $ruleSignal = $context['rule_signal'];

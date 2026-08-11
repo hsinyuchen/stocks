@@ -15,6 +15,7 @@ use App\Models\LlmProviderSetting;
 use App\Models\StockAnalysis;
 use App\Models\StockChatTurn;
 use App\Models\User;
+use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
 use App\Services\Margin\MarginDataService;
@@ -86,6 +87,9 @@ class StockSearchController extends Controller
         $chipFlows = app(ChipDataService::class)->forInstrument($instrument);
         // 融資融券同為台股限定，且與籌碼共用 FinMind 額度。
         $marginFlows = app(MarginDataService::class)->forInstrument($instrument);
+        // 券商分點主力摘要（Sponsor 付費）。middleware 已將 resolver 設為當前使用者 token，
+        // Sponsor 使用者抓得到，免費 token 回 null → 前端面板顯示需贊助等級。
+        $brokerBranch = app(BrokerBranchDataService::class)->summaryFor($instrument);
 
         // 首載瘦身：不再輸出 prices/indicators，前端掛載後另打 stocks.chart endpoint
         // 取 5 年日/週/月 K 與完整指標序列，避免首頁 payload 過大。
@@ -124,6 +128,8 @@ class StockSearchController extends Controller
                 'usage_percent' => $flow->marginUsagePercent(),
                 'short_ratio' => $flow->shortToMarginPercent(),
             ], array_slice($marginFlows, -20)),
+            // 券商分點主力摘要；null 代表非台股/需贊助等級/抓取失敗，前端據此降級。
+            'brokerBranch' => $brokerBranch,
         ]);
     }
 
@@ -218,6 +224,7 @@ class StockSearchController extends Controller
             'llmProviders' => [],
             'chipFlows' => [],
             'marginFlows' => [],
+            'brokerBranch' => null,
         ];
     }
 

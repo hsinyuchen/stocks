@@ -877,6 +877,106 @@ function MarginPanel({ marginFlows }) {
     );
 }
 
+/**
+ * 券商分點主力面板。
+ *
+ * 券商分點反映「哪一家券商在買/賣」，是散戶追主力的核心籌碼。資料源為 FinMind 贊助
+ * 等級（Sponsor）付費 dataset：免費 token 抓不到，此時顯示提示引導升級，其餘功能不受
+ * 影響。非台股不顯示。
+ */
+function BrokerBranchPanel({ brokerBranch, market }) {
+    if (market !== 'TW') {
+        return null;
+    }
+
+    if (!brokerBranch || !brokerBranch.available) {
+        return (
+            <section className="stock-panel chip-panel">
+                <div className="panel-heading">
+                    <div>
+                        <p className="section-kicker">籌碼面</p>
+                        <h2>券商分點主力</h2>
+                    </div>
+                </div>
+                <p className="fundamentals-disclaimer">
+                    券商分點為 FinMind 贊助等級（Sponsor）付費資料。請在
+                    {' '}
+                    <a href="/settings">系統設定</a>
+                    {' '}
+                    填入你的 Sponsor 等級 FinMind token 後，即可顯示主力券商進出。
+                </p>
+            </section>
+        );
+    }
+
+    const {
+        top_buyers: topBuyers = [],
+        top_sellers: topSellers = [],
+        concentration = {},
+        as_of: asOf,
+        window_days: windowDays,
+    } = brokerBranch;
+
+    const pct = (value) => (value === null || value === undefined ? '—' : `${(Number(value) * 100).toFixed(1)}%`);
+
+    const renderList = (rows) => (
+        rows.length === 0 ? (
+            <p className="field-hint">無</p>
+        ) : (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                {rows.map((row) => (
+                    <li key={row.broker_id} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'baseline' }}>
+                        <span>{row.broker}</span>
+                        <span style={{ display: 'flex', gap: '0.5rem', alignItems: 'baseline' }}>
+                            <strong className={changeClass(row.net_shares)}>{fmtLots(row.net_shares)} 張</strong>
+                            <small style={{ color: 'var(--text-muted, #8a8a8a)' }}>{row.streak_days > 0 ? `連${row.streak_days}日` : ''}</small>
+                        </span>
+                    </li>
+                ))}
+            </ul>
+        )
+    );
+
+    return (
+        <section className="stock-panel chip-panel">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">籌碼面</p>
+                    <h2>券商分點主力（近 {windowDays} 日）</h2>
+                </div>
+                <span className="field-hint">資料日 {asOf}</span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                <div>
+                    <p className="section-kicker" style={{ marginBottom: '0.4rem' }}>主力買超</p>
+                    {renderList(topBuyers)}
+                </div>
+                <div>
+                    <p className="section-kicker" style={{ marginBottom: '0.4rem' }}>主力賣超</p>
+                    {renderList(topSellers)}
+                </div>
+            </div>
+
+            <div className="fundamentals-grid" style={{ marginTop: '0.75rem' }}>
+                <div className="fundamentals-cell">
+                    <span>買方集中度</span>
+                    <strong>{pct(concentration.buy_topn_ratio)}</strong>
+                </div>
+                <div className="fundamentals-cell">
+                    <span>賣方集中度</span>
+                    <strong>{pct(concentration.sell_topn_ratio)}</strong>
+                </div>
+            </div>
+
+            <p className="fundamentals-disclaimer">
+                券商分點反映特定券商（主力）進出，單位為張（1 張 = 1000 股）。集中度為前幾大券商淨額佔全體同向淨額比，越高代表主力越集中。
+                資料來自 FinMind（Sponsor 等級），收盤後公佈。僅供參考，非投資建議。
+            </p>
+        </section>
+    );
+}
+
 export default function StockSearch({
     symbol = null,
     instrument = null,
@@ -888,6 +988,7 @@ export default function StockSearch({
     fundamentals = null,
     chipFlows = [],
     marginFlows = [],
+    brokerBranch = null,
 }) {
     // 分析與問答都在佇列執行，頁面回來時多半還是 pending，靠輪詢把結果補上。
     // 兩者共用同一個計時器：分開會讓同一頁每輪送出兩個 request，而 Inertia 的
@@ -914,6 +1015,7 @@ export default function StockSearch({
                         {instrument ? <ChartSection instrument={instrument} /> : null}
                         <FundamentalsPanel fundamentals={fundamentals} />
                         <ChipPanel chipFlows={chipFlows} />
+                        <BrokerBranchPanel brokerBranch={brokerBranch} market={instrument?.market} />
                         <MarginPanel marginFlows={marginFlows} />
                         <NewsList news={news} />
                     </div>
