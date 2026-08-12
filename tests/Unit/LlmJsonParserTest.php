@@ -60,6 +60,43 @@ class LlmJsonParserTest extends TestCase
         $this->assertNull((new LlmJsonParser)->extract('{decision: answer}'));
     }
 
+    /**
+     * 模型把 LaTeX 寫進 summary（\gg、\approx）會產生 JSON 非法跳脫序列，
+     * 導致整段 json_decode 失敗——實際踩過的：權值股大盤分析把整包原始 JSON
+     * 當純文字印出。修復非法跳脫後仍要救回 summary。
+     */
+    public function test_recovers_summary_with_invalid_latex_escapes(): void
+    {
+        $content = '{"summary":"加權指數 $\gg$ 權值籃子 $\approx$ 0050","points":["結論一"]}';
+
+        $parsed = (new LlmJsonParser)->extract($content);
+
+        $this->assertNotNull($parsed);
+        $this->assertSame('加權指數 $\gg$ 權值籃子 $\approx$ 0050', $parsed['summary']);
+        $this->assertSame(['結論一'], $parsed['points']);
+    }
+
+    /** 合法跳脫（\n、\"、已成對的 \\）不得被重複轉義。 */
+    public function test_preserves_valid_escapes(): void
+    {
+        $content = '{"summary":"第一行\n第二行 \"引號\" 路徑 C:\\\\tmp"}';
+
+        $parsed = (new LlmJsonParser)->extract($content);
+
+        $this->assertSame("第一行\n第二行 \"引號\" 路徑 C:\\tmp", $parsed['summary']);
+    }
+
+    /** summary 字串內含裸括號時，括號計數不能提早收尾切出破碎 JSON。 */
+    public function test_handles_braces_inside_string_values(): void
+    {
+        $content = '{"summary":"條件為 if (x) { y } 的情境","decision":"answer"}';
+
+        $parsed = (new LlmJsonParser)->extract($content);
+
+        $this->assertSame('answer', $parsed['decision']);
+        $this->assertSame('條件為 if (x) { y } 的情境', $parsed['summary']);
+    }
+
     public function test_clean_strips_code_fences(): void
     {
         $this->assertSame('內容', (new LlmJsonParser)->clean("```json\n內容\n```"));

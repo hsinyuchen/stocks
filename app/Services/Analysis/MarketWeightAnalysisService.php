@@ -524,6 +524,7 @@ BEGIN_CONSTRAINTS
 - stance 為系統規則訊號（bullish/bearish/neutral/insufficient_data），是輔助參考而非既成事實，你可依技術數據自行判斷並說明理由。
 - 標為「無法取得」的指標代表本次抓取失敗，請當作缺值處理，不要臆測其數值或方向。
 - 權重為靜態近似值，不要宣稱是即時精確權重或 0050 實際成分。
+- summary 內不要使用 LaTeX 或數學符號語法（如 \gg、\approx、\$...\$）；要比較大小就用文字或 ≈、≫、＞ 等符號，避免產生非法的 JSON 跳脫。
 END_CONSTRAINTS
 
 請只回傳一個 JSON 物件，格式如下，不要附加其他文字：
