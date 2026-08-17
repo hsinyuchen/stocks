@@ -135,6 +135,7 @@ class ProfileTest extends TestCase
         $this->actingAs($user)
             ->patch('/profile/preferences', [
                 'theme' => 'dark',
+                'locale' => 'en',
                 'timezone' => 'America/New_York',
                 'preferred_market' => 'US',
             ])
@@ -143,8 +144,29 @@ class ProfileTest extends TestCase
         $profile = $user->fresh()->profile;
 
         $this->assertSame('dark', $profile->theme);
+        $this->assertSame('en', $profile->locale);
         $this->assertSame('America/New_York', $profile->timezone);
         $this->assertSame('US', $profile->preferred_market);
+    }
+
+    public function test_locale_can_be_updated_on_its_own(): void
+    {
+        $user = $this->user();
+
+        $this->actingAs($user)
+            ->post('/profile/locale', ['locale' => 'en'])
+            ->assertRedirect();
+
+        $this->assertSame('en', $user->fresh()->profile->locale);
+    }
+
+    public function test_invalid_locale_is_rejected(): void
+    {
+        $user = $this->user();
+
+        $this->actingAs($user)
+            ->post('/profile/locale', ['locale' => 'fr'])
+            ->assertSessionHasErrors('locale');
     }
 
     public function test_invalid_preferences_are_rejected(): void

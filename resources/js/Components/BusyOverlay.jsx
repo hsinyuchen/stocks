@@ -1,5 +1,6 @@
 import { router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
+import { useI18n } from '../i18n';
 
 /**
  * 遮罩出現的延遲。
@@ -39,6 +40,7 @@ function isBackgroundVisit(visit) {
  * 那段改由 useAnalysisPolling 的離開提醒負責。
  */
 export default function BusyOverlay() {
+    const { t } = useI18n();
     const [visible, setVisible] = useState(false);
     const [method, setMethod] = useState('get');
     // 攔截 handler 在 effect 建立時就綁定，讀 state 會拿到當下的閉包值，故用 ref。
@@ -119,8 +121,8 @@ export default function BusyOverlay() {
         <div aria-busy="true" aria-live="assertive" className="busy-overlay" role="status">
             <div className="busy-overlay__box">
                 <span aria-hidden="true" className="busy-overlay__spinner" />
-                <strong>{method === 'get' ? '載入中…' : '處理中…'}</strong>
-                <span className="busy-overlay__note">請稍候，完成前請勿離開或切換頁面。</span>
+                <strong>{method === 'get' ? t('common.loading') : t('busyOverlay.processing')}</strong>
+                <span className="busy-overlay__note">{t('busyOverlay.note')}</span>
             </div>
         </div>
     );

@@ -44,6 +44,7 @@ class RunStockChatReply implements ShouldQueue
         private readonly int $turnId,
         private readonly int $settingId,
         private readonly string $model,
+        private readonly string $locale = 'zh',
     ) {}
 
     public function handle(StockChatService $chat, LlmProviderFactory $factory, FinMindTokenResolver $tokens): void
@@ -71,7 +72,9 @@ class RunStockChatReply implements ShouldQueue
                 $this->finish($turn, [
                     'provider_type' => 'error',
                     'status' => AnalysisStatus::Failed,
-                    'answer' => '這次提問使用的 AI 模型設定已被刪除。'.$failure['hint'],
+                    'answer' => ($this->locale === 'en'
+                        ? 'The AI model setting used for this question has been deleted.'
+                        : '這次提問使用的 AI 模型設定已被刪除。').$failure['hint'],
                     'metadata' => ['error' => true, 'failure' => $failure],
                 ]);
 
@@ -86,6 +89,7 @@ class RunStockChatReply implements ShouldQueue
                 $history,
                 $this->model,
                 $factory->make($setting),
+                $this->locale,
             );
 
             $this->finish($turn, [

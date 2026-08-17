@@ -1,10 +1,12 @@
 import axios from 'axios';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Loader2, Search } from 'lucide-react';
+import { useI18n } from '../i18n';
 
+// 值為 i18n key，於 render 端以 t() 翻譯。
 const marketLabels = {
-    tw: '台股',
-    us: '美股',
+    tw: 'stockSearchBox.marketTw',
+    us: 'stockSearchBox.marketUs',
 };
 
 /**
@@ -12,6 +14,7 @@ const marketLabels = {
  * 台股/美股 toggle. Calls onSelect(result) — result is { symbol, name, market, exchange? }.
  */
 export default function StockSearchBox({ market: initialMarket = 'tw', placeholder, onSelect }) {
+    const { t } = useI18n();
     const [market, setMarket] = useState(initialMarket === 'us' ? 'us' : 'tw');
     const [query, setQuery] = useState('');
     const [results, setResults] = useState([]);
@@ -102,7 +105,7 @@ export default function StockSearchBox({ market: initialMarket = 'tw', placehold
     return (
         <div className="search-box" ref={rootRef}>
             <div className="search-box__controls">
-                <div className="segmented" role="group" aria-label="搜尋市場">
+                <div className="segmented" role="group" aria-label={t('stockSearchBox.marketGroupLabel')}>
                     {['tw', 'us'].map((value) => (
                         <button
                             key={value}
@@ -110,7 +113,7 @@ export default function StockSearchBox({ market: initialMarket = 'tw', placehold
                             aria-pressed={market === value}
                             onClick={() => switchMarket(value)}
                         >
-                            {marketLabels[value]}
+                            {t(marketLabels[value])}
                         </button>
                     ))}
                 </div>
@@ -124,7 +127,7 @@ export default function StockSearchBox({ market: initialMarket = 'tw', placehold
                         aria-autocomplete="list"
                         autoComplete="off"
                         maxLength="64"
-                        placeholder={placeholder ?? (market === 'tw' ? '輸入名稱或代號，例如 台積電 或 2330' : '輸入名稱或代號，例如 Nvidia 或 NVDA')}
+                        placeholder={placeholder ?? (market === 'tw' ? t('stockSearchBox.placeholderTw') : t('stockSearchBox.placeholderUs'))}
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         onFocus={() => {
@@ -143,9 +146,9 @@ export default function StockSearchBox({ market: initialMarket = 'tw', placehold
             {showDropdown ? (
                 <ul className="search-box__results" id={listboxId} role="listbox">
                     {loading && results.length === 0 ? (
-                        <li className="search-box__hint" role="presentation">搜尋中…</li>
+                        <li className="search-box__hint" role="presentation">{t('stockSearchBox.searching')}</li>
                     ) : results.length === 0 ? (
-                        <li className="search-box__hint" role="presentation">找不到符合的股票</li>
+                        <li className="search-box__hint" role="presentation">{t('stockSearchBox.noResults')}</li>
                     ) : (
                         results.map((result) => (
                             <li key={`${result.market}-${result.symbol}`} role="option" aria-selected="false">
@@ -156,7 +159,7 @@ export default function StockSearchBox({ market: initialMarket = 'tw', placehold
                                 >
                                     <strong>{result.symbol}</strong>
                                     <span className="search-box__name">{result.name}</span>
-                                    <span className="search-box__badge">{marketLabels[market]}</span>
+                                    <span className="search-box__badge">{t(marketLabels[market])}</span>
                                 </button>
                             </li>
                         ))

@@ -1,5 +1,6 @@
 import { useForm } from '@inertiajs/react';
 import { KeyRound } from 'lucide-react';
+import { useI18n } from '../../i18n';
 
 function FieldError({ message }) {
     if (!message) {
@@ -10,6 +11,7 @@ function FieldError({ message }) {
 }
 
 export default function ResetPassword({ token, email }) {
+    const { t } = useI18n();
     const form = useForm({
         token,
         email,
@@ -24,15 +26,15 @@ export default function ResetPassword({ token, email }) {
 
     return (
         <main className="auth-page">
-            <section className="auth-grid" aria-label="重設密碼">
+            <section className="auth-grid" aria-label={t('resetPassword.regionLabel')}>
                 <form className="auth-card" onSubmit={submit}>
                     <div>
-                        <p className="section-kicker">重設密碼</p>
-                        <h2>設定新密碼</h2>
-                        <p>帳號：{email}</p>
+                        <p className="section-kicker">{t('resetPassword.kicker')}</p>
+                        <h2>{t('resetPassword.heading')}</h2>
+                        <p>{t('resetPassword.account', { email })}</p>
                     </div>
                     <label className="form-field">
-                        <span>新密碼</span>
+                        <span>{t('resetPassword.newPassword')}</span>
                         <input
                             autoComplete="new-password"
                             onChange={(event) => form.setData('password', event.target.value)}
@@ -42,7 +44,7 @@ export default function ResetPassword({ token, email }) {
                         <FieldError message={form.errors.password} />
                     </label>
                     <label className="form-field">
-                        <span>確認新密碼</span>
+                        <span>{t('resetPassword.confirmNewPassword')}</span>
                         <input
                             autoComplete="new-password"
                             onChange={(event) => form.setData('password_confirmation', event.target.value)}
@@ -54,7 +56,7 @@ export default function ResetPassword({ token, email }) {
                     <FieldError message={form.errors.email} />
                     <button className="button-primary" disabled={form.processing} type="submit">
                         <KeyRound aria-hidden="true" size={18} />
-                        <span>重設密碼</span>
+                        <span>{t('resetPassword.submit')}</span>
                     </button>
                 </form>
             </section>

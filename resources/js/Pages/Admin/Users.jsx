@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { KeyRound, ShieldCheck, ShieldOff, Trash2, UserPlus, UserX, UserCheck } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 import Pagination from '../../Components/Pagination';
+import { useI18n } from '../../i18n';
 
 function formatDate(value) {
     if (!value) {
@@ -17,6 +18,7 @@ function formatDate(value) {
 }
 
 function CreateUserForm() {
+    const { t } = useI18n();
     const [open, setOpen] = useState(false);
     const form = useForm({ name: '', email: '', password: '' });
 
@@ -32,7 +34,7 @@ function CreateUserForm() {
         return (
             <button className="button-primary" onClick={() => setOpen(true)} type="button">
                 <UserPlus aria-hidden="true" size={18} />
-                <span>建立使用者</span>
+                <span>{t('adminUsers.createUser')}</span>
             </button>
         );
     }
@@ -40,7 +42,7 @@ function CreateUserForm() {
     return (
         <form className="admin-create-form" onSubmit={submit}>
             <label className="form-field">
-                <span>姓名</span>
+                <span>{t('adminUsers.name')}</span>
                 <input
                     onChange={(event) => form.setData('name', event.target.value)}
                     type="text"
@@ -49,7 +51,7 @@ function CreateUserForm() {
                 {form.errors.name ? <p className="field-error">{form.errors.name}</p> : null}
             </label>
             <label className="form-field">
-                <span>電子郵件</span>
+                <span>{t('adminUsers.emailLabel')}</span>
                 <input
                     onChange={(event) => form.setData('email', event.target.value)}
                     type="email"
@@ -58,7 +60,7 @@ function CreateUserForm() {
                 {form.errors.email ? <p className="field-error">{form.errors.email}</p> : null}
             </label>
             <label className="form-field">
-                <span>初始密碼（留空由系統產生）</span>
+                <span>{t('adminUsers.initialPassword')}</span>
                 <input
                     onChange={(event) => form.setData('password', event.target.value)}
                     type="text"
@@ -68,10 +70,10 @@ function CreateUserForm() {
             </label>
             <div className="admin-create-form__actions">
                 <button className="button-primary" disabled={form.processing} type="submit">
-                    建立
+                    {t('adminUsers.create')}
                 </button>
                 <button className="button-secondary" onClick={() => setOpen(false)} type="button">
-                    取消
+                    {t('common.cancel')}
                 </button>
             </div>
         </form>
@@ -79,6 +81,7 @@ function CreateUserForm() {
 }
 
 function DeleteConfirm({ user, onCancel }) {
+    const { t } = useI18n();
     const [confirmEmail, setConfirmEmail] = useState('');
 
     const [submitting, setSubmitting] = useState(false);
@@ -98,8 +101,7 @@ function DeleteConfirm({ user, onCancel }) {
     return (
         <div className="admin-delete-confirm">
             <p>
-                將永久刪除 <strong>{user.email}</strong> 與其全部自選清單、分析紀錄與 LLM 設定。
-                輸入該使用者的 email 以確認：
+                {t('adminUsers.deleteWarningPre')} <strong>{user.email}</strong> {t('adminUsers.deleteWarningPost')}
             </p>
             <input
                 onChange={(event) => setConfirmEmail(event.target.value)}
@@ -114,10 +116,10 @@ function DeleteConfirm({ user, onCancel }) {
                     onClick={submit}
                     type="button"
                 >
-                    永久刪除
+                    {t('adminUsers.permanentDelete')}
                 </button>
                 <button className="button-secondary" onClick={onCancel} type="button">
-                    取消
+                    {t('common.cancel')}
                 </button>
             </div>
         </div>
@@ -125,11 +127,12 @@ function DeleteConfirm({ user, onCancel }) {
 }
 
 function UserRow({ user, selfId, isLastActiveAdmin }) {
+    const { t } = useI18n();
     const [deleting, setDeleting] = useState(false);
     const [pendingAction, setPendingAction] = useState(null);
     const isSelf = user.id === selfId;
     const locked = isSelf || isLastActiveAdmin;
-    const lockReason = isSelf ? '不能對自己操作' : '最後一位有效管理員';
+    const lockReason = isSelf ? t('adminUsers.lockSelf') : t('adminUsers.lockLastAdmin');
 
     const act = (method, path, confirmLabel) => {
         if (confirmLabel) {
@@ -166,15 +169,15 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                     <br />
                     <small>{user.email}</small>
                 </td>
-                <td>{user.is_admin ? <span className="badge badge--admin">管理員</span> : '一般'}</td>
+                <td>{user.is_admin ? <span className="badge badge--admin">{t('adminUsers.roleAdmin')}</span> : t('adminUsers.roleNormal')}</td>
                 <td>
                     {/* 待審核優先於停用：未核准的帳號從來沒有被啟用過，
                         顯示成「正常」或「停用」都是錯的。 */}
                     {user.approved_at === null
-                        ? <span className="badge badge--pending">待審核</span>
+                        ? <span className="badge badge--pending">{t('adminUsers.statusPending')}</span>
                         : user.disabled_at
-                            ? <span className="badge badge--disabled">停用</span>
-                            : <span className="badge badge--active">正常</span>}
+                            ? <span className="badge badge--disabled">{t('adminUsers.statusDisabled')}</span>
+                            : <span className="badge badge--active">{t('adminUsers.statusActive')}</span>}
                 </td>
                 <td>{formatDate(user.created_at)}</td>
                 <td>{user.watchlists_count}</td>
@@ -187,15 +190,15 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                         <>
                             <button
                                 className="admin-approve"
-                                onClick={() => act('patch', `/admin/users/${user.id}/approve`, `核准 ${user.email} 的申請？`)}
-                                title="核准"
+                                onClick={() => act('patch', `/admin/users/${user.id}/approve`, t('adminUsers.confirmApprove', { email: user.email }))}
+                                title={t('adminUsers.approve')}
                                 type="button"
                             >
                                 <UserCheck size={16} />
                             </button>
                             <button
-                                onClick={() => act('delete', `/admin/users/${user.id}/reject`, `駁回並刪除 ${user.email} 的申請？`)}
-                                title="駁回申請"
+                                onClick={() => act('delete', `/admin/users/${user.id}/reject`, t('adminUsers.confirmReject', { email: user.email }))}
+                                title={t('adminUsers.rejectApplication')}
                                 type="button"
                             >
                                 <UserX size={16} />
@@ -204,7 +207,7 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                     ) : user.disabled_at ? (
                         <button
                             onClick={() => act('patch', `/admin/users/${user.id}/enable`)}
-                            title="啟用"
+                            title={t('adminUsers.enable')}
                             type="button"
                         >
                             <UserCheck size={16} />
@@ -212,8 +215,8 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                     ) : (
                         <button
                             disabled={locked}
-                            onClick={() => act('patch', `/admin/users/${user.id}/disable`, `停用 ${user.email}？`)}
-                            title={locked ? lockReason : '停用'}
+                            onClick={() => act('patch', `/admin/users/${user.id}/disable`, t('adminUsers.confirmDisable', { email: user.email }))}
+                            title={locked ? lockReason : t('adminUsers.disable')}
                             type="button"
                         >
                             <UserX size={16} />
@@ -228,16 +231,16 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                                 onClick={() => act(
                                     'patch',
                                     `/admin/users/${user.id}/role`,
-                                    user.is_admin ? `將 ${user.email} 降為一般使用者？` : `將 ${user.email} 升為管理員？`,
+                                    user.is_admin ? t('adminUsers.confirmDemote', { email: user.email }) : t('adminUsers.confirmPromote', { email: user.email }),
                                 )}
-                                title={user.is_admin && locked ? lockReason : (user.is_admin ? '降為一般' : '升為管理員')}
+                                title={user.is_admin && locked ? lockReason : (user.is_admin ? t('adminUsers.demote') : t('adminUsers.promote'))}
                                 type="button"
                             >
                                 {user.is_admin ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
                             </button>
                             <button
-                                onClick={() => act('post', `/admin/users/${user.id}/reset-link`, `寄密碼重設信給 ${user.email}？`)}
-                                title="寄密碼重設信"
+                                onClick={() => act('post', `/admin/users/${user.id}/reset-link`, t('adminUsers.confirmResetLink', { email: user.email }))}
+                                title={t('adminUsers.sendResetLink')}
                                 type="button"
                             >
                                 <KeyRound size={16} />
@@ -245,7 +248,7 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                             <button
                                 disabled={locked}
                                 onClick={() => setDeleting(true)}
-                                title={locked ? lockReason : '刪除'}
+                                title={locked ? lockReason : t('common.delete')}
                                 type="button"
                             >
                                 <Trash2 size={16} />
@@ -273,7 +276,7 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                                     onClick={confirmPendingAction}
                                     type="button"
                                 >
-                                    確認
+                                    {t('common.confirm')}
                                 </button>
                                 <button
                                     className="button-secondary"
@@ -281,7 +284,7 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
                                     onClick={() => setPendingAction(null)}
                                     type="button"
                                 >
-                                    取消
+                                    {t('common.cancel')}
                                 </button>
                             </div>
                         </div>
@@ -293,6 +296,7 @@ function UserRow({ user, selfId, isLastActiveAdmin }) {
 }
 
 export default function AdminUsers({ users = { data: [], links: [] }, filters = {}, pendingCount = 0 }) {
+    const { t } = useI18n();
     const { props } = usePage();
     const selfId = props.auth?.user?.id;
     const flash = props.flash ?? {};
@@ -308,12 +312,12 @@ export default function AdminUsers({ users = { data: [], links: [] }, filters = 
     };
 
     return (
-        <AppShell title="使用者管理">
+        <AppShell title={t('adminUsers.pageTitle')}>
             <section className="stock-panel admin-users">
                 <header className="admin-users__header">
                     <div>
-                        <p className="section-kicker">總管理</p>
-                        <h2>使用者管理</h2>
+                        <p className="section-kicker">{t('adminUsers.kicker')}</p>
+                        <h2>{t('adminUsers.heading')}</h2>
                     </div>
                     <CreateUserForm />
                 </header>
@@ -321,7 +325,7 @@ export default function AdminUsers({ users = { data: [], links: [] }, filters = 
                 {/* 待審核是唯一需要管理員主動處理的狀態，搜尋或翻頁時也要看得到。 */}
                 {pendingCount > 0 ? (
                     <p className="admin-pending-banner" role="status">
-                        有 {pendingCount} 筆註冊申請待審核，已排在列表最前面。
+                        {t('adminUsers.pendingBanner', { count: pendingCount })}
                     </p>
                 ) : null}
 
@@ -329,32 +333,32 @@ export default function AdminUsers({ users = { data: [], links: [] }, filters = 
                 {flash.success ? <p className="field-hint">{flash.success}</p> : null}
                 {flash.generated_password ? (
                     <p className="admin-generated-password">
-                        系統產生的初始密碼（僅顯示這一次）：<code>{flash.generated_password}</code>
+                        {t('adminUsers.generatedPasswordLabel')}<code>{flash.generated_password}</code>
                     </p>
                 ) : null}
 
                 <form className="admin-users__search" onSubmit={search}>
                     <input
                         onChange={(event) => setQ(event.target.value)}
-                        placeholder="搜尋名稱或 email"
+                        placeholder={t('adminUsers.searchPlaceholder')}
                         type="search"
                         value={q}
                     />
-                    <button className="button-secondary" type="submit">搜尋</button>
+                    <button className="button-secondary" type="submit">{t('common.search')}</button>
                 </form>
 
                 <div className="admin-users__table-wrap">
                     <table className="admin-users__table">
                         <thead>
                             <tr>
-                                <th>使用者</th>
-                                <th>角色</th>
-                                <th>狀態</th>
-                                <th>註冊</th>
-                                <th>自選</th>
-                                <th>分析</th>
+                                <th>{t('adminUsers.colUser')}</th>
+                                <th>{t('adminUsers.colRole')}</th>
+                                <th>{t('adminUsers.colStatus')}</th>
+                                <th>{t('adminUsers.colRegistered')}</th>
+                                <th>{t('adminUsers.colWatchlists')}</th>
+                                <th>{t('adminUsers.colAnalyses')}</th>
                                 <th>LLM</th>
-                                <th>操作</th>
+                                <th>{t('adminUsers.colActions')}</th>
                             </tr>
                         </thead>
                         <tbody>

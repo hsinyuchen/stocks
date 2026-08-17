@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useMemo, useState } from 'react';
 import { ListChecks, Loader2, ScanSearch } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
+import { useI18n } from '../../i18n';
 
 function formatPrice(value) {
     if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -27,6 +28,7 @@ function ChangePercent({ value }) {
 // 每列「加自選」控制項：選 watchlist → Inertia post 既有 addItem（symbol 模式）。
 // 防雙擊沿用 Admin/Users 的 per-row submitting state。
 function AddToWatchlist({ symbol, name, watchlists }) {
+    const { t } = useI18n();
     const [targetId, setTargetId] = useState(watchlists[0]?.id ?? '');
     const [submitting, setSubmitting] = useState(false);
     const [added, setAdded] = useState(false);
@@ -35,7 +37,7 @@ function AddToWatchlist({ symbol, name, watchlists }) {
     if (watchlists.length === 0) {
         return (
             <Link className="panel-link" href="/watchlists">
-                先建立自選清單
+                {t('screener.createWatchlistFirst')}
             </Link>
         );
     }
@@ -57,7 +59,7 @@ function AddToWatchlist({ symbol, name, watchlists }) {
                     setAdded(true);
                     setError(null);
                 },
-                onError: (errors) => setError(Object.values(errors)[0] ?? '加入失敗'),
+                onError: (errors) => setError(Object.values(errors)[0] ?? t('screener.addFailed')),
                 onFinish: () => setSubmitting(false),
             },
         );
@@ -66,7 +68,7 @@ function AddToWatchlist({ symbol, name, watchlists }) {
     return (
         <div className="screener-add">
             <select
-                aria-label={`選擇要加入 ${symbol} 的自選清單`}
+                aria-label={t('screener.selectWatchlistFor', { symbol })}
                 disabled={submitting}
                 onChange={(event) => setTargetId(event.target.value)}
                 value={targetId}
@@ -83,7 +85,7 @@ function AddToWatchlist({ symbol, name, watchlists }) {
                 onClick={submit}
                 type="button"
             >
-                {added ? '已加入' : '加入'}
+                {added ? t('screener.added') : t('screener.add')}
             </button>
             {error ? <span className="field-error">{error}</span> : null}
         </div>
@@ -98,13 +100,11 @@ function AddToWatchlist({ symbol, name, watchlists }) {
  * 再補一句「其中幾支是你追蹤的」。
  */
 function PoolSummary({ poolCount, watchlistCount }) {
-    return (
-        <>
-            本次可掃描 {poolCount} 支（全站標的清單，不含指數）
-            {watchlistCount > 0 ? <>，其中 {watchlistCount} 支在你的自選清單</> : null}
-            。
-        </>
-    );
+    const { t } = useI18n();
+
+    return watchlistCount > 0
+        ? t('screener.poolSummaryWithWatchlist', { poolCount, watchlistCount })
+        : t('screener.poolSummary', { count: poolCount });
 }
 
 /**
@@ -114,6 +114,7 @@ function PoolSummary({ poolCount, watchlistCount }) {
  * 確認自己關心的標的有沒有被涵蓋。
  */
 function PoolList({ pool }) {
+    const { t } = useI18n();
     const [open, setOpen] = useState(false);
 
     if (pool.length === 0) {
@@ -124,13 +125,13 @@ function PoolList({ pool }) {
         <div className="screener-pool">
             <button className="screener-pool__toggle" onClick={() => setOpen((v) => !v)} type="button">
                 <ListChecks aria-hidden="true" size={14} />
-                {open ? '收合股票清單' : `檢視全部 ${pool.length} 支股票`}
+                {open ? t('screener.collapseStockList') : t('screener.viewAllStocks', { count: pool.length })}
             </button>
 
             {open ? (
                 <div className="screener-pool__body">
                     <p className="screener-pool__legend">
-                        <span className="screener-pool__tag screener-pool__tag--watchlist">自選</span> 在你的自選清單中
+                        <span className="screener-pool__tag screener-pool__tag--watchlist">{t('screener.watchlistTag')}</span> {t('screener.inYourWatchlist')}
                     </p>
                     <ul className="screener-pool__list">
                         {pool.map((entry) => (
@@ -140,7 +141,7 @@ function PoolList({ pool }) {
                                     <span>{entry.name}</span>
                                 </a>
                                 {entry.in_watchlist ? (
-                                    <span className="screener-pool__tag screener-pool__tag--watchlist">自選</span>
+                                    <span className="screener-pool__tag screener-pool__tag--watchlist">{t('screener.watchlistTag')}</span>
                                 ) : null}
                             </li>
                         ))}
@@ -158,6 +159,7 @@ export default function ScreenerIndex({
     watchlistCount = 0,
     pool = [],
 }) {
+    const { t } = useI18n();
     const [selectedRules, setSelectedRules] = useState([]);
     const [excludedRules, setExcludedRules] = useState([]);
     const [picked, setPicked] = useState([]);
@@ -210,7 +212,7 @@ export default function ScreenerIndex({
             setPicked([]);
             setIssuesOpen(false);
         } catch {
-            setError('掃描失敗，請稍後重試。');
+            setError(t('screener.scanFailed'));
         } finally {
             setScanning(false);
         }
@@ -219,24 +221,24 @@ export default function ScreenerIndex({
     const issueCount = result ? result.failures.length + result.skipped.length : 0;
 
     return (
-        <AppShell title="選股器">
+        <AppShell title={t('screener.title')}>
             <section className="stock-panel screener">
                 <header className="screener__header">
                     <div>
                         <p className="section-kicker">
                             <ScanSearch aria-hidden="true" size={16} />
-                            技術選股
+                            {t('screener.kicker')}
                         </p>
-                        <h2>選股器</h2>
+                        <h2>{t('screener.heading')}</h2>
                         <p className="screener__subtitle">
                             <PoolSummary poolCount={poolCount} watchlistCount={watchlistCount} />
-                            點擊規則切換「必要 → 排除 → 取消」：必要條件須全部成立，命中任一排除條件即淘汰。結果依訊號強度排序。
+                            {t('screener.subtitleInstruction')}
                         </p>
                         <PoolList pool={pool} />
                     </div>
                 </header>
 
-                <div className="screener-rules" role="group" aria-label="選股規則">
+                <div className="screener-rules" role="group" aria-label={t('screener.rulesGroupLabel')}>
                     {rules.map((rule) => {
                         const required = selectedRules.includes(rule.key);
                         const excluded = excludedRules.includes(rule.key);
@@ -248,10 +250,10 @@ export default function ScreenerIndex({
                                 className={`screener-chip ${state ? `screener-chip${state}` : ''}`}
                                 key={rule.key}
                                 onClick={() => cycleRule(rule.key)}
-                                title="點擊切換：必要 → 排除 → 取消"
+                                title={t('screener.ruleToggleHint')}
                                 type="button"
                             >
-                                {excluded ? '排除 ' : ''}{rule.label}
+                                {excluded ? t('screener.excludePrefix') : ''}{rule.label}
                             </button>
                         );
                     })}
@@ -267,17 +269,17 @@ export default function ScreenerIndex({
                         {scanning ? (
                             <>
                                 <Loader2 aria-hidden="true" className="screener-spin" size={18} />
-                                <span>掃描中…</span>
+                                <span>{t('screener.scanning')}</span>
                             </>
                         ) : (
                             <>
                                 <ScanSearch aria-hidden="true" size={18} />
-                                <span>開始掃描</span>
+                                <span>{t('screener.startScan')}</span>
                             </>
                         )}
                     </button>
                     {scanning ? (
-                        <span className="screener-hint">首次掃描需拉取資料，可能較慢</span>
+                        <span className="screener-hint">{t('screener.firstScanHint')}</span>
                     ) : null}
                 </div>
 
@@ -285,7 +287,7 @@ export default function ScreenerIndex({
                     <div className="screener-error">
                         <p className="field-error">{error}</p>
                         <button className="button-secondary" onClick={scan} type="button">
-                            重試
+                            {t('common.retry')}
                         </button>
                     </div>
                 ) : null}
@@ -293,7 +295,7 @@ export default function ScreenerIndex({
                 {result ? (
                     <div className="screener-result">
                         <p className="screener-result__meta">
-                            掃描 {result.scanned} 支，命中 {result.results.length} 支。
+                            {t('screener.resultMeta', { scanned: result.scanned, matched: result.results.length })}
                         </p>
 
                         {issueCount > 0 ? (
@@ -304,21 +306,21 @@ export default function ScreenerIndex({
                                     onClick={() => setIssuesOpen((open) => !open)}
                                     type="button"
                                 >
-                                    {result.failures.length} 支失敗 / {result.skipped.length} 支略過
-                                    {issuesOpen ? '（收合）' : '（展開）'}
+                                    {t('screener.issuesSummary', { failed: result.failures.length, skipped: result.skipped.length })}
+                                    {issuesOpen ? t('screener.collapse') : t('screener.expand')}
                                 </button>
                                 {issuesOpen ? (
                                     <div className="screener-issues__body">
                                         {result.failures.length > 0 ? (
                                             <p>
-                                                失敗：
+                                                {t('screener.failuresLabel')}
                                                 {result.failures
-                                                    .map((failure) => `${failure.symbol}（${failure.reason}）`)
+                                                    .map((failure) => t('screener.failureItem', { symbol: failure.symbol, reason: failure.reason }))
                                                     .join('、')}
                                             </p>
                                         ) : null}
                                         {result.skipped.length > 0 ? (
-                                            <p>略過（逾時間預算）：{result.skipped.join('、')}</p>
+                                            <p>{t('screener.skippedLabel')}{result.skipped.join('、')}</p>
                                         ) : null}
                                     </div>
                                 ) : null}
@@ -326,7 +328,7 @@ export default function ScreenerIndex({
                         ) : null}
 
                         {result.results.length === 0 ? (
-                            <p className="dashboard-empty">沒有符合條件的股票。</p>
+                            <p className="dashboard-empty">{t('screener.noMatches')}</p>
                         ) : (
                             <>
                             {/* 批次加入：走 /screener/watchlist，該端點會驗證代號確實在
@@ -334,7 +336,7 @@ export default function ScreenerIndex({
                                 否則它會變成繞過個股搜尋直接建 instrument 的入口。 */}
                             {picked.length > 0 && watchlists.length > 0 && result.run_id ? (
                                 <div className="screener-bulk">
-                                    <span>已選 {picked.length} 檔</span>
+                                    <span>{t('screener.selectedCount', { count: picked.length })}</span>
                                     <select onChange={(e) => setTargetList(e.target.value)} value={targetList}>
                                         {watchlists.map((w) => (
                                             <option key={w.id} value={String(w.id)}>{w.name}</option>
@@ -353,10 +355,10 @@ export default function ScreenerIndex({
                                         })}
                                         type="button"
                                     >
-                                        加入自選清單
+                                        {t('screener.addToWatchlist')}
                                     </button>
                                     <button className="screener-bulk__clear" onClick={() => setPicked([])} type="button">
-                                        取消選取
+                                        {t('screener.clearSelection')}
                                     </button>
                                 </div>
                             ) : null}
@@ -367,20 +369,20 @@ export default function ScreenerIndex({
                                         <tr>
                                             <th>
                                                 <input
-                                                    aria-label="全選"
+                                                    aria-label={t('screener.selectAll')}
                                                     checked={picked.length > 0 && picked.length === result.results.length}
                                                     onChange={(e) => setPicked(e.target.checked ? result.results.map((r) => r.symbol) : [])}
                                                     type="checkbox"
                                                 />
                                             </th>
-                                            <th>代號</th>
-                                            <th>名稱</th>
-                                            <th>收盤</th>
-                                            <th>漲跌%</th>
-                                            <th>強度</th>
-                                            <th>命中訊號</th>
-                                            <th>資料日期</th>
-                                            <th>加自選</th>
+                                            <th>{t('screener.colSymbol')}</th>
+                                            <th>{t('screener.colName')}</th>
+                                            <th>{t('screener.colClose')}</th>
+                                            <th>{t('screener.colChangePercent')}</th>
+                                            <th>{t('screener.colStrength')}</th>
+                                            <th>{t('screener.colSignals')}</th>
+                                            <th>{t('screener.colDataDate')}</th>
+                                            <th>{t('screener.colAddWatchlist')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -388,7 +390,7 @@ export default function ScreenerIndex({
                                             <tr key={row.symbol}>
                                                 <td>
                                                     <input
-                                                        aria-label={`選取 ${row.symbol}`}
+                                                        aria-label={t('screener.selectRow', { symbol: row.symbol })}
                                                         checked={picked.includes(row.symbol)}
                                                         onChange={(e) => setPicked((c) =>
                                                             e.target.checked ? [...c, row.symbol] : c.filter((x) => x !== row.symbol))}
@@ -408,7 +410,7 @@ export default function ScreenerIndex({
                                                 <td>
                                                     <ChangePercent value={row.change_percent} />
                                                 </td>
-                                                <td className="screener-strength" title={`乖離 ${row.ma20_bias ?? '—'}%　量能 ${row.volume_x ?? '—'}x　RSI ${row.rsi ?? '—'}`}>
+                                                <td className="screener-strength" title={t('screener.strengthTitle', { bias: row.ma20_bias ?? '—', volume: row.volume_x ?? '—', rsi: row.rsi ?? '—' })}>
                                                     {row.strength?.toFixed?.(1) ?? '—'}
                                                 </td>
                                                 <td>
@@ -439,7 +441,7 @@ export default function ScreenerIndex({
                 ) : null}
 
                 <p className="dashboard-disclaimer">
-                    技術訊號僅供參考，非投資建議。
+                    {t('screener.disclaimer')}
                 </p>
             </section>
         </AppShell>

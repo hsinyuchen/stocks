@@ -3,25 +3,17 @@ import { useEffect, useRef, useState } from 'react';
 import { MessageCircle, Send, Trash2 } from 'lucide-react';
 import Markdown from './Markdown';
 import { FailureNote, QueueStalledHint, formatDateTime } from './AnalysisFeedback';
+import { useI18n } from '../i18n';
 
-/** 空狀態的示範問題。點了只填進輸入框，不自動送出——送出要花錢，得由使用者決定。 */
-const SUGGESTIONS = [
-    '這檔最近的技術面怎麼樣？',
-    '籌碼面最近有什麼變化？',
-    '目前的估值算貴還是便宜？',
+/** 空狀態的示範問題的 i18n key。點了只填進輸入框，不自動送出——送出要花錢，得由使用者決定。 */
+const SUGGESTION_KEYS = [
+    'stockChat.suggestionTechnical',
+    'stockChat.suggestionChip',
+    'stockChat.suggestionValuation',
 ];
 
 /** 提問長度上限，與後端 StockChatController 的驗證規則一致。 */
 const MAX_QUESTION = 500;
-
-/**
- * job 自己炸掉時只來得及改狀態，來不及寫失敗原因。沒有這個 fallback，那一輪會
- * 顯示成一張沒有任何說明的空卡片。
- */
-const UNKNOWN_FAILURE = {
-    message: '這一題沒有完成。',
-    hint: '請稍後再問一次；若持續發生，請至「系統設定」確認模型設定。',
-};
 
 /**
  * 個股 AI 投資顧問問答。
@@ -30,6 +22,7 @@ const UNKNOWN_FAILURE = {
  * 這裡只負責呈現與送出。
  */
 export default function StockChatPanel({ instrument, turns = [], llmProviders = [], stalled = false }) {
+    const { t } = useI18n();
     const providers = llmProviders ?? [];
     const defaultProvider = providers.find((provider) => provider.is_default) ?? providers[0] ?? null;
 
@@ -103,14 +96,14 @@ export default function StockChatPanel({ instrument, turns = [], llmProviders = 
         <section className="stock-panel stock-chat">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">AI 投資顧問</p>
-                    <h2>{instrument.symbol} 問答</h2>
+                    <p className="section-kicker">{t('stockChat.advisor')}</p>
+                    <h2>{instrument.symbol} {t('stockChat.qa')}</h2>
                 </div>
                 <MessageCircle aria-hidden="true" size={22} />
             </div>
 
             <p className="stock-chat__scope">
-                只回答與這一檔相關的問題，含影響它的產業鏈與總體事件。回覆僅供研究參考，非投資建議。
+                {t('stockChat.scope')}
             </p>
 
             {stalled ? <QueueStalledHint /> : null}
@@ -118,17 +111,17 @@ export default function StockChatPanel({ instrument, turns = [], llmProviders = 
             <div aria-live="polite" className="stock-chat__scroll" ref={listRef}>
                 {turns.length === 0 ? (
                     <div className="stock-chat__empty">
-                        <strong>還沒有對話</strong>
-                        <span>試著問問看：</span>
+                        <strong>{t('stockChat.emptyTitle')}</strong>
+                        <span>{t('stockChat.emptyHint')}</span>
                         <div className="stock-chat__suggestions">
-                            {SUGGESTIONS.map((text) => (
+                            {SUGGESTION_KEYS.map((key) => (
                                 <button
                                     className="stock-chat__suggestion"
-                                    key={text}
-                                    onClick={() => form.setData('question', text)}
+                                    key={key}
+                                    onClick={() => form.setData('question', t(key))}
                                     type="button"
                                 >
-                                    {text}
+                                    {t(key)}
                                 </button>
                             ))}
                         </div>
@@ -140,17 +133,17 @@ export default function StockChatPanel({ instrument, turns = [], llmProviders = 
 
             {providers.length === 0 ? (
                 <p className="stock-chat__no-provider">
-                    尚未設定 AI 模型，無法使用問答。請先到 <Link href="/settings">系統設定</Link> 新增一組。
+                    {t('stockChat.noProviderBefore')} <Link href="/settings">{t('stockChat.settingsLink')}</Link> {t('stockChat.noProviderAfter')}
                 </p>
             ) : (
                 <form className="stock-chat__composer" onSubmit={submit}>
                     <label className="form-field">
-                        <span>向 AI 投資顧問提問</span>
+                        <span>{t('stockChat.askLabel')}</span>
                         <textarea
                             disabled={hasPendingTurn || form.processing}
                             maxLength={MAX_QUESTION}
                             onChange={onQuestionChange}
-                            placeholder="例如：記憶體報價下滑會怎麼影響它？"
+                            placeholder={t('stockChat.placeholder')}
                             ref={textareaRef}
                             rows={3}
                             value={question}
@@ -160,9 +153,9 @@ export default function StockChatPanel({ instrument, turns = [], llmProviders = 
 
                     {providers.length > 1 ? (
                         <details className="stock-chat__model">
-                            <summary>使用其他模型</summary>
+                            <summary>{t('stockChat.useOtherModel')}</summary>
                             <label className="form-field">
-                                <span>模型設定</span>
+                                <span>{t('stockChat.modelSetting')}</span>
                                 <select
                                     onChange={(event) => {
                                         const id = Number(event.target.value);
@@ -189,7 +182,7 @@ export default function StockChatPanel({ instrument, turns = [], llmProviders = 
                         <span className="stock-chat__count">{question.length}/{MAX_QUESTION}</span>
                         <button className="button-secondary" disabled={!canSend} type="submit">
                             <Send aria-hidden="true" size={18} />
-                            <span>送出提問</span>
+                            <span>{t('stockChat.send')}</span>
                         </button>
                     </div>
                 </form>
@@ -209,20 +202,29 @@ function ChatTurn({ turn }) {
 }
 
 function ChatAnswer({ turn }) {
+    const { t } = useI18n();
+
     if (turn.status === 'pending') {
         return (
             <div className="chat-turn__answer chat-turn__pending">
                 <span aria-hidden="true" className="chat-turn__dots"><i /><i /><i /></span>
-                <span>正在讀取行情與新聞並產生回答，通常需要數十秒。</span>
+                <span>{t('stockChat.pending')}</span>
                 <CancelTurnButton turnId={turn.id} />
             </div>
         );
     }
 
     if (turn.status === 'failed') {
+        // job 自己炸掉時只來得及改狀態，來不及寫失敗原因；沒有這個 fallback，那一輪會
+        // 顯示成一張沒有任何說明的空卡片。
+        const unknownFailure = {
+            message: t('stockChat.unknownFailureMessage'),
+            hint: t('stockChat.unknownFailureHint'),
+        };
+
         return (
             <div className="chat-turn__answer chat-turn__answer--failed">
-                <FailureNote failure={turn.metadata?.failure ?? UNKNOWN_FAILURE} />
+                <FailureNote failure={turn.metadata?.failure ?? unknownFailure} />
                 <ChatTurnMeta turn={turn} />
             </div>
         );
@@ -253,16 +255,17 @@ function ChatTurnMeta({ turn }) {
  * pending 的也能刪：job 找不到紀錄就直接結束，等同取消這次提問。
  */
 function CancelTurnButton({ turnId }) {
+    const { t } = useI18n();
     const [armed, setArmed] = useState(false);
     const form = useForm();
 
     if (!armed) {
         return (
             <button
-                aria-label="刪除這一則問答"
+                aria-label={t('stockChat.deleteTurn')}
                 className="analysis-item__delete"
                 onClick={() => setArmed(true)}
-                title="刪除這一則問答"
+                title={t('stockChat.deleteTurn')}
                 type="button"
             >
                 <Trash2 aria-hidden="true" size={14} />
@@ -278,9 +281,9 @@ function CancelTurnButton({ turnId }) {
                 onClick={() => form.delete(`/stocks/chat/${turnId}`, { preserveScroll: true })}
                 type="button"
             >
-                確認刪除
+                {t('stockChat.confirmDelete')}
             </button>
-            <button onClick={() => setArmed(false)} type="button">取消</button>
+            <button onClick={() => setArmed(false)} type="button">{t('common.cancel')}</button>
         </span>
     );
 }

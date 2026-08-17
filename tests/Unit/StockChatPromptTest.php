@@ -112,6 +112,26 @@ class StockChatPromptTest extends TestCase
         $this->assertStringContainsString('不要包程式碼圍欄', $system);
     }
 
+    public function test_system_prompt_switches_to_english_when_locale_is_en(): void
+    {
+        $system = $this->service()->buildSystemPrompt($this->context(), 'en');
+
+        $this->assertStringContainsString('Respond entirely in English', $system);
+        // 範圍宣告與輸出契約也應為英文，避免模型只翻一半。
+        $this->assertStringContainsString('You must refuse', $system);
+        $this->assertStringContainsString('"decision":"answer"', $system);
+        // 不應殘留繁中指令。
+        $this->assertStringNotContainsString('請使用繁體中文回答', $system);
+    }
+
+    public function test_system_prompt_stays_chinese_by_default(): void
+    {
+        $system = $this->service()->buildSystemPrompt($this->context());
+
+        $this->assertStringContainsString('請使用繁體中文回答', $system);
+        $this->assertStringNotContainsString('Respond entirely in English', $system);
+    }
+
     public function test_user_prompt_says_there_is_no_history_on_the_first_question(): void
     {
         $prompt = $this->service()->buildUserPrompt($this->context(), '技術面如何？', []);

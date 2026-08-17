@@ -47,6 +47,7 @@ class RunStockAnalysis implements ShouldQueue
         private readonly int $analysisId,
         private readonly ?int $settingId,
         private readonly string $model,
+        private readonly string $locale = 'zh',
     ) {}
 
     public function handle(
@@ -81,7 +82,7 @@ class RunStockAnalysis implements ShouldQueue
             // 券商分點為 Sponsor 付費資料：免費 token 回 null，走降級不影響其餘分析。
             $brokerBranch = $brokerData->summaryFor($analysis->instrument);
 
-            $result = $analysisService->analyze($analysis->instrument->symbol, $this->model, $llm, $chipFlows, $marginFlows, $brokerBranch);
+            $result = $analysisService->analyze($analysis->instrument->symbol, $this->model, $llm, $chipFlows, $marginFlows, $brokerBranch, $this->locale);
             $provider = (string) ($result['llm']['provider'] ?? 'unknown');
 
             // 只在仍是 pending 時寫入：reaper 可能已因逾時把它標成失敗，這裡再寫回

@@ -28,6 +28,7 @@ class ProfileController extends Controller
             ],
             'preferences' => [
                 'theme' => $profile?->theme ?? 'warm',
+                'locale' => $profile?->locale ?? 'zh',
                 'timezone' => $profile?->timezone ?? 'Asia/Taipei',
                 'preferred_market' => $profile?->preferred_market ?? 'TW_US',
             ],
@@ -89,6 +90,7 @@ class ProfileController extends Controller
     {
         $data = $request->validate([
             'theme' => ['required', Rule::in(['warm', 'dark'])],
+            'locale' => ['required', Rule::in(['zh', 'en'])],
             'timezone' => ['required', 'string', 'timezone'],
             'preferred_market' => ['required', Rule::in(['TW', 'US', 'TW_US'])],
         ]);
@@ -100,5 +102,22 @@ class ProfileController extends Controller
         $user->profile()->updateOrCreate([], $data);
 
         return redirect()->back()->with('success', '偏好設定已更新。');
+    }
+
+    /**
+     * 只更新介面/分析語言。
+     *
+     * 供頂欄的語言切換鈕即時同步 DB（比照 theme 的 localStorage＋profile 雙寫）。
+     * 單獨開一個輕量端點，讓切換鈕不必連帶送出整份偏好表單。
+     */
+    public function updateLocale(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'locale' => ['required', Rule::in(['zh', 'en'])],
+        ]);
+
+        $request->user()->profile()->updateOrCreate([], $data);
+
+        return redirect()->back();
     }
 }

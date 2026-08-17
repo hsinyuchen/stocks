@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Plus, Trash2, Wallet } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 import StockSearchBox from '../../Components/StockSearchBox';
+import { useI18n } from '../../i18n';
 
 /** 金額千分位；null（無報價）顯示佔位符。 */
 function money(value) {
@@ -52,6 +53,7 @@ function formatDate(value) {
 }
 
 function AddHoldingForm() {
+    const { t } = useI18n();
     const [open, setOpen] = useState(false);
     const form = useForm({ symbol: '', shares: '', avg_cost: '', note: '' });
 
@@ -70,7 +72,7 @@ function AddHoldingForm() {
         return (
             <button className="button-primary" onClick={() => setOpen(true)} type="button">
                 <Plus aria-hidden="true" size={18} />
-                <span>新增持倉</span>
+                <span>{t('portfolio.addHolding')}</span>
             </button>
         );
     }
@@ -89,19 +91,19 @@ function AddHoldingForm() {
             {/* 標的欄含兩個輸入（搜尋框、直接輸入代號），故用 div 而非 label：
                 label 只能綁定單一控制項，包住兩者會讓點擊標題聚焦到錯的輸入框。 */}
             <div className="form-field">
-                <span>標的</span>
+                <span>{t('portfolio.symbolLabel')}</span>
                 <StockSearchBox onSelect={(result) => form.setData('symbol', result.symbol)} />
                 <input
-                    aria-label="股票代號"
+                    aria-label={t('portfolio.symbolAria')}
                     onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
-                    placeholder="或直接輸入代號，例如 2330.TW、NVDA"
+                    placeholder={t('portfolio.symbolPlaceholder')}
                     type="text"
                     value={form.data.symbol}
                 />
                 {form.errors.symbol ? <p className="field-error">{form.errors.symbol}</p> : null}
             </div>
             <label className="form-field">
-                <span>股數</span>
+                <span>{t('portfolio.sharesLabel')}</span>
                 <input
                     onChange={(event) => form.setData('shares', event.target.value)}
                     step="any"
@@ -111,7 +113,7 @@ function AddHoldingForm() {
                 {form.errors.shares ? <p className="field-error">{form.errors.shares}</p> : null}
             </label>
             <label className="form-field">
-                <span>平均成本（每股）</span>
+                <span>{t('portfolio.avgCostPerShareLabel')}</span>
                 <input
                     onChange={(event) => form.setData('avg_cost', event.target.value)}
                     step="any"
@@ -121,7 +123,7 @@ function AddHoldingForm() {
                 {form.errors.avg_cost ? <p className="field-error">{form.errors.avg_cost}</p> : null}
             </label>
             <label className="form-field">
-                <span>備註（選填）</span>
+                <span>{t('portfolio.noteOptionalLabel')}</span>
                 <input
                     maxLength="255"
                     onChange={(event) => form.setData('note', event.target.value)}
@@ -130,14 +132,15 @@ function AddHoldingForm() {
                 />
             </label>
             <div className="portfolio-form__actions">
-                <button className="button-primary" disabled={form.processing} type="submit">新增</button>
-                <button className="button-secondary" onClick={() => setOpen(false)} type="button">取消</button>
+                <button className="button-primary" disabled={form.processing} type="submit">{t('portfolio.add')}</button>
+                <button className="button-secondary" onClick={() => setOpen(false)} type="button">{t('common.cancel')}</button>
             </div>
         </form>
     );
 }
 
 function HoldingRow({ holding }) {
+    const { t } = useI18n();
     const [editing, setEditing] = useState(false);
     const [removing, setRemoving] = useState(false);
     const [pendingRemove, setPendingRemove] = useState(false);
@@ -177,22 +180,22 @@ function HoldingRow({ holding }) {
                 <td colSpan={10}>
                     <form className="portfolio-form" onSubmit={save}>
                         <label className="form-field">
-                            <span>股數</span>
+                            <span>{t('portfolio.sharesLabel')}</span>
                             <input onChange={(e) => form.setData('shares', e.target.value)} step="any" type="number" value={form.data.shares} />
                             {form.errors.shares ? <p className="field-error">{form.errors.shares}</p> : null}
                         </label>
                         <label className="form-field">
-                            <span>平均成本</span>
+                            <span>{t('portfolio.avgCostLabel')}</span>
                             <input onChange={(e) => form.setData('avg_cost', e.target.value)} step="any" type="number" value={form.data.avg_cost} />
                             {form.errors.avg_cost ? <p className="field-error">{form.errors.avg_cost}</p> : null}
                         </label>
                         <label className="form-field">
-                            <span>備註</span>
+                            <span>{t('portfolio.noteLabel')}</span>
                             <input maxLength="255" onChange={(e) => form.setData('note', e.target.value)} type="text" value={form.data.note} />
                         </label>
                         <div className="portfolio-form__actions">
-                            <button className="button-primary" disabled={form.processing} type="submit">儲存</button>
-                            <button className="button-secondary" onClick={() => setEditing(false)} type="button">取消</button>
+                            <button className="button-primary" disabled={form.processing} type="submit">{t('common.save')}</button>
+                            <button className="button-secondary" onClick={() => setEditing(false)} type="button">{t('common.cancel')}</button>
                         </div>
                     </form>
                 </td>
@@ -211,7 +214,7 @@ function HoldingRow({ holding }) {
             </td>
             <td>{shares(holding.shares)}</td>
             <td>{money(holding.avg_cost)}</td>
-            <td>{holding.price === null ? <span className="field-hint">報價暫無</span> : money(holding.price)}</td>
+            <td>{holding.price === null ? <span className="field-hint">{t('portfolio.quoteUnavailable')}</span> : money(holding.price)}</td>
             <td>{money(holding.market_value)}</td>
             <td className={changeClass(holding.unrealized_pnl)}>{money(holding.unrealized_pnl)}</td>
             <td className={changeClass(holding.return_pct)}>{percent(holding.return_pct)}</td>
@@ -220,13 +223,13 @@ function HoldingRow({ holding }) {
             <td className="portfolio-actions">
                 {pendingRemove ? (
                     <>
-                        <button className="button-danger" disabled={removing} onClick={remove} type="button">確認刪除</button>
-                        <button className="button-secondary" disabled={removing} onClick={() => setPendingRemove(false)} type="button">取消</button>
+                        <button className="button-danger" disabled={removing} onClick={remove} type="button">{t('portfolio.confirmDelete')}</button>
+                        <button className="button-secondary" disabled={removing} onClick={() => setPendingRemove(false)} type="button">{t('common.cancel')}</button>
                     </>
                 ) : (
                     <>
-                        <button onClick={() => setEditing(true)} title="編輯" type="button">編輯</button>
-                        <button onClick={() => setPendingRemove(true)} title="刪除" type="button">
+                        <button onClick={() => setEditing(true)} title={t('portfolio.edit')} type="button">{t('portfolio.edit')}</button>
+                        <button onClick={() => setPendingRemove(true)} title={t('common.delete')} type="button">
                             <Trash2 aria-hidden="true" size={16} />
                         </button>
                     </>
@@ -237,42 +240,43 @@ function HoldingRow({ holding }) {
 }
 
 function CurrencyGroup({ group, unavailableCount }) {
+    const { t } = useI18n();
     const { subtotal } = group;
 
     return (
         <section className="stock-panel portfolio-group">
             <header className="portfolio-group__header">
                 <div>
-                    <p className="section-kicker">{group.currency} 計價</p>
+                    <p className="section-kicker">{t('portfolio.pricedIn', { currency: group.currency })}</p>
                     <h2>
-                        市值 {money(subtotal.market_value)}
+                        {t('portfolio.marketValueLabel', { value: money(subtotal.market_value) })}
                         {' '}
                         <span className={changeClass(subtotal.unrealized_pnl)}>
                             （{money(subtotal.unrealized_pnl)}／{percent(subtotal.return_pct)}）
                         </span>
                     </h2>
-                    <p className="field-hint">成本 {money(subtotal.cost_basis)}</p>
+                    <p className="field-hint">{t('portfolio.costBasisLabel', { value: money(subtotal.cost_basis) })}</p>
                 </div>
             </header>
 
             {unavailableCount > 0 ? (
-                <p className="field-hint">{unavailableCount} 支無報價，未計入小計。</p>
+                <p className="field-hint">{t('portfolio.unavailableCount', { count: unavailableCount })}</p>
             ) : null}
 
             <div className="portfolio-table-wrap">
                 <table className="portfolio-table">
                     <thead>
                         <tr>
-                            <th>標的</th>
-                            <th>股數</th>
-                            <th>均價</th>
-                            <th>現價</th>
-                            <th>市值</th>
-                            <th>未實現損益</th>
-                            <th>報酬率</th>
-                            <th>資料時間</th>
-                            <th>備註</th>
-                            <th>操作</th>
+                            <th>{t('portfolio.symbolLabel')}</th>
+                            <th>{t('portfolio.sharesLabel')}</th>
+                            <th>{t('portfolio.thAvgPrice')}</th>
+                            <th>{t('portfolio.thCurrentPrice')}</th>
+                            <th>{t('portfolio.thMarketValue')}</th>
+                            <th>{t('portfolio.thUnrealizedPnl')}</th>
+                            <th>{t('portfolio.thReturn')}</th>
+                            <th>{t('portfolio.thAsOf')}</th>
+                            <th>{t('portfolio.noteLabel')}</th>
+                            <th>{t('portfolio.thActions')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -287,19 +291,20 @@ function CurrencyGroup({ group, unavailableCount }) {
 }
 
 export default function PortfolioIndex({ groups = [], unavailable = [] }) {
+    const { t } = useI18n();
     const unavailableSymbols = new Set(unavailable.map((entry) => entry.symbol));
 
     return (
-        <AppShell title="投資組合">
+        <AppShell title={t('portfolio.pageTitle')}>
             <div className="portfolio-page">
                 <section className="stock-panel portfolio-header">
                     <div>
                         <p className="section-kicker">
-                            <Wallet aria-hidden="true" size={16} /> 持倉
+                            <Wallet aria-hidden="true" size={16} /> {t('portfolio.holdingsKicker')}
                         </p>
-                        <h2>投資組合損益</h2>
+                        <h2>{t('portfolio.portfolioPnlTitle')}</h2>
                         <p className="field-hint">
-                            依幣別分區顯示，不做匯率換算。損益以延遲行情計算，僅供參考，非券商對帳單。
+                            {t('portfolio.portfolioNote')}
                         </p>
                     </div>
                     <AddHoldingForm />
@@ -307,8 +312,8 @@ export default function PortfolioIndex({ groups = [], unavailable = [] }) {
 
                 {groups.length === 0 ? (
                     <section className="stock-panel empty-state">
-                        <strong>尚未加入持倉</strong>
-                        <span>新增持倉後，這裡會顯示市值、未實現損益與報酬率。</span>
+                        <strong>{t('portfolio.emptyTitle')}</strong>
+                        <span>{t('portfolio.emptyDesc')}</span>
                     </section>
                 ) : (
                     groups.map((group) => (

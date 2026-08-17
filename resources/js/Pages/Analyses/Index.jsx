@@ -2,26 +2,28 @@ import { Link, router } from '@inertiajs/react';
 import { Bot } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 import Markdown from '../../Components/Markdown';
+import { useI18n } from '../../i18n';
 
+// 值 → i18n key 映射；render 端以 t(key) 取當前語言字串。
 const typeFilters = [
-    { value: 'all', label: '全部' },
-    { value: 'stock', label: '個股' },
-    { value: 'news', label: '新聞' },
-    { value: 'daily', label: '每日摘要' },
+    { value: 'all', labelKey: 'analysesPage.filterAll' },
+    { value: 'stock', labelKey: 'analysesPage.filterStock' },
+    { value: 'news', labelKey: 'analysesPage.filterNews' },
+    { value: 'daily', labelKey: 'analysesPage.filterDaily' },
 ];
 
-const kindLabels = {
-    stock: '個股',
-    news: '新聞',
-    daily: '每日摘要',
+const kindLabelKeys = {
+    stock: 'analysesPage.kindStock',
+    news: 'analysesPage.kindNews',
+    daily: 'analysesPage.kindDaily',
 };
 
-const stanceLabels = {
-    bullish: '偏多',
-    bearish: '偏空',
-    neutral: '中性',
-    watch: '觀察',
-    insufficient_data: '資料不足',
+const stanceLabelKeys = {
+    bullish: 'analysesPage.stanceBullish',
+    bearish: 'analysesPage.stanceBearish',
+    neutral: 'analysesPage.stanceNeutral',
+    watch: 'analysesPage.stanceWatch',
+    insufficient_data: 'analysesPage.stanceInsufficientData',
 };
 
 function formatDateTime(value) {
@@ -42,6 +44,8 @@ function formatDateTime(value) {
 }
 
 function StanceChip({ value }) {
+    const { t } = useI18n();
+
     if (!value) {
         return null;
     }
@@ -50,12 +54,13 @@ function StanceChip({ value }) {
 
     return (
         <span className={`status-pill status-pill--${stance}`}>
-            {stanceLabels[stance] ?? stance}
+            {stanceLabelKeys[stance] ? t(stanceLabelKeys[stance]) : stance}
         </span>
     );
 }
 
 function AnalysisRow({ item }) {
+    const { t } = useI18n();
     // pending / failed 的 stance 與 summary 都還不是模型判斷，不能照常呈現，
     // 否則排隊中的紀錄看起來像一則「中性」結論。
     const stance = item.status === 'completed'
@@ -66,13 +71,13 @@ function AnalysisRow({ item }) {
         <article className="analysis-history-row">
             <div className="analysis-history-row__head">
                 <span className="dashboard-analysis-item__type">
-                    {kindLabels[item.kind] ?? item.kind}
+                    {kindLabelKeys[item.kind] ? t(kindLabelKeys[item.kind]) : item.kind}
                 </span>
                 {item.status === 'pending' ? (
-                    <span className="status-pill status-pill--pending">分析中</span>
+                    <span className="status-pill status-pill--pending">{t('analysesPage.statusPending')}</span>
                 ) : null}
                 {item.status === 'failed' ? (
-                    <span className="status-pill status-pill--failed">AI 未完成</span>
+                    <span className="status-pill status-pill--failed">{t('analysesPage.statusFailed')}</span>
                 ) : null}
                 <strong className="analysis-history-row__label">
                     {item.link ? (
@@ -88,7 +93,7 @@ function AnalysisRow({ item }) {
                     )}
                 </strong>
                 <StanceChip value={stance} />
-                {item.impact ? <span className="news-impact">影響 {item.impact}/5</span> : null}
+                {item.impact ? <span className="news-impact">{t('analysesPage.impact', { impact: item.impact })}</span> : null}
             </div>
             {item.status === 'completed' && item.summary
                 ? <Markdown className="analysis-history-row__summary">{item.summary}</Markdown>
@@ -104,6 +109,7 @@ function AnalysisRow({ item }) {
 }
 
 export default function AnalysesIndex({ items = [], filters = { type: 'all' } }) {
+    const { t } = useI18n();
     const activeType = filters.type ?? 'all';
 
     const changeType = (type) => {
@@ -111,18 +117,18 @@ export default function AnalysesIndex({ items = [], filters = { type: 'all' } })
     };
 
     return (
-        <AppShell title="AI 分析紀錄">
+        <AppShell title={t('analysesPage.title')}>
             <section className="table-panel analysis-history">
                 <div className="panel-heading">
                     <div>
                         <p className="section-kicker">
-                            <Bot aria-hidden="true" size={16} /> AI 分析紀錄
+                            <Bot aria-hidden="true" size={16} /> {t('analysesPage.kicker')}
                         </p>
-                        <h2>我的 AI 參考分析歷史</h2>
+                        <h2>{t('analysesPage.heading')}</h2>
                     </div>
                 </div>
 
-                <div className="analysis-history__filters" role="tablist" aria-label="分析類型">
+                <div className="analysis-history__filters" role="tablist" aria-label={t('analysesPage.filterGroupLabel')}>
                     {typeFilters.map((filter) => (
                         <button
                             aria-selected={activeType === filter.value}
@@ -132,13 +138,13 @@ export default function AnalysesIndex({ items = [], filters = { type: 'all' } })
                             role="tab"
                             type="button"
                         >
-                            {filter.label}
+                            {t(filter.labelKey)}
                         </button>
                     ))}
                 </div>
 
                 {items.length === 0 ? (
-                    <p className="dashboard-empty">尚未有 AI 分析紀錄。前往個股或新聞頁面，用你的模型產生分析。</p>
+                    <p className="dashboard-empty">{t('analysesPage.empty')}</p>
                 ) : (
                     <div className="analysis-history__list">
                         {items.map((item) => (

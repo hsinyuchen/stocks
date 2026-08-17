@@ -42,14 +42,19 @@ class WatchlistAnalysisController extends Controller
         ]);
 
         $user = $request->user();
+        $locale = $user->profile?->locale ?? 'zh';
         $setting = $this->resolveSetting($user, $data['llm_provider_setting_id'] ?? null);
 
         if ($setting === null) {
-            return redirect()->back()->with('error', '請先在設定新增 AI 模型。');
+            return redirect()->back()->with('error', $locale === 'en'
+                ? 'Please add an AI model in Settings first.'
+                : '請先在設定新增 AI 模型。');
         }
 
         if (! $this->hasWatchlistInstruments($user)) {
-            return redirect()->back()->with('error', '自選清單是空的，請先加入股票再產生晚間快報。');
+            return redirect()->back()->with('error', $locale === 'en'
+                ? 'Your watchlist is empty. Add stocks before generating the evening briefing.'
+                : '自選清單是空的，請先加入股票再產生晚間快報。');
         }
 
         $model = trim((string) ($data['model'] ?? '')) ?: (string) $setting->model;
@@ -67,7 +72,7 @@ class WatchlistAnalysisController extends Controller
             'data_as_of' => CarbonImmutable::now(),
         ]);
 
-        RunWatchlistAnalysis::dispatch($analysis->id, $setting->id, $model);
+        RunWatchlistAnalysis::dispatch($analysis->id, $setting->id, $model, $locale);
 
         return redirect()->route('watchlists.analysis');
     }

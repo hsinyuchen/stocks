@@ -249,6 +249,18 @@ button {
     margin-top: auto;
 }
 
+.sidebar__toggles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.auth-topbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
 .theme-toggle,
 .icon-button {
     border: 1px solid var(--border);

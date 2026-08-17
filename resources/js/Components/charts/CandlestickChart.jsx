@@ -4,6 +4,7 @@ import {
     LineSeries,
 } from 'lightweight-charts';
 import useLightweightChart from './useLightweightChart';
+import { useI18n } from '../../i18n';
 
 /**
  * 平行指標陣列 zip 成 Lightweight Charts 的 {time,value} 點列。
@@ -31,6 +32,7 @@ const SUBPANES = ['kd', 'macd', 'rsi', 'obv'];
  * timeframe 切換由父層換 chartData 觸發 hook 重建，避免殘留舊 series。
  */
 export default function CandlestickChart({ chartData, visiblePanes = [] }) {
+    const { t } = useI18n();
     const candles = chartData?.candles ?? [];
     const indicators = chartData?.indicators ?? {};
 
@@ -135,7 +137,7 @@ export default function CandlestickChart({ chartData, visiblePanes = [] }) {
     if (candles.length === 0) {
         return (
             <div className="chart-container chart-container--empty">
-                <span className="chart-empty">尚無足夠價格資料繪製 K 線。</span>
+                <span className="chart-empty">{t('charts.notEnoughData')}</span>
             </div>
         );
     }

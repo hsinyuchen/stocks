@@ -9,6 +9,7 @@ class UserProfile extends Model
 {
     protected $fillable = [
         'theme',
+        'locale',
         'timezone',
         'preferred_market',
     ];

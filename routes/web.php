@@ -78,6 +78,7 @@ Route::middleware('auth')->group(function (): void {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::patch('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
     Route::patch('/profile/preferences', [ProfileController::class, 'updatePreferences'])->name('profile.preferences');
+    Route::post('/profile/locale', [ProfileController::class, 'updateLocale'])->name('profile.locale');
     Route::get('/settings', [LlmProviderSettingController::class, 'index'])->name('settings.index');
     // FinMind 台股資料源 token（每人一組）。靜態路徑須排在下方 /settings/{llmProviderSetting}
     // 動態綁定之前，否則 DELETE /settings/finmind 會被當成 model binding 而 404。

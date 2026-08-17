@@ -1,5 +1,6 @@
 import { LineSeries } from 'lightweight-charts';
 import useLightweightChart from './useLightweightChart';
+import { useI18n } from '../../i18n';
 
 /**
  * 比較線的固定色盤（主 + 最多 4 支 = 5 色）。
@@ -63,6 +64,7 @@ function normalize(candles, baseDate) {
  * 全部 series 以共同第一個交易日的收盤為 0% 基準，各自繪成一條 % 線。
  */
 export default function CompareChart({ baseSeries, compareSeries = [] }) {
+    const { t } = useI18n();
     const allSeries = [baseSeries, ...compareSeries].filter(
         (series) => series && (series.candles?.length ?? 0) > 0,
     );
@@ -98,7 +100,7 @@ export default function CompareChart({ baseSeries, compareSeries = [] }) {
     if (allSeries.length === 0 || firstCommonDate(allSeries) === null) {
         return (
             <div className="chart-container chart-container--empty">
-                <span className="chart-empty">比較標的無共同交易日，無法正規化。</span>
+                <span className="chart-empty">{t('charts.noCommonDate')}</span>
             </div>
         );
     }

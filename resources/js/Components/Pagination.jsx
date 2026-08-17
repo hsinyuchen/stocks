@@ -1,4 +1,5 @@
 import { router } from '@inertiajs/react';
+import { useI18n } from '../i18n';
 
 /**
  * Laravel paginator 的翻頁列。
@@ -11,6 +12,8 @@ import { router } from '@inertiajs/react';
  * @param {object} meta 選填，paginator 頂層的 current_page / last_page / total
  */
 export default function Pagination({ links, meta = null }) {
+    const { t } = useI18n();
+
     // Laravel 至少會回「上一頁 / 1 / 下一頁」三個項目；只有一頁時沒有翻頁的必要。
     if (!links || links.length <= 3) {
         return null;
@@ -23,11 +26,11 @@ export default function Pagination({ links, meta = null }) {
     };
 
     return (
-        <nav aria-label="分頁" className="pagination">
+        <nav aria-label={t('pagination.aria')} className="pagination">
             {meta?.last_page ? (
                 <span className="pagination__meta">
-                    第 {meta.current_page} / {meta.last_page} 頁
-                    {meta.total ? `　共 ${meta.total} 筆` : ''}
+                    {t('pagination.pageMeta', { current: meta.current_page, last: meta.last_page })}
+                    {meta.total ? t('pagination.totalMeta', { total: meta.total }) : ''}
                 </span>
             ) : null}
             <div className="pagination__links">

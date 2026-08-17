@@ -2,52 +2,54 @@ import { Deferred, Link, router } from '@inertiajs/react';
 import { lazy, Suspense, useState } from 'react';
 import { Bell, Bot, Gauge, LineChart, Loader2, Newspaper, RefreshCw, Star, Waypoints } from 'lucide-react';
 import AppShell from '../Layouts/AppShell';
+import { useI18n } from '../i18n';
 
-// 大盤層級警報無個股標的，卡片標題用固定字樣。
+// 大盤層級警報無個股標的，卡片標題用固定字樣。映射值為 i18n key，於 render 處 t()。
 const MARKET_ALERT_TITLE = {
-    market_futures_flip: '大盤期貨翻空',
-    market_bearish_flip: '大盤真翻空',
+    market_futures_flip: 'dashboard.marketAlertFuturesFlip',
+    market_bearish_flip: 'dashboard.marketAlertBearishFlip',
 };
 
 // Sparkline 建立獨立的 Lightweight Charts 實例，按需載入讓首屏 bundle 保持精簡。
 const Sparkline = lazy(() => import('../Components/charts/Sparkline'));
 
+// 以下 label 映射改存 i18n key，於 render 處以 t() 取當前語言字串。
 const stanceLabels = {
-    bullish: '偏多',
-    bearish: '偏空',
-    neutral: '中性',
-    watch: '觀察',
-    insufficient_data: '資料不足',
+    bullish: 'dashboard.stanceBullish',
+    bearish: 'dashboard.stanceBearish',
+    neutral: 'dashboard.stanceNeutral',
+    watch: 'dashboard.stanceWatch',
+    insufficient_data: 'dashboard.stanceInsufficientData',
 };
 
 const sentimentLabels = {
-    bullish: '偏多',
-    bearish: '偏空',
-    neutral: '中性',
+    bullish: 'dashboard.stanceBullish',
+    bearish: 'dashboard.stanceBearish',
+    neutral: 'dashboard.stanceNeutral',
 };
 
 const chipStanceLabels = {
-    accumulating: '外資買超',
-    distributing: '外資賣超',
-    neutral: '籌碼中性',
+    accumulating: 'dashboard.chipAccumulating',
+    distributing: 'dashboard.chipDistributing',
+    neutral: 'dashboard.chipNeutral',
 };
 
 const alignmentLabels = {
-    confirm: '價量同向',
-    diverge: '價量背離',
+    confirm: 'dashboard.alignConfirm',
+    diverge: 'dashboard.alignDiverge',
 };
 
-/** forward 沿用 sectors 宣告方向、reverse 整組翻轉、unknown 一律降為中性。 */
+/** forward 沿用 sectors 宣告方向、reverse 整組翻轉、unknown 一律降為中性。值為 i18n key。 */
 const polarityLabels = {
-    forward: '正向觸發',
-    reverse: '反向觸發',
-    unknown: '方向不明',
+    forward: 'dashboard.polarityForward',
+    reverse: 'dashboard.polarityReverse',
+    unknown: 'dashboard.polarityUnknown',
 };
 
 const directionLabels = {
-    positive: '偏正面',
-    negative: '偏負面',
-    neutral: '中性',
+    positive: 'dashboard.directionPositive',
+    negative: 'dashboard.directionNegative',
+    neutral: 'dashboard.directionNeutral',
 };
 
 function polarityClass(polarity) {
@@ -67,9 +69,9 @@ function directionClass(direction) {
 }
 
 const analysisTypeLabels = {
-    stock: '個股',
-    news: '新聞',
-    daily: '每日摘要',
+    stock: 'dashboard.analysisTypeStock',
+    news: 'dashboard.analysisTypeNews',
+    daily: 'dashboard.analysisTypeDaily',
 };
 
 function formatDateTime(value) {
@@ -109,26 +111,28 @@ function changeClass(value) {
     return num > 0 ? 'is-up' : 'is-down';
 }
 
-// 金額（元）→ 億元字串，帶正負號。買超為正、賣超為負。
-function formatOku(value) {
+// 金額（元）→ 億元字串，帶正負號。買超為正、賣超為負。單位字樣走 i18n，故需傳入 t。
+function formatOku(value, t) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
         return '—';
     }
 
     const oku = Number(value) / 1e8;
+    const num = `${oku > 0 ? '+' : ''}${oku.toLocaleString('zh-TW', { maximumFractionDigits: 1 })}`;
 
-    return `${oku > 0 ? '+' : ''}${oku.toLocaleString('zh-TW', { maximumFractionDigits: 1 })} 億`;
+    return t('dashboard.okuUnit', { value: num });
 }
 
-// 口數，帶正負號（淨多為正、淨空為負）。
-function formatLots(value) {
+// 口數，帶正負號（淨多為正、淨空為負）。單位字樣走 i18n，故需傳入 t。
+function formatLots(value, t) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
         return '—';
     }
 
     const num = Number(value);
+    const signed = `${num > 0 ? '+' : ''}${num.toLocaleString('zh-TW')}`;
 
-    return `${num > 0 ? '+' : ''}${num.toLocaleString('zh-TW')} 口`;
+    return t('dashboard.lotsUnit', { value: signed });
 }
 
 /**
@@ -136,6 +140,8 @@ function formatLots(value) {
  * 判斷「外資站買方還是賣方」「期貨留倉多空」的市場級訊號。僅台股盤後有資料。
  */
 function MarketBreadth({ breadth }) {
+    const { t } = useI18n();
+
     if (!breadth) {
         return null;
     }
@@ -153,12 +159,12 @@ function MarketBreadth({ breadth }) {
             <div className="panel-heading">
                 <div>
                     <p className="section-kicker">
-                        <Gauge aria-hidden="true" size={16} /> 大盤風向
+                        <Gauge aria-hidden="true" size={16} /> {t('dashboard.marketBreadthKicker')}
                     </p>
-                    <h2>法人與期貨籌碼</h2>
+                    <h2>{t('dashboard.marketBreadthTitle')}</h2>
                 </div>
                 {inst.date || fut.date ? (
-                    <small className="dashboard-coverage">資料日 {inst.date ?? fut.date}</small>
+                    <small className="dashboard-coverage">{t('dashboard.dataDate', { date: inst.date ?? fut.date })}</small>
                 ) : null}
             </div>
 
@@ -166,19 +172,19 @@ function MarketBreadth({ breadth }) {
                 {inst.available ? (
                     <>
                         <article className="metric-card">
-                            <span>外資現貨</span>
-                            <strong className={changeClass(inst.foreign_net)}>{formatOku(inst.foreign_net)}</strong>
-                            <small>三大法人買賣超</small>
+                            <span>{t('dashboard.instForeignSpot')}</span>
+                            <strong className={changeClass(inst.foreign_net)}>{formatOku(inst.foreign_net, t)}</strong>
+                            <small>{t('dashboard.instNetSubtitle')}</small>
                         </article>
                         <article className="metric-card">
-                            <span>投信現貨</span>
-                            <strong className={changeClass(inst.trust_net)}>{formatOku(inst.trust_net)}</strong>
-                            <small>買賣超</small>
+                            <span>{t('dashboard.instTrustSpot')}</span>
+                            <strong className={changeClass(inst.trust_net)}>{formatOku(inst.trust_net, t)}</strong>
+                            <small>{t('dashboard.netBuySell')}</small>
                         </article>
                         <article className="metric-card">
-                            <span>自營現貨</span>
-                            <strong className={changeClass(inst.dealer_net)}>{formatOku(inst.dealer_net)}</strong>
-                            <small>買賣超</small>
+                            <span>{t('dashboard.instDealerSpot')}</span>
+                            <strong className={changeClass(inst.dealer_net)}>{formatOku(inst.dealer_net, t)}</strong>
+                            <small>{t('dashboard.netBuySell')}</small>
                         </article>
                     </>
                 ) : null}
@@ -186,35 +192,37 @@ function MarketBreadth({ breadth }) {
                 {fut.enabled && fut.available ? (
                     <>
                         <article className="metric-card">
-                            <span>外資期貨</span>
-                            <strong className={changeClass(fut.foreign_net_oi)}>{formatLots(fut.foreign_net_oi)}</strong>
-                            <small>淨未平倉</small>
+                            <span>{t('dashboard.futForeign')}</span>
+                            <strong className={changeClass(fut.foreign_net_oi)}>{formatLots(fut.foreign_net_oi, t)}</strong>
+                            <small>{t('dashboard.netOpenInterest')}</small>
                         </article>
                         <article className="metric-card">
-                            <span>台指期未平倉</span>
-                            <strong>{fut.futures_open_interest !== null ? `${Number(fut.futures_open_interest).toLocaleString('zh-TW')} 口` : '—'}</strong>
-                            <small>近月{fut.futures_close !== null ? `｜收 ${Number(fut.futures_close).toLocaleString('zh-TW')}` : ''}</small>
+                            <span>{t('dashboard.taifexOpenInterest')}</span>
+                            <strong>{fut.futures_open_interest !== null ? t('dashboard.lotsUnit', { value: Number(fut.futures_open_interest).toLocaleString('zh-TW') }) : '—'}</strong>
+                            <small>{t('dashboard.nearMonth')}{fut.futures_close !== null ? t('dashboard.closePrefix', { value: Number(fut.futures_close).toLocaleString('zh-TW') }) : ''}</small>
                         </article>
                         <article className="metric-card">
-                            <span>選擇權 P/C</span>
+                            <span>{t('dashboard.optionsPutCall')}</span>
                             <strong>{fut.put_call_ratio !== null && fut.put_call_ratio !== undefined ? Number(fut.put_call_ratio).toFixed(2) : '—'}</strong>
-                            <small>&gt;1 偏空避險</small>
+                            <small>{t('dashboard.pcHedgeHint')}</small>
                         </article>
                     </>
                 ) : null}
             </div>
             <p className="dashboard-coverage-note">
-                外資現貨買超（正）代表資金站買方；外資期貨淨空、P/C &gt; 1 則偏空避險。僅供參考，非投資建議。
+                {t('dashboard.breadthNote')}
             </p>
         </section>
     );
 }
 
 function MarketSnapshot({ items }) {
+    const { t } = useI18n();
+
     return (
-        <section className="metric-strip" aria-label="市場概況">
+        <section className="metric-strip" aria-label={t('dashboard.marketSnapshotAria')}>
             {items.length === 0 ? (
-                <p className="dashboard-empty">市場指數暫時無法取得。</p>
+                <p className="dashboard-empty">{t('dashboard.marketSnapshotEmpty')}</p>
             ) : (
                 items.map((index) => (
                     <article className="metric-card" key={index.symbol}>
@@ -238,6 +246,7 @@ function MarketSnapshot({ items }) {
 }
 
 function WatchlistMovers({ items, coverage }) {
+    const { t } = useI18n();
     // 顯示數少於自選清單總數時要說明，否則看起來像儀表板漏了標的。差額來自
     // 顯示上限，或某檔完全抓不到行情。
     const missing = Math.max(0, (coverage?.total ?? items.length) - items.length);
@@ -247,31 +256,31 @@ function WatchlistMovers({ items, coverage }) {
             <div className="panel-heading">
                 <div>
                     <p className="section-kicker">
-                        <Star aria-hidden="true" size={16} /> 自選訊號
+                        <Star aria-hidden="true" size={16} /> {t('dashboard.watchlistKicker')}
                     </p>
-                    <h2>自選清單焦點</h2>
+                    <h2>{t('dashboard.watchlistTitle')}</h2>
                 </div>
                 {coverage?.total ? (
                     <small className="dashboard-coverage">
-                        顯示 {items.length} / 共 {coverage.total} 檔
+                        {t('dashboard.coverageCount', { shown: items.length, total: coverage.total })}
                     </small>
                 ) : null}
             </div>
             {missing > 0 ? (
                 <p className="dashboard-coverage-note">
-                    有 {missing} 檔未顯示（超過顯示上限，或暫時取不到行情資料）。完整清單見
+                    {t('dashboard.missingNotePrefix', { count: missing })}
                     {' '}
-                    <Link href="/watchlists">自選清單</Link>
-                    。
+                    <Link href="/watchlists">{t('dashboard.watchlistLink')}</Link>
+                    {t('dashboard.missingNoteSuffix')}
                 </p>
             ) : null}
             {items.length === 0 ? (
                 <p className="dashboard-empty">
-                    尚未加入自選股。前往
+                    {t('dashboard.watchlistEmptyPrefix')}
                     {' '}
-                    <Link href="/watchlists">自選清單</Link>
+                    <Link href="/watchlists">{t('dashboard.watchlistLink')}</Link>
                     {' '}
-                    新增追蹤標的。
+                    {t('dashboard.watchlistEmptySuffix')}
                 </p>
             ) : (
                 <div className="signal-list">
@@ -283,7 +292,7 @@ function WatchlistMovers({ items, coverage }) {
                                 className="signal-row signal-row--link"
                                 href={`/stocks/search?symbol=${encodeURIComponent(mover.symbol)}`}
                                 key={mover.symbol}
-                                aria-label={`查看 ${mover.symbol} 個股分析`}
+                                aria-label={t('dashboard.moverAria', { symbol: mover.symbol })}
                             >
                                 <div>
                                     <strong>{mover.symbol}</strong>
@@ -299,7 +308,7 @@ function WatchlistMovers({ items, coverage }) {
                                     <div className="signal-row__spark" />
                                 )}
                                 <span className={`status-pill status-pill--${stance}`}>
-                                    {stanceLabels[stance] ?? stance}
+                                    {t(stanceLabels[stance] ?? stance)}
                                 </span>
                                 <p>
                                     {mover.price?.toLocaleString?.('zh-TW') ?? mover.price}
@@ -323,6 +332,8 @@ function WatchlistMovers({ items, coverage }) {
  * 張數以 1 張 = 1000 股換算，與個股頁一致。
  */
 function ChipBadge({ chip, alignment }) {
+    const { t } = useI18n();
+
     if (!chip || !chip.days) {
         return null;
     }
@@ -333,17 +344,17 @@ function ChipBadge({ chip, alignment }) {
     return (
         <p className="signal-row__chip">
             <span className={`chip-tag chip-tag--${chip.stance}`}>
-                {chipStanceLabels[chip.stance] ?? chip.stance}
+                {t(chipStanceLabels[chip.stance] ?? chip.stance)}
             </span>
             <span className={changeClass(chip.foreign_net)}>
-                外資 {chip.days} 日 {sign}{lots.toLocaleString('zh-TW')} 張
+                {t('dashboard.chipForeignSummary', { days: chip.days, lots: `${sign}${lots.toLocaleString('zh-TW')}` })}
             </span>
             {chip.foreign_streak > 0 ? (
-                <span className="chip-streak">連 {chip.foreign_streak} 日</span>
+                <span className="chip-streak">{t('dashboard.chipStreak', { days: chip.foreign_streak })}</span>
             ) : null}
             {alignment && alignment !== 'none' ? (
                 <span className={`chip-align chip-align--${alignment}`}>
-                    {alignmentLabels[alignment] ?? alignment}
+                    {t(alignmentLabels[alignment] ?? alignment)}
                 </span>
             ) : null}
         </p>
@@ -357,6 +368,8 @@ function ChipBadge({ chip, alignment }) {
  * 不表示個股必然跟隨，因此不給多空分數，只標方向與命中的自選股。
  */
 function TransmissionFocus({ items }) {
+    const { t } = useI18n();
+
     if (items.length === 0) {
         return null;
     }
@@ -366,11 +379,11 @@ function TransmissionFocus({ items }) {
             <div className="panel-heading">
                 <div>
                     <p className="section-kicker">
-                        <Waypoints aria-hidden="true" size={16} /> 事件傳導
+                        <Waypoints aria-hidden="true" size={16} /> {t('dashboard.transmissionKicker')}
                     </p>
-                    <h2>傳導鏈焦點</h2>
+                    <h2>{t('dashboard.transmissionTitle')}</h2>
                 </div>
-                <Link className="panel-link" href="/news">查看新聞</Link>
+                <Link className="panel-link" href="/news">{t('dashboard.viewNews')}</Link>
             </div>
             <ul className="transmission-list">
                 {items.map((chain) => (
@@ -378,9 +391,9 @@ function TransmissionFocus({ items }) {
                         <div className="transmission-item__head">
                             <strong>{chain.label}</strong>
                             <span className={`chip-tag chip-tag--${polarityClass(chain.polarity)}`}>
-                                {polarityLabels[chain.polarity] ?? chain.polarity}
+                                {t(polarityLabels[chain.polarity] ?? chain.polarity)}
                             </span>
-                            <small>近期 {chain.count} 則</small>
+                            <small>{t('dashboard.recentCount', { count: chain.count })}</small>
                         </div>
 
                         <p className="transmission-path">{chain.chain.join(' → ')}</p>
@@ -390,7 +403,7 @@ function TransmissionFocus({ items }) {
                                 <span className="transmission-sector" key={sector.name}>
                                     {sector.name}
                                     <em className={directionClass(sector.direction)}>
-                                        {directionLabels[sector.direction] ?? sector.direction}
+                                        {t(directionLabels[sector.direction] ?? sector.direction)}
                                     </em>
                                 </span>
                             ))}
@@ -398,7 +411,7 @@ function TransmissionFocus({ items }) {
 
                         {chain.hits.length > 0 ? (
                             <p className="transmission-hits">
-                                <span>打到自選：</span>
+                                <span>{t('dashboard.hitsLabel')}</span>
                                 {chain.hits.map((symbol) => (
                                     <Link
                                         href={`/stocks/search?symbol=${encodeURIComponent(symbol)}`}
@@ -429,19 +442,21 @@ function TransmissionFocus({ items }) {
 }
 
 function LatestNews({ items }) {
+    const { t } = useI18n();
+
     return (
         <section className="table-panel">
             <div className="panel-heading">
                 <div>
                     <p className="section-kicker">
-                        <Newspaper aria-hidden="true" size={16} /> 最新新聞
+                        <Newspaper aria-hidden="true" size={16} /> {t('dashboard.latestNewsKicker')}
                     </p>
-                    <h2>相關財經新聞</h2>
+                    <h2>{t('dashboard.latestNewsTitle')}</h2>
                 </div>
-                <Link className="panel-link" href="/news">查看全部</Link>
+                <Link className="panel-link" href="/news">{t('dashboard.viewAll')}</Link>
             </div>
             {items.length === 0 ? (
-                <p className="dashboard-empty">目前沒有新聞。</p>
+                <p className="dashboard-empty">{t('dashboard.newsEmpty')}</p>
             ) : (
                 <ul className="dashboard-news-list">
                     {items.map((item) => (
@@ -464,19 +479,21 @@ function LatestNews({ items }) {
 }
 
 function RecentAnalyses({ items }) {
+    const { t } = useI18n();
+
     return (
         <section className="table-panel">
             <div className="panel-heading">
                 <div>
                     <p className="section-kicker">
-                        <Bot aria-hidden="true" size={16} /> AI 分析
+                        <Bot aria-hidden="true" size={16} /> {t('dashboard.aiAnalysisKicker')}
                     </p>
-                    <h2>近期 AI 參考分析</h2>
+                    <h2>{t('dashboard.recentAnalysesTitle')}</h2>
                 </div>
-                <Link className="panel-link" href="/analyses">查看全部</Link>
+                <Link className="panel-link" href="/analyses">{t('dashboard.viewAll')}</Link>
             </div>
             {items.length === 0 ? (
-                <p className="dashboard-empty">尚未有 AI 分析紀錄。</p>
+                <p className="dashboard-empty">{t('dashboard.analysesEmpty')}</p>
             ) : (
                 <ul className="dashboard-analysis-list">
                     {items.map((analysis, idx) => {
@@ -486,11 +503,11 @@ function RecentAnalyses({ items }) {
                         return (
                             <li className="dashboard-analysis-item" key={`${analysis.type}-${idx}`}>
                                 <span className="dashboard-analysis-item__type">
-                                    {analysisTypeLabels[analysis.type] ?? analysis.type}
+                                    {t(analysisTypeLabels[analysis.type] ?? analysis.type)}
                                 </span>
                                 <strong>{analysis.label ?? '-'}</strong>
                                 {analysis.stance ? (
-                                    <span className={`status-pill status-pill--${stance}`}>{stanceLabel}</span>
+                                    <span className={`status-pill status-pill--${stance}`}>{t(stanceLabel)}</span>
                                 ) : null}
                                 <small>{analysis.model} · {formatDateTime(analysis.created_at)}</small>
                             </li>
@@ -504,10 +521,12 @@ function RecentAnalyses({ items }) {
 
 // deferred 區塊載入中的骨架：外殼已顯示，這裡佔位到行情/新聞/籌碼資料補上。
 function DashboardLoading() {
+    const { t } = useI18n();
+
     return (
         <section className="dashboard-loading" role="status" aria-live="polite" aria-busy="true">
             <Loader2 aria-hidden="true" size={28} className="is-spinning" />
-            <p>正在讀取市場資料…</p>
+            <p>{t('dashboard.loadingMarket')}</p>
         </section>
     );
 }
@@ -525,6 +544,7 @@ export default function Dashboard({
     hasLlmProvider = true,
     triggeredAlerts = [],
 }) {
+    const { t } = useI18n();
     const [refreshing, setRefreshing] = useState(false);
 
     const refresh = () =>
@@ -539,21 +559,21 @@ export default function Dashboard({
         );
 
     return (
-        <AppShell title="市場儀表板">
+        <AppShell title={t('dashboard.pageTitle')}>
             <div className="dashboard-grid">
                 <section className="hero-panel">
                     <div>
                         <p className="section-kicker">
-                            <LineChart aria-hidden="true" size={16} /> 市場雷達
+                            <LineChart aria-hidden="true" size={16} /> {t('dashboard.heroKicker')}
                         </p>
-                        <h2>整合市場、新聞與 AI 參考分析</h2>
+                        <h2>{t('dashboard.heroTitle')}</h2>
                         <p>
-                            這裡彙整台灣與美國市場概況、自選清單訊號、相關新聞與 LLM 參考分析，方便快速掌握需要追蹤的投資議題。
+                            {t('dashboard.heroDescription')}
                         </p>
                     </div>
                     <div className="dashboard-refresh">
                         {generatedAt ? (
-                            <span className="dashboard-refresh__time">資料時間：{formatDateTime(generatedAt)}</span>
+                            <span className="dashboard-refresh__time">{t('dashboard.dataTime', { time: formatDateTime(generatedAt) })}</span>
                         ) : null}
                         <button
                             className="button-secondary"
@@ -563,7 +583,7 @@ export default function Dashboard({
                             aria-busy={refreshing}
                         >
                             <RefreshCw aria-hidden="true" size={16} className={refreshing ? 'is-spinning' : undefined} />
-                            <span>{refreshing ? '更新中…' : '更新最新資料'}</span>
+                            <span>{refreshing ? t('dashboard.refreshing') : t('dashboard.refreshLatest')}</span>
                         </button>
                     </div>
                 </section>
@@ -572,11 +592,11 @@ export default function Dashboard({
                     <p className="dashboard-llm-hint" role="note">
                         <Bot aria-hidden="true" size={16} />
                         <span>
-                            尚未設定 AI 模型，AI 分析功能停用中（行情、技術指標與規則訊號不受影響）。請至
+                            {t('dashboard.llmHintPrefix')}
                             {' '}
-                            <Link href="/settings">系統設定</Link>
+                            <Link href="/settings">{t('dashboard.settingsLink')}</Link>
                             {' '}
-                            新增模型。
+                            {t('dashboard.llmHintSuffix')}
                         </span>
                     </p>
                 ) : null}
@@ -599,18 +619,18 @@ export default function Dashboard({
                             <div className="panel-heading">
                                 <div>
                                     <p className="section-kicker">
-                                        <Bell aria-hidden="true" size={16} /> 已觸發警報
+                                        <Bell aria-hidden="true" size={16} /> {t('dashboard.alertsKicker')}
                                     </p>
-                                    <h2>價格警報</h2>
+                                    <h2>{t('dashboard.alertsTitle')}</h2>
                                 </div>
-                                <Link className="panel-link" href="/alerts">查看全部</Link>
+                                <Link className="panel-link" href="/alerts">{t('dashboard.viewAll')}</Link>
                             </div>
                             <ul className="dashboard-news-list">
                                 {triggeredAlerts.map((alert) => (
                                     <li className="dashboard-news-item" key={alert.id}>
                                         {alert.scope === 'market' ? (
                                             <Link href="/alerts">
-                                                <strong>{MARKET_ALERT_TITLE[alert.type] ?? '大盤警報'}</strong>
+                                                <strong>{t(MARKET_ALERT_TITLE[alert.type] ?? 'dashboard.marketAlertFallback')}</strong>
                                             </Link>
                                         ) : (
                                             <Link href={`/stocks/search?symbol=${encodeURIComponent(alert.symbol)}`}>
@@ -619,11 +639,11 @@ export default function Dashboard({
                                         )}
                                         <small>
                                             {alert.scope === 'market'
-                                                ? (alert.type === 'market_bearish_flip' ? '四維共振翻空' : '外資期貨翻空')
+                                                ? (alert.type === 'market_bearish_flip' ? t('dashboard.marketBearishFlip') : t('dashboard.marketForeignFuturesFlip'))
                                                 : alert.type === 'signal'
-                                                    ? `訊號 ${alert.signal_key}`
+                                                    ? t('dashboard.signalLabel', { key: alert.signal_key })
                                                     : `${alert.type} ${alert.threshold}`}
-                                            {alert.triggered_price !== null ? `｜觸發價 ${alert.triggered_price}` : ''}
+                                            {alert.triggered_price !== null ? t('dashboard.triggeredPrice', { price: alert.triggered_price }) : ''}
                                         </small>
                                     </li>
                                 ))}

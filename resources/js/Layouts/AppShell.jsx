@@ -20,20 +20,22 @@ import {
 import BusyOverlay from '../Components/BusyOverlay';
 import HamburgerButton from '../Components/HamburgerButton';
 import ThemeToggle from '../Components/ThemeToggle';
+import LocaleToggle from '../Components/LocaleToggle';
+import { useI18n } from '../i18n';
 
 const baseMenuItems = [
-    { href: '/dashboard', label: '市場儀表板', icon: BarChart3 },
-    { href: '/market/weight-analysis', label: '權值股大盤', icon: Layers },
-    { href: '/news', label: '即時新聞', icon: Newspaper },
-    { href: '/watchlists', label: '自選清單', icon: Star },
-    { href: '/watchlists/analysis', label: '自選快報', icon: Moon },
-    { href: '/stocks/search', label: '個股搜尋', icon: Search },
-    { href: '/screener', label: '選股器', icon: ScanSearch },
-    { href: '/portfolio', label: '投資組合', icon: Wallet },
-    { href: '/alerts', label: '價格警報', icon: Bell },
-    { href: '/analyses', label: 'AI 分析紀錄', icon: Bot },
-    { href: '/profile', label: '個人資料', icon: UserCog },
-    { href: '/settings', label: '系統設定', icon: Settings },
+    { href: '/dashboard', labelKey: 'nav.dashboard', icon: BarChart3 },
+    { href: '/market/weight-analysis', labelKey: 'nav.weightAnalysis', icon: Layers },
+    { href: '/news', labelKey: 'nav.news', icon: Newspaper },
+    { href: '/watchlists', labelKey: 'nav.watchlists', icon: Star },
+    { href: '/watchlists/analysis', labelKey: 'nav.watchlistAnalysis', icon: Moon },
+    { href: '/stocks/search', labelKey: 'nav.stockSearch', icon: Search },
+    { href: '/screener', labelKey: 'nav.screener', icon: ScanSearch },
+    { href: '/portfolio', labelKey: 'nav.portfolio', icon: Wallet },
+    { href: '/alerts', labelKey: 'nav.alerts', icon: Bell },
+    { href: '/analyses', labelKey: 'nav.analyses', icon: Bot },
+    { href: '/profile', labelKey: 'nav.profile', icon: UserCog },
+    { href: '/settings', labelKey: 'nav.settings', icon: Settings },
 ];
 
 function normalizeTheme(theme) {
@@ -56,14 +58,16 @@ function writeStoredTheme(theme) {
     }
 }
 
-export default function AppShell({ children, title = '市場儀表板' }) {
+export default function AppShell({ children, title }) {
     const { props, url } = usePage();
+    const { t } = useI18n();
     const user = props.auth?.user;
+    const heading = title ?? t('nav.dashboard');
     const menuItems = user?.is_admin
         ? [
             ...baseMenuItems,
-            { href: '/admin/instruments', label: '標的清單', icon: ListChecks },
-            { href: '/admin/users', label: '使用者管理', icon: Users },
+            { href: '/admin/instruments', labelKey: 'nav.instruments', icon: ListChecks },
+            { href: '/admin/users', labelKey: 'nav.users', icon: Users },
         ]
         : baseMenuItems;
     const currentPath = url.split(/[?#]/)[0];
@@ -97,16 +101,16 @@ export default function AppShell({ children, title = '市場儀表板' }) {
 
     return (
         <>
-            <Head title={title} />
+            <Head title={heading} />
             {/* 放在 shell 外層：遮罩要蓋住側欄與內容，且不受任何頁面的排版影響。 */}
             <BusyOverlay />
             <div className="app-shell">
-                <aside className={`sidebar ${isMenuOpen ? 'sidebar--open' : ''}`} aria-label="主要導覽">
+                <aside className={`sidebar ${isMenuOpen ? 'sidebar--open' : ''}`} aria-label={t('appShell.primaryNav')}>
                     <div className="brand">
                         <div className="brand__mark">S</div>
                         <div>
-                            <p className="brand__name">股票分析平台</p>
-                            <p className="brand__sub">台美市場研究中樞</p>
+                            <p className="brand__name">{t('appShell.brandName')}</p>
+                            <p className="brand__sub">{t('appShell.brandSub')}</p>
                         </div>
                     </div>
 
@@ -124,26 +128,29 @@ export default function AppShell({ children, title = '市場儀表板' }) {
                                     onClick={() => setIsMenuOpen(false)}
                                 >
                                     <Icon aria-hidden="true" size={19} />
-                                    <span>{item.label}</span>
+                                    <span>{t(item.labelKey)}</span>
                                 </Link>
                             );
                         })}
                     </nav>
 
                     <div className="sidebar__footer">
-                        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+                        <div className="sidebar__toggles">
+                            <ThemeToggle theme={theme} onToggle={toggleTheme} />
+                            <LocaleToggle />
+                        </div>
                         <div className="user-chip">
                             <span>{user?.name?.charAt(0)?.toUpperCase() ?? 'U'}</span>
                             <div className="user-chip__body">
-                                <strong>{user?.name ?? '使用者'}</strong>
+                                <strong>{user?.name ?? t('appShell.user')}</strong>
                                 <small>{user?.profile?.preferred_market ?? 'TW_US'}</small>
                             </div>
                             <button
                                 type="button"
                                 className="icon-button user-chip__logout"
                                 onClick={logout}
-                                aria-label="登出"
-                                title="登出"
+                                aria-label={t('appShell.logout')}
+                                title={t('appShell.logout')}
                             >
                                 <LogOut aria-hidden="true" size={18} />
                             </button>
@@ -154,7 +161,7 @@ export default function AppShell({ children, title = '市場儀表板' }) {
                 <button
                     type="button"
                     className={`shell-overlay ${isMenuOpen ? 'shell-overlay--visible' : ''}`}
-                    aria-label="關閉導覽選單"
+                    aria-label={t('appShell.closeNav')}
                     onClick={() => setIsMenuOpen(false)}
                 />
 
@@ -163,13 +170,14 @@ export default function AppShell({ children, title = '市場儀表板' }) {
                         <div className="topbar__left">
                             <HamburgerButton isOpen={isMenuOpen} onClick={() => setIsMenuOpen((open) => !open)} />
                             <div>
-                                <p className="topbar__eyebrow">分析工作區</p>
-                                <h1>{title}</h1>
+                                <p className="topbar__eyebrow">{t('appShell.workspace')}</p>
+                                <h1>{heading}</h1>
                             </div>
                         </div>
                         <div className="topbar__actions">
                             <ThemeToggle theme={theme} onToggle={toggleTheme} />
-                            <button type="button" className="icon-button" aria-label="通知" title="通知">
+                            <LocaleToggle />
+                            <button type="button" className="icon-button" aria-label={t('appShell.notifications')} title={t('appShell.notifications')}>
                                 <Bell aria-hidden="true" size={20} />
                             </button>
                         </div>

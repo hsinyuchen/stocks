@@ -1,16 +1,23 @@
 import { useForm, usePage } from '@inertiajs/react';
 import { KeyRound, SlidersHorizontal, UserCog } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
+import { useI18n } from '../../i18n';
 
+// 主題標籤沿用共用 theme.* 命名空間，避免與其他頁面的主題文案分歧。
 const THEMES = [
-    { value: 'warm', label: '暖色' },
-    { value: 'dark', label: '深色' },
+    { value: 'warm', labelKey: 'theme.warm' },
+    { value: 'dark', labelKey: 'theme.dark' },
 ];
 
 const MARKETS = [
-    { value: 'TW', label: '台股' },
-    { value: 'US', label: '美股' },
-    { value: 'TW_US', label: '台股＋美股' },
+    { value: 'TW', labelKey: 'profile.marketTw' },
+    { value: 'US', labelKey: 'profile.marketUs' },
+    { value: 'TW_US', labelKey: 'profile.marketTwUs' },
+];
+
+const LOCALES = [
+    { value: 'zh', labelKey: 'profile.localeZh' },
+    { value: 'en', labelKey: 'profile.localeEn' },
 ];
 
 const TIMEZONES = ['Asia/Taipei', 'Asia/Tokyo', 'Asia/Shanghai', 'America/New_York', 'Europe/London', 'UTC'];
@@ -51,6 +58,7 @@ function SelectField({ error, label, options, ...props }) {
 }
 
 function AccountForm({ account }) {
+    const { t } = useI18n();
     const form = useForm({ name: account.name, email: account.email });
 
     const submit = (event) => {
@@ -62,15 +70,15 @@ function AccountForm({ account }) {
         <form className="stock-panel profile-form" onSubmit={submit}>
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">帳號資料</p>
-                    <h2>姓名與登入信箱</h2>
+                    <p className="section-kicker">{t('profile.accountKicker')}</p>
+                    <h2>{t('profile.accountHeading')}</h2>
                 </div>
                 <UserCog aria-hidden="true" size={22} />
             </div>
             <TextField
                 autoComplete="name"
                 error={form.errors.name}
-                label="姓名"
+                label={t('profile.name')}
                 maxLength="255"
                 onChange={(event) => form.setData('name', event.target.value)}
                 type="text"
@@ -79,21 +87,22 @@ function AccountForm({ account }) {
             <TextField
                 autoComplete="email"
                 error={form.errors.email}
-                hint="這也是登入用的帳號，變更後請用新信箱登入。"
-                label="電子郵件"
+                hint={t('profile.emailHint')}
+                label={t('profile.email')}
                 maxLength="255"
                 onChange={(event) => form.setData('email', event.target.value)}
                 type="email"
                 value={form.data.email}
             />
             <button className="button-secondary" disabled={form.processing} type="submit">
-                儲存帳號資料
+                {t('profile.saveAccount')}
             </button>
         </form>
     );
 }
 
 function PasswordForm() {
+    const { t } = useI18n();
     const form = useForm({ current_password: '', password: '', password_confirmation: '' });
 
     const submit = (event) => {
@@ -109,15 +118,15 @@ function PasswordForm() {
         <form className="stock-panel profile-form" onSubmit={submit}>
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">安全性</p>
-                    <h2>變更密碼</h2>
+                    <p className="section-kicker">{t('profile.securityKicker')}</p>
+                    <h2>{t('profile.changePasswordHeading')}</h2>
                 </div>
                 <KeyRound aria-hidden="true" size={22} />
             </div>
             <TextField
                 autoComplete="current-password"
                 error={form.errors.current_password}
-                label="目前密碼"
+                label={t('profile.currentPassword')}
                 onChange={(event) => form.setData('current_password', event.target.value)}
                 type="password"
                 value={form.data.current_password}
@@ -125,8 +134,8 @@ function PasswordForm() {
             <TextField
                 autoComplete="new-password"
                 error={form.errors.password}
-                hint="至少 8 個字元。變更後其他裝置的登入會失效。"
-                label="新密碼"
+                hint={t('profile.newPasswordHint')}
+                label={t('profile.newPassword')}
                 onChange={(event) => form.setData('password', event.target.value)}
                 type="password"
                 value={form.data.password}
@@ -134,20 +143,26 @@ function PasswordForm() {
             <TextField
                 autoComplete="new-password"
                 error={form.errors.password_confirmation}
-                label="確認新密碼"
+                label={t('profile.confirmNewPassword')}
                 onChange={(event) => form.setData('password_confirmation', event.target.value)}
                 type="password"
                 value={form.data.password_confirmation}
             />
             <button className="button-secondary" disabled={form.processing} type="submit">
-                更新密碼
+                {t('profile.updatePassword')}
             </button>
         </form>
     );
 }
 
 function PreferencesForm({ preferences }) {
+    const { t, setLocale } = useI18n();
     const form = useForm({ ...preferences });
+
+    // 模組層級只存 value→key，實際顯示標籤在 render 時依當前語言解析。
+    const themeOptions = THEMES.map((option) => ({ value: option.value, label: t(option.labelKey) }));
+    const marketOptions = MARKETS.map((option) => ({ value: option.value, label: t(option.labelKey) }));
+    const localeOptions = LOCALES.map((option) => ({ value: option.value, label: t(option.labelKey) }));
 
     const submit = (event) => {
         event.preventDefault();
@@ -158,34 +173,46 @@ function PreferencesForm({ preferences }) {
         <form className="stock-panel profile-form" onSubmit={submit}>
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">偏好設定</p>
-                    <h2>顯示與市場</h2>
+                    <p className="section-kicker">{t('profile.preferencesKicker')}</p>
+                    <h2>{t('profile.preferencesHeading')}</h2>
                 </div>
                 <SlidersHorizontal aria-hidden="true" size={22} />
             </div>
             <SelectField
                 error={form.errors.theme}
-                label="主題色"
+                label={t('profile.themeLabel')}
                 onChange={(event) => form.setData('theme', event.target.value)}
-                options={THEMES}
+                options={themeOptions}
                 value={form.data.theme}
             />
             <SelectField
+                error={form.errors.locale}
+                label={t('profile.localeLabel')}
+                onChange={(event) => {
+                    // 同步更新 i18n 狀態（含 localStorage 與 DB），否則存了偏好但
+                    // localStorage 仍是舊語言，重整後會被 localStorage 蓋回去。
+                    form.setData('locale', event.target.value);
+                    setLocale(event.target.value);
+                }}
+                options={localeOptions}
+                value={form.data.locale}
+            />
+            <SelectField
                 error={form.errors.preferred_market}
-                label="主要關注市場"
+                label={t('profile.preferredMarketLabel')}
                 onChange={(event) => form.setData('preferred_market', event.target.value)}
-                options={MARKETS}
+                options={marketOptions}
                 value={form.data.preferred_market}
             />
             <SelectField
                 error={form.errors.timezone}
-                label="時區"
+                label={t('profile.timezoneLabel')}
                 onChange={(event) => form.setData('timezone', event.target.value)}
                 options={TIMEZONES}
                 value={form.data.timezone}
             />
             <button className="button-secondary" disabled={form.processing} type="submit">
-                儲存偏好設定
+                {t('profile.savePreferences')}
             </button>
         </form>
     );
@@ -200,18 +227,22 @@ function formatDate(value) {
 }
 
 export default function ProfileEdit({ account, preferences }) {
+    const { t } = useI18n();
     const { flash } = usePage().props;
 
     return (
-        <AppShell title="個人資料">
+        <AppShell title={t('profile.pageTitle')}>
             <div className="profile-page">
                 <section className="stock-search-header">
                     <div>
-                        <p className="section-kicker">個人資料</p>
-                        <h2>管理你的帳號</h2>
+                        <p className="section-kicker">{t('profile.pageKicker')}</p>
+                        <h2>{t('profile.pageHeading')}</h2>
                         <p>
-                            {account.is_admin ? '管理員帳號 · ' : ''}
-                            核准於 {formatDate(account.approved_at)} · 建立於 {formatDate(account.created_at)}
+                            {account.is_admin ? t('profile.adminBadge') : ''}
+                            {t('profile.accountMeta', {
+                                approved: formatDate(account.approved_at),
+                                created: formatDate(account.created_at),
+                            })}
                         </p>
                     </div>
                 </section>

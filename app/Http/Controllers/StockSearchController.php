@@ -173,7 +173,10 @@ class StockSearchController extends Controller
             'data_as_of' => CarbonImmutable::now(),
         ]);
 
-        RunStockAnalysis::dispatch($analysis->id, $setting?->id, $model);
+        // AI 分析輸出語言跟隨使用者偏好；未設定則繁中。
+        $locale = $user->profile?->locale ?? 'zh';
+
+        RunStockAnalysis::dispatch($analysis->id, $setting?->id, $model, $locale);
 
         return redirect()->route('stocks.search', ['symbol' => $instrument->symbol]);
     }

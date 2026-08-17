@@ -40,6 +40,7 @@ class RunWatchlistAnalysis implements ShouldQueue
         private readonly int $analysisId,
         private readonly ?int $settingId,
         private readonly string $model,
+        private readonly string $locale = 'zh',
     ) {}
 
     public function handle(WatchlistAnalysisService $service, LlmProviderFactory $factory, FinMindTokenResolver $tokens): void
@@ -65,7 +66,7 @@ class RunWatchlistAnalysis implements ShouldQueue
 
             [$instruments, $omitted] = $this->instrumentsFor($analysis);
 
-            $result = $service->analyze($instruments, $llm, $this->model, $omitted);
+            $result = $service->analyze($instruments, $llm, $this->model, $omitted, $this->locale);
             $provider = (string) ($result['provider'] ?? 'unknown');
 
             // 只在仍是 pending 時寫入：reaper 可能已因逾時把它標成失敗，這裡再寫回完成

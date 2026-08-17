@@ -38,6 +38,7 @@ class RunMarketWeightAnalysis implements ShouldQueue
         private readonly int $analysisId,
         private readonly ?int $settingId,
         private readonly string $model,
+        private readonly string $locale = 'zh',
     ) {}
 
     public function handle(MarketWeightAnalysisService $service, LlmProviderFactory $factory, FinMindTokenResolver $tokens): void
@@ -61,7 +62,7 @@ class RunMarketWeightAnalysis implements ShouldQueue
 
             $llm = $setting === null ? null : $factory->make($setting);
 
-            $result = $service->analyze($llm, $this->model);
+            $result = $service->analyze($llm, $this->model, $this->locale);
             $provider = (string) ($result['provider'] ?? 'unknown');
 
             // 只在仍是 pending 時寫入：reaper 可能已因逾時把它標成失敗，這裡再寫回完成

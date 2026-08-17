@@ -23,6 +23,7 @@ class HandleInertiaRequests extends Middleware
                     'is_admin' => (bool) $user->is_admin,
                     'profile' => [
                         'theme' => $user->profile?->theme ?? 'warm',
+                        'locale' => $user->profile?->locale ?? 'zh',
                         'timezone' => $user->profile?->timezone ?? 'Asia/Taipei',
                         'preferred_market' => $user->profile?->preferred_market ?? 'TW_US',
                     ],

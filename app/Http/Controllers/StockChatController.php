@@ -33,6 +33,7 @@ class StockChatController extends Controller
         ]);
 
         $user = $request->user();
+        $locale = $user->profile?->locale ?? 'zh';
         $setting = $this->resolveSetting($user, $data['llm_provider_setting_id'] ?? null);
 
         // 沒有模型就完全不能用：與個股分析不同，這裡沒有規則訊號可以降級，落一筆
@@ -42,7 +43,9 @@ class StockChatController extends Controller
         // flash 區塊，用 with('error') 訊息會直接消失在畫面上。
         if ($setting === null) {
             return back()->withErrors([
-                'question' => '請先到「系統設定」新增 AI 模型，才能使用個股問答。',
+                'question' => $locale === 'en'
+                    ? 'Add an AI model under Settings before using stock Q&A.'
+                    : '請先到「系統設定」新增 AI 模型，才能使用個股問答。',
             ]);
         }
 
@@ -56,7 +59,9 @@ class StockChatController extends Controller
 
         if ($pending) {
             return back()->withErrors([
-                'question' => '上一題還在回答中，請等它完成後再送出下一題。',
+                'question' => $locale === 'en'
+                    ? 'The previous question is still being answered. Wait for it to finish before sending the next one.'
+                    : '上一題還在回答中，請等它完成後再送出下一題。',
             ]);
         }
 
@@ -74,7 +79,7 @@ class StockChatController extends Controller
             'data_as_of' => CarbonImmutable::now(),
         ]);
 
-        RunStockChatReply::dispatch($turn->id, $setting->id, $model);
+        RunStockChatReply::dispatch($turn->id, $setting->id, $model, $locale);
 
         return redirect()->route('stocks.search', ['symbol' => $instrument->symbol]);
     }

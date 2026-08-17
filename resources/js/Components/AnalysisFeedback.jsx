@@ -5,6 +5,8 @@
  * 等於保證兩邊日後會分岔——其中一邊修好的文案，另一邊還留著舊的。
  */
 
+import { useI18n } from '../i18n';
+
 /**
  * AI 失敗的原因與下一步。
  *
@@ -32,11 +34,13 @@ export function FailureNote({ failure }) {
  * 沒有 queue worker，job 因此永遠不會被取出執行。
  */
 export function QueueStalledHint() {
+    const { t } = useI18n();
+
     return (
         <p className="queue-stalled-hint">
-            排隊超過 10 分鐘仍未完成，已停止等待。請確認佇列處理程序有在執行
-            （<code>composer dev</code> 會一併啟動，或另開終端機執行 <code>php artisan queue:work</code>），
-            重新整理後即可看到結果。
+            {t('analysisFeedback.stalledPart1')}<code>composer dev</code>
+            {t('analysisFeedback.stalledPart2')}<code>php artisan queue:work</code>
+            {t('analysisFeedback.stalledPart3')}
         </p>
     );
 }

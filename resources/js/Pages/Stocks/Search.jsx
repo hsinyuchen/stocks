@@ -11,19 +11,21 @@ import StockChart from '../../Components/charts/StockChart';
 import CompareBox from '../../Components/charts/CompareBox';
 import TimeframeSwitcher from '../../Components/charts/TimeframeSwitcher';
 import useAnalysisPolling from '../../hooks/useAnalysisPolling';
+import { useI18n } from '../../i18n';
 
+// 值為 i18n key，於 render 端以 t() 翻譯；缺 key 時回退顯示原始 stance 值。
 const stanceLabels = {
-    bullish: '偏多',
-    bearish: '偏空',
-    neutral: '中性',
-    watch: '觀察',
-    insufficient_data: '資料不足',
+    bullish: 'stocks.stance.bullish',
+    bearish: 'stocks.stance.bearish',
+    neutral: 'stocks.stance.neutral',
+    watch: 'stocks.stance.watch',
+    insufficient_data: 'stocks.stance.insufficientData',
 };
 
 const chipStanceLabels = {
-    accumulating: '買超',
-    distributing: '賣超',
-    neutral: '中性',
+    accumulating: 'stocks.chipStance.accumulating',
+    distributing: 'stocks.chipStance.distributing',
+    neutral: 'stocks.chipStance.neutral',
 };
 
 // 借用既有 status-pill 的多空配色，不另外定義一套語意色。
@@ -34,8 +36,8 @@ const chipStanceTone = {
 };
 
 const alignmentLabels = {
-    confirm: '技術與籌碼同向',
-    diverge: '技術與籌碼背離',
+    confirm: 'stocks.alignment.confirm',
+    diverge: 'stocks.alignment.diverge',
 };
 
 // 副圖開關：預設開 KD/MACD，RSI/OBV 預設關（spec 決策）。選擇存 localStorage。
@@ -88,6 +90,8 @@ function FieldError({ message }) {
 }
 
 function SearchForm({ initialSymbol }) {
+    const { t } = useI18n();
+
     const onSelect = (result) => {
         router.get(
             '/stocks/search',
@@ -100,13 +104,14 @@ function SearchForm({ initialSymbol }) {
         <div className="stock-search-form">
             <StockSearchBox onSelect={onSelect} />
             {initialSymbol ? (
-                <p className="field-hint">目前股票：{initialSymbol}</p>
+                <p className="field-hint">{t('stocks.currentStock', { symbol: initialSymbol })}</p>
             ) : null}
         </div>
     );
 }
 
 function AnalyzeForm({ instrument, llmProviders }) {
+    const { t } = useI18n();
     const providers = llmProviders ?? [];
     const defaultProvider = providers.find((provider) => provider.is_default) ?? providers[0] ?? null;
     const form = useForm({
@@ -134,16 +139,16 @@ function AnalyzeForm({ instrument, llmProviders }) {
         <form className="analysis-action" onSubmit={submit}>
             {providers.length === 0 ? (
                 <p className="field-hint">
-                    尚未設定 AI 模型，本次分析僅包含技術指標與規則訊號。可至
+                    {t('stocks.noProviderAnalysisBefore')}
                     {' '}
-                    <Link href="/settings">系統設定</Link>
+                    <Link href="/settings">{t('stocks.settingsLink')}</Link>
                     {' '}
-                    新增 OpenAI、Gemini、Anthropic 或本地 Ollama 模型。
+                    {t('stocks.noProviderAnalysisAfter')}
                 </p>
             ) : (
                 <>
                     <label className="form-field">
-                        <span>AI 模型</span>
+                        <span>{t('stocks.aiModel')}</span>
                         <select value={form.data.llm_provider_setting_id} onChange={onProviderChange}>
                             {providers.map((provider) => (
                                 <option key={provider.id} value={provider.id}>
@@ -154,7 +159,7 @@ function AnalyzeForm({ instrument, llmProviders }) {
                         <FieldError message={form.errors.llm_provider_setting_id} />
                     </label>
                     <label className="form-field">
-                        <span>模型名稱（可覆寫）</span>
+                        <span>{t('stocks.modelNameOverride')}</span>
                         <input
                             maxLength="120"
                             onChange={(event) => form.setData('model', event.target.value)}
@@ -168,18 +173,20 @@ function AnalyzeForm({ instrument, llmProviders }) {
             )}
             <button className="button-secondary" disabled={form.processing} type="submit">
                 <Sparkles aria-hidden="true" size={18} />
-                <span>產生分析</span>
+                <span>{t('stocks.generateAnalysis')}</span>
             </button>
         </form>
     );
 }
 
 function QuotePanel({ quote, instrument }) {
+    const { t } = useI18n();
+
     if (!quote || !instrument) {
         return (
             <section className="stock-panel empty-state">
-                <strong>尚未選擇股票</strong>
-                <span>搜尋股票代號後，會載入報價、近期價格與相關新聞。</span>
+                <strong>{t('stocks.noStockSelected')}</strong>
+                <span>{t('stocks.noStockSelectedHint')}</span>
             </section>
         );
     }
@@ -189,7 +196,7 @@ function QuotePanel({ quote, instrument }) {
     return (
         <section className="stock-panel stock-quote">
             <div>
-                <p className="section-kicker">即時報價</p>
+                <p className="section-kicker">{t('stocks.realtimeQuote')}</p>
                 <h2>{instrument.symbol}</h2>
                 <p>{instrument.name}</p>
             </div>
@@ -218,6 +225,7 @@ function QuotePanel({ quote, instrument }) {
  * 與主 tf 一致；fetch 失敗只標記該 symbol，不影響主圖與其他比較線。
  */
 function ChartSection({ instrument }) {
+    const { t } = useI18n();
     const [tf, setTf] = useState('daily');
     const [chartData, setChartData] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -322,8 +330,8 @@ function ChartSection({ instrument }) {
         <section className="stock-panel chart-section">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">技術線圖</p>
-                    <h2>K 線與技術指標</h2>
+                    <p className="section-kicker">{t('stocks.chartKicker')}</p>
+                    <h2>{t('stocks.chartTitle')}</h2>
                 </div>
                 <LineChart aria-hidden="true" size={22} />
             </div>
@@ -331,7 +339,7 @@ function ChartSection({ instrument }) {
             <div className="chart-toolbar">
                 <TimeframeSwitcher loading={loading} onChange={setTf} value={tf} />
                 {isCompare ? null : (
-                    <div className="chart-panes" role="group" aria-label="副圖指標">
+                    <div className="chart-panes" role="group" aria-label={t('stocks.subChartIndicators')}>
                         {PANE_OPTIONS.map((option) => (
                             <label className="chart-pane-toggle" key={option.key}>
                                 <input
@@ -355,10 +363,10 @@ function ChartSection({ instrument }) {
 
             {error ? (
                 <div className="chart-container chart-container--empty">
-                    <span className="chart-empty">圖表資料載入失敗。</span>
+                    <span className="chart-empty">{t('stocks.chartLoadFailed')}</span>
                     <button className="button-secondary" onClick={() => fetchChart(tf)} type="button">
                         <RotateCcw aria-hidden="true" size={16} />
-                        <span>重試</span>
+                        <span>{t('common.retry')}</span>
                     </button>
                 </div>
             ) : chartData ? (
@@ -371,7 +379,7 @@ function ChartSection({ instrument }) {
                 />
             ) : (
                 <div className="chart-container chart-container--empty">
-                    <span className="chart-empty">載入圖表資料中…</span>
+                    <span className="chart-empty">{t('stocks.chartLoading')}</span>
                 </div>
             )}
         </section>
@@ -379,6 +387,8 @@ function ChartSection({ instrument }) {
 }
 
 function NewsList({ news }) {
+    const { t } = useI18n();
+
     if (news.length === 0) {
         return null;
     }
@@ -387,8 +397,8 @@ function NewsList({ news }) {
         <section className="stock-panel">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">相關新聞</p>
-                    <h2>資料供應器新聞標題</h2>
+                    <p className="section-kicker">{t('stocks.relatedNews')}</p>
+                    <h2>{t('stocks.providerNewsTitles')}</h2>
                 </div>
                 <Newspaper aria-hidden="true" size={22} />
             </div>
@@ -420,16 +430,17 @@ function NewsList({ news }) {
  * 二次確認，誤點一次不會直接刪掉東西。
  */
 function DeleteAnalysisButton({ analysisId }) {
+    const { t } = useI18n();
     const [armed, setArmed] = useState(false);
     const form = useForm();
 
     if (!armed) {
         return (
             <button
-                aria-label="刪除這筆分析"
+                aria-label={t('stocks.deleteAnalysis')}
                 className="analysis-item__delete"
                 onClick={() => setArmed(true)}
-                title="刪除這筆分析"
+                title={t('stocks.deleteAnalysis')}
                 type="button"
             >
                 <Trash2 aria-hidden="true" size={15} />
@@ -445,18 +456,20 @@ function DeleteAnalysisButton({ analysisId }) {
                 onClick={() => form.delete(`/stocks/analyses/${analysisId}`, { preserveScroll: true })}
                 type="button"
             >
-                確認刪除
+                {t('stocks.confirmDelete')}
             </button>
-            <button onClick={() => setArmed(false)} type="button">取消</button>
+            <button onClick={() => setArmed(false)} type="button">{t('common.cancel')}</button>
         </span>
     );
 }
 
 function PendingAnalysisItem({ analysis }) {
+    const { t } = useI18n();
+
     return (
         <article className="analysis-item analysis-item--pending">
             <div className="analysis-item__head">
-                <span className="status-pill status-pill--pending">分析中</span>
+                <span className="status-pill status-pill--pending">{t('stocks.statusAnalyzing')}</span>
                 <small className="analysis-item__time">
                     {formatDateTime(analysis.created_at)}
                     <span>{analysis.model}</span>
@@ -465,18 +478,20 @@ function PendingAnalysisItem({ analysis }) {
                 <DeleteAnalysisButton analysisId={analysis.id} />
             </div>
             <p className="analysis-item__pending-note">
-                已排入佇列，完成後會自動顯示。個股分析含行情抓取與 AI 產文，通常需要數十秒。
+                {t('stocks.pendingNote')}
             </p>
         </article>
     );
 }
 
 function AnalysisHistory({ analyses, stalled = false }) {
+    const { t } = useI18n();
+
     if (analyses.length === 0) {
         return (
             <section className="stock-panel empty-state">
-                <strong>尚無分析紀錄</strong>
-                <span>執行分析後，會為這檔股票保存一份參考摘要。</span>
+                <strong>{t('stocks.noAnalysisRecords')}</strong>
+                <span>{t('stocks.noAnalysisRecordsHint')}</span>
             </section>
         );
     }
@@ -485,8 +500,8 @@ function AnalysisHistory({ analyses, stalled = false }) {
         <section className="stock-panel">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">參考分析</p>
-                    <h2>已保存 {analyses.length} 筆</h2>
+                    <p className="section-kicker">{t('stocks.referenceAnalysis')}</p>
+                    <h2>{t('stocks.savedCount', { count: analyses.length })}</h2>
                 </div>
                 <Bot aria-hidden="true" size={22} />
             </div>
@@ -506,29 +521,29 @@ function AnalysisHistory({ analyses, stalled = false }) {
                         <article className="analysis-item" key={analysis.id}>
                             <div className="analysis-item__head">
                                 <span className={`status-pill status-pill--${stance}`}>
-                                    技術 {stanceLabels[stance] ?? stance}
+                                    {t('stocks.techLabel')} {stanceLabels[stance] ? t(stanceLabels[stance]) : stance}
                                 </span>
                                 {chip ? (
                                     <span className={`status-pill status-pill--${chipStanceTone[chip.stance] ?? 'neutral'}`}>
-                                        籌碼 {chipStanceLabels[chip.stance] ?? chip.stance}
+                                        {t('stocks.chipLabel')} {chipStanceLabels[chip.stance] ? t(chipStanceLabels[chip.stance]) : chip.stance}
                                     </span>
                                 ) : null}
                                 {alignment && alignment !== 'none' ? (
                                     <span className={`chip-alignment chip-alignment--${alignment}`}>
-                                        {alignmentLabels[alignment]}
+                                        {alignmentLabels[alignment] ? t(alignmentLabels[alignment]) : alignment}
                                     </span>
                                 ) : null}
                                 {/* 技術與籌碼是本地計算，AI 失敗時仍然有效；標出來讓
                                     使用者知道缺的是哪一段，而不是整筆分析都不可信。 */}
                                 {analysis.status === 'failed' ? (
-                                    <span className="status-pill status-pill--failed">AI 未完成</span>
+                                    <span className="status-pill status-pill--failed">{t('stocks.aiIncomplete')}</span>
                                 ) : null}
                                 {/* 時間必須顯示：同一檔股票的多筆分析，provider 與
                                     model 往往相同，沒有時間就完全無法區分，五筆疊在
                                     一起看起來像同一筆。created_at 本來就在 payload 裡
                                     卻沒被用。 */}
                                 <small className="analysis-item__time">
-                                    {index === 0 ? <strong>最新</strong> : null}
+                                    {index === 0 ? <strong>{t('stocks.latest')}</strong> : null}
                                     {formatDateTime(analysis.created_at)}
                                     <span>{analysis.provider_type} · {analysis.model}</span>
                                 </small>
@@ -537,7 +552,7 @@ function AnalysisHistory({ analyses, stalled = false }) {
                             {analysis.status === 'failed' && analysis.llm_output?.metadata?.failure ? (
                                 <FailureNote failure={analysis.llm_output.metadata.failure} />
                             ) : (
-                                <Markdown>{analysis.llm_output?.content ?? '尚未保存 LLM 參考文字。'}</Markdown>
+                                <Markdown>{analysis.llm_output?.content ?? t('stocks.noLlmReferenceText')}</Markdown>
                             )}
                             {analysis.rule_signal?.reasons?.length ? (
                                 <ul>
@@ -579,13 +594,13 @@ function fmtPct(value) {
     return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
 }
 
-function fmtRevenue(value) {
+function fmtRevenue(value, suffix) {
     if (value === null || value === undefined) {
         return '—';
     }
 
     // 億元
-    return `${(Number(value) / 1e8).toLocaleString('zh-TW', { maximumFractionDigits: 1 })} 億`;
+    return `${(Number(value) / 1e8).toLocaleString('zh-TW', { maximumFractionDigits: 1 })} ${suffix}`;
 }
 
 function changeClass(value) {
@@ -597,6 +612,8 @@ function changeClass(value) {
 }
 
 function FundamentalsPanel({ fundamentals }) {
+    const { t } = useI18n();
+
     if (!fundamentals) {
         return null;
     }
@@ -609,26 +626,26 @@ function FundamentalsPanel({ fundamentals }) {
         <section className="stock-panel fundamentals-panel">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">基本面</p>
-                    <h2>財報與估值</h2>
+                    <p className="section-kicker">{t('stocks.fundamentals')}</p>
+                    <h2>{t('stocks.financialsValuation')}</h2>
                 </div>
-                {f.data_as_of ? <span className="field-hint">估值資料日 {f.data_as_of}</span> : null}
+                {f.data_as_of ? <span className="field-hint">{t('stocks.valuationDataDate', { date: f.data_as_of })}</span> : null}
             </div>
 
             {allNull ? (
-                <p className="dashboard-empty">基本面資料暫無。</p>
+                <p className="dashboard-empty">{t('stocks.fundamentalsEmpty')}</p>
             ) : (
                 <div className="fundamentals-grid">
                     <div className="fundamentals-cell">
-                        <span>本益比</span>
+                        <span>{t('stocks.per')}</span>
                         <strong>{fmtNum(f.per)}</strong>
                     </div>
                     <div className="fundamentals-cell">
-                        <span>股價淨值比</span>
+                        <span>{t('stocks.pbr')}</span>
                         <strong>{fmtNum(f.pbr)}</strong>
                     </div>
                     <div className="fundamentals-cell">
-                        <span>殖利率</span>
+                        <span>{t('stocks.dividendYield')}</span>
                         <strong>{f.dividend_yield === null ? '—' : `${fmtNum(f.dividend_yield)}%`}</strong>
                     </div>
                     <div className="fundamentals-cell">
@@ -640,11 +657,11 @@ function FundamentalsPanel({ fundamentals }) {
                         <strong>{f.roe === null ? '—' : `${fmtNum(f.roe)}%`}</strong>
                     </div>
                     <div className="fundamentals-cell">
-                        <span>月營收{f.revenue_month ? `（${f.revenue_month.slice(0, 7)}）` : ''}</span>
-                        <strong>{fmtRevenue(f.revenue)}</strong>
+                        <span>{t('stocks.monthlyRevenue')}{f.revenue_month ? `（${f.revenue_month.slice(0, 7)}）` : ''}</span>
+                        <strong>{fmtRevenue(f.revenue, t('stocks.revenueUnit'))}</strong>
                     </div>
                     <div className="fundamentals-cell">
-                        <span>營收年增</span>
+                        <span>{t('stocks.revenueYoy')}</span>
                         <strong className={changeClass(f.revenue_yoy)}>{fmtPct(f.revenue_yoy)}</strong>
                     </div>
                 </div>
@@ -653,19 +670,20 @@ function FundamentalsPanel({ fundamentals }) {
             <ValuationPercentiles percentiles={f.percentiles} />
 
             <p className="fundamentals-disclaimer">
-                基本面數據來自 FinMind，可能延遲或與官方財報有出入，僅供參考，非投資建議。
+                {t('stocks.fundamentalsDisclaimer')}
             </p>
         </section>
     );
 }
 
-const PERCENTILE_LABELS = { per: '本益比', pbr: '股價淨值比' };
+const PERCENTILE_LABELS = { per: 'stocks.per', pbr: 'stocks.pbr' };
 
 /**
  * 估值在自身歷史中的位置。分位低不等於便宜（可能是基本面轉壞），
  * 因此只呈現區間與分位，不下多空結論。
  */
 function ValuationPercentiles({ percentiles }) {
+    const { t } = useI18n();
     const entries = Object.entries(percentiles ?? {});
 
     if (entries.length === 0) {
@@ -674,18 +692,23 @@ function ValuationPercentiles({ percentiles }) {
 
     return (
         <div className="valuation-percentiles">
-            <p className="section-kicker">歷史估值分位</p>
+            <p className="section-kicker">{t('stocks.historicalValuationPercentile')}</p>
             {entries.map(([metric, p]) => (
                 <div className="valuation-row" key={metric}>
-                    <span className="valuation-label">{PERCENTILE_LABELS[metric] ?? metric}</span>
+                    <span className="valuation-label">{PERCENTILE_LABELS[metric] ? t(PERCENTILE_LABELS[metric]) : metric}</span>
                     <div className="valuation-track">
                         <div className="valuation-marker" style={{ left: `${p.percentile}%` }} />
                     </div>
                     <span className="valuation-figure">
-                        {p.value}（{p.percentile}% 分位）
+                        {p.value}{t('stocks.percentileSuffix', { percentile: p.percentile })}
                     </span>
                     <span className="valuation-range">
-                        低 {p.min} ／ 中位 {p.median} ／ 高 {p.max}．{p.samples} 筆
+                        {t('stocks.valuationRange', {
+                            min: p.min,
+                            median: p.median,
+                            max: p.max,
+                            samples: p.samples,
+                        })}
                     </span>
                 </div>
             ))}
@@ -705,6 +728,8 @@ function fmtLots(shares) {
 }
 
 function ChipPanel({ chipFlows }) {
+    const { t } = useI18n();
+
     if (!chipFlows || chipFlows.length === 0) {
         return null;
     }
@@ -728,33 +753,34 @@ function ChipPanel({ chipFlows }) {
     }
 
     const recent = [...chipFlows].slice(-10).reverse();
+    const lotsUnit = t('stocks.lotsUnit');
 
     return (
         <section className="stock-panel chip-panel">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">籌碼面</p>
-                    <h2>三大法人買賣超</h2>
+                    <p className="section-kicker">{t('stocks.chipFlows')}</p>
+                    <h2>{t('stocks.institutionalNet')}</h2>
                 </div>
-                <span className="field-hint">資料日 {chipFlows[chipFlows.length - 1].date}</span>
+                <span className="field-hint">{t('stocks.dataDate', { date: chipFlows[chipFlows.length - 1].date })}</span>
             </div>
 
             <div className="fundamentals-grid">
                 <div className="fundamentals-cell">
-                    <span>外資（近 {window.length} 日）</span>
-                    <strong className={changeClass(foreign)}>{fmtLots(foreign)} 張</strong>
+                    <span>{t('stocks.foreignRecentDays', { count: window.length })}</span>
+                    <strong className={changeClass(foreign)}>{fmtLots(foreign)} {lotsUnit}</strong>
                 </div>
                 <div className="fundamentals-cell">
-                    <span>投信（近 {window.length} 日）</span>
-                    <strong className={changeClass(sum('trust_net'))}>{fmtLots(sum('trust_net'))} 張</strong>
+                    <span>{t('stocks.trustRecentDays', { count: window.length })}</span>
+                    <strong className={changeClass(sum('trust_net'))}>{fmtLots(sum('trust_net'))} {lotsUnit}</strong>
                 </div>
                 <div className="fundamentals-cell">
-                    <span>自營商（近 {window.length} 日）</span>
-                    <strong className={changeClass(sum('dealer_net'))}>{fmtLots(sum('dealer_net'))} 張</strong>
+                    <span>{t('stocks.dealerRecentDays', { count: window.length })}</span>
+                    <strong className={changeClass(sum('dealer_net'))}>{fmtLots(sum('dealer_net'))} {lotsUnit}</strong>
                 </div>
                 <div className="fundamentals-cell">
-                    <span>外資連續{lastForeign > 0 ? '買超' : '賣超'}</span>
-                    <strong>{streak === 0 ? '—' : `${streak} 日`}</strong>
+                    <span>{lastForeign > 0 ? t('stocks.foreignStreakBuy') : t('stocks.foreignStreakSell')}</span>
+                    <strong>{streak === 0 ? '—' : t('stocks.streakDays', { count: streak })}</strong>
                 </div>
             </div>
 
@@ -762,11 +788,11 @@ function ChipPanel({ chipFlows }) {
                 <table className="chip-table">
                     <thead>
                         <tr>
-                            <th scope="col">日期</th>
-                            <th scope="col">外資</th>
-                            <th scope="col">投信</th>
-                            <th scope="col">自營商</th>
-                            <th scope="col">合計</th>
+                            <th scope="col">{t('stocks.thDate')}</th>
+                            <th scope="col">{t('stocks.thForeign')}</th>
+                            <th scope="col">{t('stocks.thTrust')}</th>
+                            <th scope="col">{t('stocks.thDealer')}</th>
+                            <th scope="col">{t('stocks.thTotal')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -784,7 +810,7 @@ function ChipPanel({ chipFlows }) {
             </div>
 
             <p className="fundamentals-disclaimer">
-                單位為張（1 張 = 1000 股），正值買超、負值賣超。資料來自 FinMind，收盤後公佈，當日資料可能延遲。僅供參考，非投資建議。
+                {t('stocks.chipDisclaimer')}
             </p>
         </section>
     );
@@ -797,6 +823,8 @@ function ChipPanel({ chipFlows }) {
  * 絕對餘額不可跨股比較（融資限額依股本而異），所以把使用率放在最顯眼的位置。
  */
 function MarginPanel({ marginFlows }) {
+    const { t } = useI18n();
+
     if (!marginFlows || marginFlows.length === 0) {
         return null;
     }
@@ -812,34 +840,35 @@ function MarginPanel({ marginFlows }) {
         : null;
 
     const recent = [...marginFlows].slice(-10).reverse();
+    const lotsUnit = t('stocks.lotsUnit');
 
     return (
         <section className="stock-panel chip-panel">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">信用交易</p>
-                    <h2>融資融券</h2>
+                    <p className="section-kicker">{t('stocks.creditTrading')}</p>
+                    <h2>{t('stocks.marginShort')}</h2>
                 </div>
-                <span className="field-hint">資料日 {latest.date}</span>
+                <span className="field-hint">{t('stocks.dataDate', { date: latest.date })}</span>
             </div>
 
             <div className="fundamentals-grid">
                 <div className="fundamentals-cell">
-                    <span>融資餘額</span>
-                    <strong>{fmtLots(latest.margin_balance)} 張</strong>
+                    <span>{t('stocks.marginBalance')}</span>
+                    <strong>{fmtLots(latest.margin_balance)} {lotsUnit}</strong>
                 </div>
                 <div className="fundamentals-cell">
-                    <span>近 {window.length} 日變化</span>
+                    <span>{t('stocks.recentDaysChange', { count: window.length })}</span>
                     <strong className={changeClass(changePercent)}>
                         {changePercent === null ? '—' : `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`}
                     </strong>
                 </div>
                 <div className="fundamentals-cell">
-                    <span>融資使用率</span>
+                    <span>{t('stocks.marginUsage')}</span>
                     <strong>{latest.usage_percent === null ? '—' : `${latest.usage_percent}%`}</strong>
                 </div>
                 <div className="fundamentals-cell">
-                    <span>券資比</span>
+                    <span>{t('stocks.shortRatio')}</span>
                     <strong>{latest.short_ratio === null ? '—' : `${latest.short_ratio}%`}</strong>
                 </div>
             </div>
@@ -848,11 +877,11 @@ function MarginPanel({ marginFlows }) {
                 <table className="chip-table">
                     <thead>
                         <tr>
-                            <th scope="col">日期</th>
-                            <th scope="col">融資餘額</th>
-                            <th scope="col">融資增減</th>
-                            <th scope="col">融券餘額</th>
-                            <th scope="col">融券增減</th>
+                            <th scope="col">{t('stocks.thDate')}</th>
+                            <th scope="col">{t('stocks.thMarginBalance')}</th>
+                            <th scope="col">{t('stocks.thMarginChange')}</th>
+                            <th scope="col">{t('stocks.thShortBalance')}</th>
+                            <th scope="col">{t('stocks.thShortChange')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -870,8 +899,7 @@ function MarginPanel({ marginFlows }) {
             </div>
 
             <p className="fundamentals-disclaimer">
-                單位為張（1 張 = 1000 股）。融資餘額反映散戶槓桿，使用率為餘額佔融資限額的比率；限額依股本而異，故絕對餘額不可跨股比較。
-                融資增加本身不等於看空——多頭初升段融資與股價同步上升是正常現象。資料來自 FinMind，收盤後公佈。僅供參考，非投資建議。
+                {t('stocks.marginDisclaimer')}
             </p>
         </section>
     );
@@ -885,6 +913,8 @@ function MarginPanel({ marginFlows }) {
  * 影響。非台股不顯示。
  */
 function BrokerBranchPanel({ brokerBranch, market }) {
+    const { t } = useI18n();
+
     if (market !== 'TW') {
         return null;
     }
@@ -894,16 +924,16 @@ function BrokerBranchPanel({ brokerBranch, market }) {
             <section className="stock-panel chip-panel">
                 <div className="panel-heading">
                     <div>
-                        <p className="section-kicker">籌碼面</p>
-                        <h2>券商分點主力</h2>
+                        <p className="section-kicker">{t('stocks.chipFlows')}</p>
+                        <h2>{t('stocks.brokerBranch')}</h2>
                     </div>
                 </div>
                 <p className="fundamentals-disclaimer">
-                    券商分點為 FinMind 贊助等級（Sponsor）付費資料。請在
+                    {t('stocks.brokerUnavailableBefore')}
                     {' '}
-                    <a href="/settings">系統設定</a>
+                    <a href="/settings">{t('stocks.settingsLink')}</a>
                     {' '}
-                    填入你的 Sponsor 等級 FinMind token 後，即可顯示主力券商進出。
+                    {t('stocks.brokerUnavailableAfter')}
                 </p>
             </section>
         );
@@ -917,19 +947,20 @@ function BrokerBranchPanel({ brokerBranch, market }) {
         window_days: windowDays,
     } = brokerBranch;
 
+    const lotsUnit = t('stocks.lotsUnit');
     const pct = (value) => (value === null || value === undefined ? '—' : `${(Number(value) * 100).toFixed(1)}%`);
 
     const renderList = (rows) => (
         rows.length === 0 ? (
-            <p className="field-hint">無</p>
+            <p className="field-hint">{t('stocks.none')}</p>
         ) : (
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                 {rows.map((row) => (
                     <li key={row.broker_id} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'baseline' }}>
                         <span>{row.broker}</span>
                         <span style={{ display: 'flex', gap: '0.5rem', alignItems: 'baseline' }}>
-                            <strong className={changeClass(row.net_shares)}>{fmtLots(row.net_shares)} 張</strong>
-                            <small style={{ color: 'var(--text-muted, #8a8a8a)' }}>{row.streak_days > 0 ? `連${row.streak_days}日` : ''}</small>
+                            <strong className={changeClass(row.net_shares)}>{fmtLots(row.net_shares)} {lotsUnit}</strong>
+                            <small style={{ color: 'var(--text-muted, #8a8a8a)' }}>{row.streak_days > 0 ? t('stocks.streakDaysShort', { count: row.streak_days }) : ''}</small>
                         </span>
                     </li>
                 ))}
@@ -941,37 +972,36 @@ function BrokerBranchPanel({ brokerBranch, market }) {
         <section className="stock-panel chip-panel">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">籌碼面</p>
-                    <h2>券商分點主力（近 {windowDays} 日）</h2>
+                    <p className="section-kicker">{t('stocks.chipFlows')}</p>
+                    <h2>{t('stocks.brokerBranchTitleDays', { count: windowDays })}</h2>
                 </div>
-                <span className="field-hint">資料日 {asOf}</span>
+                <span className="field-hint">{t('stocks.dataDate', { date: asOf })}</span>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                 <div>
-                    <p className="section-kicker" style={{ marginBottom: '0.4rem' }}>主力買超</p>
+                    <p className="section-kicker" style={{ marginBottom: '0.4rem' }}>{t('stocks.topBuyers')}</p>
                     {renderList(topBuyers)}
                 </div>
                 <div>
-                    <p className="section-kicker" style={{ marginBottom: '0.4rem' }}>主力賣超</p>
+                    <p className="section-kicker" style={{ marginBottom: '0.4rem' }}>{t('stocks.topSellers')}</p>
                     {renderList(topSellers)}
                 </div>
             </div>
 
             <div className="fundamentals-grid" style={{ marginTop: '0.75rem' }}>
                 <div className="fundamentals-cell">
-                    <span>買方集中度</span>
+                    <span>{t('stocks.buyConcentration')}</span>
                     <strong>{pct(concentration.buy_topn_ratio)}</strong>
                 </div>
                 <div className="fundamentals-cell">
-                    <span>賣方集中度</span>
+                    <span>{t('stocks.sellConcentration')}</span>
                     <strong>{pct(concentration.sell_topn_ratio)}</strong>
                 </div>
             </div>
 
             <p className="fundamentals-disclaimer">
-                券商分點反映特定券商（主力）進出，單位為張（1 張 = 1000 股）。集中度為前幾大券商淨額佔全體同向淨額比，越高代表主力越集中。
-                資料來自 FinMind（Sponsor 等級），收盤後公佈。僅供參考，非投資建議。
+                {t('stocks.brokerDisclaimer')}
             </p>
         </section>
     );
@@ -990,6 +1020,8 @@ export default function StockSearch({
     marginFlows = [],
     brokerBranch = null,
 }) {
+    const { t } = useI18n();
+
     // 分析與問答都在佇列執行，頁面回來時多半還是 pending，靠輪詢把結果補上。
     // 兩者共用同一個計時器：分開會讓同一頁每輪送出兩個 request，而 Inertia 的
     // 部分重載本來就支援一次帶多個 prop。
@@ -998,13 +1030,13 @@ export default function StockSearch({
     const stalled = useAnalysisPolling(hasPending, ['analyses', 'chatTurns']);
 
     return (
-        <AppShell title="個股搜尋">
+        <AppShell title={t('stocks.pageTitle')}>
             <div className="stock-search-page">
                 <section className="stock-search-header">
                     <div>
-                        <p className="section-kicker">個股搜尋</p>
-                        <h2>搜尋、檢視並保存參考分析</h2>
-                        <p>資料供應器內容僅作研究脈絡。AI 輸出屬參考分析，不保證為投資建議。</p>
+                        <p className="section-kicker">{t('stocks.pageKicker')}</p>
+                        <h2>{t('stocks.pageHeadline')}</h2>
+                        <p>{t('stocks.pageIntro')}</p>
                     </div>
                     <SearchForm initialSymbol={symbol} />
                 </section>

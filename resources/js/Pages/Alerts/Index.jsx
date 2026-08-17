@@ -2,47 +2,49 @@ import { Link, router, useForm } from '@inertiajs/react';
 import { useState } from 'react';
 import { Bell, Plus, Trash2 } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
+import { useI18n } from '../../i18n';
 
+// 值 → i18n key 映射；render 端以 t(labelKey) 取當前語言字串。
 const TYPE_OPTIONS = [
-    { value: 'price_above', label: '價格高於' },
-    { value: 'price_below', label: '價格低於' },
-    { value: 'change_pct_above', label: '單日漲幅高於 (%)' },
-    { value: 'change_pct_below', label: '單日跌幅低於 (%)' },
-    { value: 'signal', label: '技術訊號' },
-    { value: 'market_futures_flip', label: '大盤期貨翻空（外資）' },
-    { value: 'market_bearish_flip', label: '大盤真翻空（四維共振）' },
+    { value: 'price_above', labelKey: 'alerts.typePriceAbove' },
+    { value: 'price_below', labelKey: 'alerts.typePriceBelow' },
+    { value: 'change_pct_above', labelKey: 'alerts.typeChangePctAbove' },
+    { value: 'change_pct_below', labelKey: 'alerts.typeChangePctBelow' },
+    { value: 'signal', labelKey: 'alerts.typeSignal' },
+    { value: 'market_futures_flip', labelKey: 'alerts.typeMarketFuturesFlip' },
+    { value: 'market_bearish_flip', labelKey: 'alerts.typeMarketBearishFlip' },
 ];
 
-const TYPE_LABEL = Object.fromEntries(TYPE_OPTIONS.map((option) => [option.value, option.label]));
+const TYPE_LABEL_KEY = Object.fromEntries(TYPE_OPTIONS.map((option) => [option.value, option.labelKey]));
 
 const MARKET_TYPES = ['market_futures_flip', 'market_bearish_flip'];
 
-const MARKET_TITLE = {
-    market_futures_flip: '大盤期貨',
-    market_bearish_flip: '大盤真翻空',
+const MARKET_TITLE_KEY = {
+    market_futures_flip: 'alerts.marketTitleFutures',
+    market_bearish_flip: 'alerts.marketTitleBearish',
 };
 
-const MARKET_HINT = {
-    market_futures_flip: '大盤層級警報，無需標的：外資台指期淨空單連續站上門檻時觸發（排除結算週轉倉干擾）。僅期貨籌碼一個維度，請配合現貨賣壓、匯率與技術面綜合研判。',
-    market_bearish_flip: '大盤層級警報，無需標的：期貨淨空＋外資現貨連續大賣＋台股跌破月線與季線＋台幣趨勢貶值，四維同時成立才觸發（真翻空）。缺任一維度或資料不足則不觸發。',
+const MARKET_HINT_KEY = {
+    market_futures_flip: 'alerts.marketHintFutures',
+    market_bearish_flip: 'alerts.marketHintBearish',
 };
 
-function describe(alert, signalRules) {
+function describe(alert, signalRules, t) {
     if (alert.type === 'market_futures_flip') {
-        return '外資台指期淨空單連續站上門檻（大盤期貨籌碼轉空）';
+        return t('alerts.describeFuturesFlip');
     }
 
     if (alert.type === 'market_bearish_flip') {
-        return '期貨淨空＋現貨連續大賣＋破月/季線＋台幣走貶（四維共振翻空）';
+        return t('alerts.describeBearishFlip');
     }
 
     if (alert.type === 'signal') {
         const rule = signalRules.find((entry) => entry.key === alert.signal_key);
 
-        return `技術訊號：${rule ? rule.label : alert.signal_key}`;
+        return t('alerts.describeSignal', { name: rule ? rule.label : alert.signal_key });
     }
 
-    return `${TYPE_LABEL[alert.type]} ${alert.threshold}`;
+    return `${t(TYPE_LABEL_KEY[alert.type])} ${alert.threshold}`;
 }
 
 function formatDate(value) {
@@ -56,6 +58,7 @@ function formatDate(value) {
 }
 
 function AddAlertForm({ signalRules }) {
+    const { t } = useI18n();
     const [open, setOpen] = useState(false);
     const form = useForm({ symbol: '', type: 'price_above', threshold: '', signal_key: signalRules[0]?.key ?? '', note: '' });
     const isSignal = form.data.type === 'signal';
@@ -85,7 +88,7 @@ function AddAlertForm({ signalRules }) {
         return (
             <button className="button-primary" onClick={() => setOpen(true)} type="button">
                 <Plus aria-hidden="true" size={18} />
-                <span>新增警報</span>
+                <span>{t('alerts.addAlert')}</span>
             </button>
         );
     }
@@ -94,10 +97,10 @@ function AddAlertForm({ signalRules }) {
         <form className="alert-form" onSubmit={submit}>
             {isMarket ? null : (
                 <label className="form-field">
-                    <span>標的</span>
+                    <span>{t('alerts.fieldSymbol')}</span>
                     <input
                         onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
-                        placeholder="例如 2330.TW、NVDA"
+                        placeholder={t('alerts.symbolPlaceholder')}
                         type="text"
                         value={form.data.symbol}
                     />
@@ -105,19 +108,19 @@ function AddAlertForm({ signalRules }) {
                 </label>
             )}
             <label className="form-field">
-                <span>條件</span>
+                <span>{t('alerts.fieldType')}</span>
                 <select onChange={(event) => form.setData('type', event.target.value)} value={form.data.type}>
                     {TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
+                        <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
                     ))}
                 </select>
                 {form.errors.type ? <p className="field-error">{form.errors.type}</p> : null}
             </label>
             {isMarket ? (
-                <p className="field-hint">{MARKET_HINT[form.data.type]}</p>
+                <p className="field-hint">{t(MARKET_HINT_KEY[form.data.type])}</p>
             ) : isSignal ? (
                 <label className="form-field">
-                    <span>訊號</span>
+                    <span>{t('alerts.fieldSignal')}</span>
                     <select onChange={(event) => form.setData('signal_key', event.target.value)} value={form.data.signal_key}>
                         {signalRules.map((rule) => (
                             <option key={rule.key} value={rule.key}>{rule.label}</option>
@@ -127,7 +130,7 @@ function AddAlertForm({ signalRules }) {
                 </label>
             ) : (
                 <label className="form-field">
-                    <span>門檻{form.data.type.startsWith('change_pct') ? '（%，可負）' : ''}</span>
+                    <span>{t('alerts.fieldThreshold')}{form.data.type.startsWith('change_pct') ? t('alerts.thresholdPctSuffix') : ''}</span>
                     <input
                         onChange={(event) => form.setData('threshold', event.target.value)}
                         step="any"
@@ -138,18 +141,19 @@ function AddAlertForm({ signalRules }) {
                 </label>
             )}
             <label className="form-field">
-                <span>備註（選填）</span>
+                <span>{t('alerts.fieldNote')}</span>
                 <input maxLength="255" onChange={(event) => form.setData('note', event.target.value)} type="text" value={form.data.note} />
             </label>
             <div className="alert-form__actions">
-                <button className="button-primary" disabled={form.processing} type="submit">新增</button>
-                <button className="button-secondary" onClick={() => setOpen(false)} type="button">取消</button>
+                <button className="button-primary" disabled={form.processing} type="submit">{t('alerts.submitAdd')}</button>
+                <button className="button-secondary" onClick={() => setOpen(false)} type="button">{t('common.cancel')}</button>
             </div>
         </form>
     );
 }
 
 function AlertCard({ alert, signalRules, triggered }) {
+    const { t } = useI18n();
     const [removing, setRemoving] = useState(false);
 
     const remove = () => {
@@ -169,26 +173,26 @@ function AlertCard({ alert, signalRules, triggered }) {
         <article className={`alert-card${triggered ? ' alert-card--triggered' : ''}`}>
             <div>
                 {alert.scope === 'market' ? (
-                    <strong>{MARKET_TITLE[alert.type] ?? '大盤'}</strong>
+                    <strong>{t(MARKET_TITLE_KEY[alert.type] ?? 'alerts.marketTitleFallback')}</strong>
                 ) : (
                     <Link href={`/stocks/search?symbol=${encodeURIComponent(alert.symbol)}`}>
                         <strong>{alert.symbol}</strong>
                     </Link>
                 )}
-                <span className="alert-card__desc">{describe(alert, signalRules)}</span>
+                <span className="alert-card__desc">{describe(alert, signalRules, t)}</span>
                 {alert.note ? <small>{alert.note}</small> : null}
                 {triggered ? (
                     <small className="alert-card__meta">
-                        觸發於 {formatDate(alert.triggered_at)}
-                        {alert.triggered_price !== null ? `，價格 ${alert.triggered_price}` : ''}
+                        {t('alerts.triggeredAt', { time: formatDate(alert.triggered_at) })}
+                        {alert.triggered_price !== null ? t('alerts.triggeredPrice', { price: alert.triggered_price }) : ''}
                     </small>
                 ) : null}
             </div>
             <div className="alert-card__actions">
                 {triggered ? (
-                    <button className="button-secondary" onClick={reactivate} type="button">重新啟用</button>
+                    <button className="button-secondary" onClick={reactivate} type="button">{t('alerts.reactivate')}</button>
                 ) : null}
-                <button disabled={removing} onClick={remove} title="刪除" type="button">
+                <button disabled={removing} onClick={remove} title={t('common.delete')} type="button">
                     <Trash2 aria-hidden="true" size={16} />
                 </button>
             </div>
@@ -197,17 +201,19 @@ function AlertCard({ alert, signalRules, triggered }) {
 }
 
 export default function AlertsIndex({ active = [], triggered = [], signalRules = [] }) {
+    const { t } = useI18n();
+
     return (
-        <AppShell title="價格警報">
+        <AppShell title={t('alerts.title')}>
             <div className="alerts-page">
                 <section className="stock-panel alerts-header">
                     <div>
                         <p className="section-kicker">
-                            <Bell aria-hidden="true" size={16} /> 警報
+                            <Bell aria-hidden="true" size={16} /> {t('alerts.kicker')}
                         </p>
-                        <h2>價格警報</h2>
+                        <h2>{t('alerts.heading')}</h2>
                         <p className="field-hint">
-                            開啟儀表板或本頁時被動檢查（無背景排程，非即時）。命中後自動停用，可重新啟用。
+                            {t('alerts.description')}
                         </p>
                     </div>
                     <AddAlertForm signalRules={signalRules} />
@@ -215,7 +221,7 @@ export default function AlertsIndex({ active = [], triggered = [], signalRules =
 
                 {triggered.length > 0 ? (
                     <section className="stock-panel">
-                        <p className="section-kicker">已觸發</p>
+                        <p className="section-kicker">{t('alerts.triggeredSection')}</p>
                         <div className="alert-list">
                             {triggered.map((alert) => (
                                 <AlertCard alert={alert} key={alert.id} signalRules={signalRules} triggered />
@@ -225,9 +231,9 @@ export default function AlertsIndex({ active = [], triggered = [], signalRules =
                 ) : null}
 
                 <section className="stock-panel">
-                    <p className="section-kicker">監控中</p>
+                    <p className="section-kicker">{t('alerts.activeSection')}</p>
                     {active.length === 0 ? (
-                        <p className="dashboard-empty">目前沒有監控中的警報。</p>
+                        <p className="dashboard-empty">{t('alerts.emptyActive')}</p>
                     ) : (
                         <div className="alert-list">
                             {active.map((alert) => (

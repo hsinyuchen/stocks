@@ -53,9 +53,16 @@ class NewsIndexPageContractTest extends TestCase
     {
         $source = $this->source();
 
-        $this->assertStringContainsString('偏多', $source);
-        $this->assertStringContainsString('偏空', $source);
-        $this->assertStringContainsString('中性', $source);
+        // i18n 後 sentiment 標籤改由字典提供：頁面必須引用三個 sentiment 鍵，
+        // 實際文字則存在繁中字典裡。兩者一起守住「情緒 chip 仍會渲染」的契約。
+        $this->assertStringContainsString('news.sentimentBullish', $source);
+        $this->assertStringContainsString('news.sentimentBearish', $source);
+        $this->assertStringContainsString('news.sentimentNeutral', $source);
+
+        $zh = (string) file_get_contents(resource_path('js/i18n/messages/zh.js'));
+        $this->assertStringContainsString('偏多', $zh);
+        $this->assertStringContainsString('偏空', $zh);
+        $this->assertStringContainsString('中性', $zh);
     }
 
     public function test_page_offers_settings_fallback_when_no_provider(): void

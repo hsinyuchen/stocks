@@ -1,7 +1,10 @@
+import { useI18n } from '../../i18n';
+
+// label 改由 labelKey 於渲染時經 t() 取得（此陣列在元件外，取不到 t）。
 const OPTIONS = [
-    { value: 'daily', label: '日' },
-    { value: 'weekly', label: '週' },
-    { value: 'monthly', label: '月' },
+    { value: 'daily', labelKey: 'charts.timeframeDaily' },
+    { value: 'weekly', labelKey: 'charts.timeframeWeekly' },
+    { value: 'monthly', labelKey: 'charts.timeframeMonthly' },
 ];
 
 /**
@@ -9,8 +12,10 @@ const OPTIONS = [
  * props：{ value, onChange, loading } —— loading 時禁用避免連點造成競態 fetch。
  */
 export default function TimeframeSwitcher({ value, onChange, loading = false }) {
+    const { t } = useI18n();
+
     return (
-        <div className="segmented" role="group" aria-label="時間框架">
+        <div className="segmented" role="group" aria-label={t('charts.timeframeGroup')}>
             {OPTIONS.map((option) => (
                 <button
                     key={option.value}
@@ -19,7 +24,7 @@ export default function TimeframeSwitcher({ value, onChange, loading = false }) 
                     disabled={loading}
                     onClick={() => onChange(option.value)}
                 >
-                    {option.label}
+                    {t(option.labelKey)}
                 </button>
             ))}
         </div>

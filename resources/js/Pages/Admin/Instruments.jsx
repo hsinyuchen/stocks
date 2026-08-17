@@ -3,6 +3,7 @@ import { AlertTriangle, Plus, Upload } from 'lucide-react';
 import { useState } from 'react';
 import AppShell from '../../Layouts/AppShell';
 import Pagination from '../../Components/Pagination';
+import { useI18n } from '../../i18n';
 
 function FieldError({ message }) {
     if (!message) {
@@ -20,6 +21,7 @@ function FieldError({ message }) {
  * 否則使用者會以為取代後清單就完全等於檔案內容。
  */
 function ImportPanel() {
+    const { t } = useI18n();
     const form = useForm({ file: null, mode: 'append' });
     const [fileName, setFileName] = useState('');
 
@@ -39,15 +41,15 @@ function ImportPanel() {
         <section className="stock-panel">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">批次匯入</p>
-                    <h2>上傳 CSV 或 Excel</h2>
+                    <p className="section-kicker">{t('adminInstruments.importKicker')}</p>
+                    <h2>{t('adminInstruments.uploadHeading')}</h2>
                 </div>
                 <Upload aria-hidden="true" size={22} />
             </div>
 
             <form className="instrument-import" onSubmit={submit}>
                 <label className="form-field">
-                    <span>檔案（.csv / .xlsx，上限 5 MB）</span>
+                    <span>{t('adminInstruments.fileLabel')}</span>
                     <input
                         accept=".csv,.txt,.xlsx"
                         onChange={(event) => {
@@ -61,14 +63,14 @@ function ImportPanel() {
                 </label>
 
                 <fieldset className="instrument-import__mode">
-                    <legend>匯入方式</legend>
+                    <legend>{t('adminInstruments.importMode')}</legend>
                     <label>
                         <input
                             checked={form.data.mode === 'append'}
                             onChange={() => form.setData('mode', 'append')}
                             type="radio"
                         />
-                        <span>新增（既有代號直接跳過）</span>
+                        <span>{t('adminInstruments.modeAppend')}</span>
                     </label>
                     <label>
                         <input
@@ -76,25 +78,23 @@ function ImportPanel() {
                             onChange={() => form.setData('mode', 'replace')}
                             type="radio"
                         />
-                        <span>全部取代</span>
+                        <span>{t('adminInstruments.modeReplace')}</span>
                     </label>
                 </fieldset>
 
                 {form.data.mode === 'replace' ? (
                     <p className="instrument-import__warning">
                         <AlertTriangle aria-hidden="true" size={14} />
-                        取代時會移除不在檔案中的標的，但<strong>被自選清單、持倉、警報或已存分析參照者一律保留</strong>。
-                        隨標的清除的只有行情、籌碼與基本面快取，之後會自動重抓。
+                        {t('adminInstruments.replaceWarningPre')}<strong>{t('adminInstruments.replaceWarningStrong')}</strong>{t('adminInstruments.replaceWarningPost')}
                     </p>
                 ) : null}
 
                 <p className="field-hint">
-                    格式：第一欄代號、第二欄名稱。可含標題列（symbol / 代號、name / 名稱）。
-                    市場、幣別、資產類型由代號自動推導；檔案內重複的代號只取第一筆。
+                    {t('adminInstruments.formatHint')}
                 </p>
 
                 <button className="button-primary" disabled={form.processing || !form.data.file} type="submit">
-                    {form.processing ? '匯入中…' : '開始匯入'}
+                    {form.processing ? t('adminInstruments.importing') : t('adminInstruments.startImport')}
                 </button>
             </form>
         </section>
@@ -102,6 +102,7 @@ function ImportPanel() {
 }
 
 function AddForm() {
+    const { t } = useI18n();
     const form = useForm({ symbol: '', name: '' });
 
     const submit = (event) => {
@@ -115,33 +116,34 @@ function AddForm() {
     return (
         <form className="instrument-add" onSubmit={submit}>
             <label className="form-field">
-                <span>代號</span>
+                <span>{t('adminInstruments.symbol')}</span>
                 <input
                     maxLength="32"
                     onChange={(event) => form.setData('symbol', event.target.value.toUpperCase())}
-                    placeholder="2330.TW 或 NVDA"
+                    placeholder={t('adminInstruments.symbolPlaceholder')}
                     value={form.data.symbol}
                 />
                 <FieldError message={form.errors.symbol} />
             </label>
             <label className="form-field">
-                <span>名稱（可留空）</span>
+                <span>{t('adminInstruments.nameOptional')}</span>
                 <input
                     maxLength="120"
                     onChange={(event) => form.setData('name', event.target.value)}
-                    placeholder="台積電"
+                    placeholder={t('adminInstruments.namePlaceholder')}
                     value={form.data.name}
                 />
             </label>
             <button className="button-secondary" disabled={form.processing} type="submit">
                 <Plus aria-hidden="true" size={16} />
-                <span>新增</span>
+                <span>{t('adminInstruments.add')}</span>
             </button>
         </form>
     );
 }
 
 function InstrumentRow({ instrument }) {
+    const { t } = useI18n();
     const [name, setName] = useState(instrument.name);
     const [editing, setEditing] = useState(false);
 
@@ -176,25 +178,25 @@ function InstrumentRow({ instrument }) {
             <td>{instrument.currency}</td>
             <td>
                 {instrument.referenced ? (
-                    <span className="instrument-flag" title="被自選清單、持倉、警報或已存分析參照，取代時會保留">使用中</span>
+                    <span className="instrument-flag" title={t('adminInstruments.referencedTitle')}>{t('adminInstruments.inUse')}</span>
                 ) : null}
             </td>
             <td className="instrument-actions">
                 {editing ? (
                     <>
-                        <button onClick={save} type="button">儲存</button>
-                        <button onClick={() => { setName(instrument.name); setEditing(false); }} type="button">取消</button>
+                        <button onClick={save} type="button">{t('common.save')}</button>
+                        <button onClick={() => { setName(instrument.name); setEditing(false); }} type="button">{t('common.cancel')}</button>
                     </>
                 ) : (
                     <>
-                        <button onClick={() => setEditing(true)} type="button">改名</button>
+                        <button onClick={() => setEditing(true)} type="button">{t('adminInstruments.rename')}</button>
                         <button
                             disabled={instrument.referenced}
                             onClick={remove}
-                            title={instrument.referenced ? '被使用者資料參照，無法刪除' : undefined}
+                            title={instrument.referenced ? t('adminInstruments.cannotDelete') : undefined}
                             type="button"
                         >
-                            刪除
+                            {t('common.delete')}
                         </button>
                     </>
                 )}
@@ -204,6 +206,7 @@ function InstrumentRow({ instrument }) {
 }
 
 export default function AdminInstruments({ instruments = { data: [], links: [] }, filters = {}, total = 0 }) {
+    const { t } = useI18n();
     const { props } = usePage();
     const status = props.flash?.status;
     const [search, setSearch] = useState(filters.q ?? '');
@@ -218,15 +221,14 @@ export default function AdminInstruments({ instruments = { data: [], links: [] }
     };
 
     return (
-        <AppShell title="標的清單">
+        <AppShell title={t('adminInstruments.pageTitle')}>
             <div className="admin-page">
                 <section className="stock-search-header">
                     <div>
-                        <p className="section-kicker">標的清單</p>
-                        <h2>維護全站共用的股票清單</h2>
+                        <p className="section-kicker">{t('adminInstruments.kicker')}</p>
+                        <h2>{t('adminInstruments.heading')}</h2>
                         <p>
-                            共 {total} 檔。此清單為全站共用，行情、籌碼與基本面快取都掛在其下，
-                            修改會影響所有使用者。個人自選股請至「自選清單」設定。
+                            {t('adminInstruments.description', { count: total })}
                         </p>
                     </div>
                 </section>
@@ -238,8 +240,8 @@ export default function AdminInstruments({ instruments = { data: [], links: [] }
                 <section className="stock-panel">
                     <div className="panel-heading">
                         <div>
-                            <p className="section-kicker">單筆維護</p>
-                            <h2>新增與編輯</h2>
+                            <p className="section-kicker">{t('adminInstruments.singleKicker')}</p>
+                            <h2>{t('adminInstruments.addEditHeading')}</h2>
                         </div>
                     </div>
 
@@ -247,35 +249,35 @@ export default function AdminInstruments({ instruments = { data: [], links: [] }
 
                     <form className="instrument-filter" onSubmit={applyFilters}>
                         <label className="form-field">
-                            <span>搜尋</span>
+                            <span>{t('common.search')}</span>
                             <input
                                 onChange={(event) => setSearch(event.target.value)}
-                                placeholder="代號或名稱"
+                                placeholder={t('adminInstruments.searchPlaceholder')}
                                 type="search"
                                 value={search}
                             />
                         </label>
                         <label className="form-field">
-                            <span>市場</span>
+                            <span>{t('adminInstruments.market')}</span>
                             <select onChange={(event) => setMarket(event.target.value)} value={market}>
-                                <option value="">全部</option>
+                                <option value="">{t('adminInstruments.allMarkets')}</option>
                                 <option value="TW">TW</option>
                                 <option value="US">US</option>
                             </select>
                         </label>
-                        <button className="button-secondary" type="submit">篩選</button>
+                        <button className="button-secondary" type="submit">{t('adminInstruments.filter')}</button>
                     </form>
 
                     <div className="chip-table-scroll">
                         <table className="chip-table instrument-table">
                             <thead>
                                 <tr>
-                                    <th scope="col">代號</th>
-                                    <th scope="col">名稱</th>
-                                    <th scope="col">市場</th>
-                                    <th scope="col">幣別</th>
-                                    <th scope="col">狀態</th>
-                                    <th scope="col">操作</th>
+                                    <th scope="col">{t('adminInstruments.symbol')}</th>
+                                    <th scope="col">{t('adminInstruments.name')}</th>
+                                    <th scope="col">{t('adminInstruments.market')}</th>
+                                    <th scope="col">{t('adminInstruments.currency')}</th>
+                                    <th scope="col">{t('adminInstruments.status')}</th>
+                                    <th scope="col">{t('adminInstruments.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -286,7 +288,7 @@ export default function AdminInstruments({ instruments = { data: [], links: [] }
                         </table>
                     </div>
 
-                    {instruments.data.length === 0 ? <p className="dashboard-empty">沒有符合條件的標的。</p> : null}
+                    {instruments.data.length === 0 ? <p className="dashboard-empty">{t('adminInstruments.noResults')}</p> : null}
 
                     <Pagination links={instruments.links} meta={instruments} />
                 </section>

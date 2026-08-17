@@ -5,29 +5,31 @@ import AppShell from '../../Layouts/AppShell';
 import Markdown from '../../Components/Markdown';
 import Pagination from '../../Components/Pagination';
 import useAnalysisPolling from '../../hooks/useAnalysisPolling';
+import { useI18n } from '../../i18n';
 
-// 需與 config/news.php 的 domains 鍵一致；缺對應時前端會直接顯示英文鍵值。
+// 需與 config/news.php 的 domains 鍵一致；缺對應時前端 t() 會直接回傳英文鍵值。
+// 映射值改存 i18n key，於 render 處以 t() 取當前語言字串。
 const domainLabels = {
-    tech: '科技',
-    defense: '國防',
-    geopolitics: '地緣政治',
-    energy: '能源',
-    finance: '金融',
-    currency: '匯率',
-    supply_chain: '供應鏈',
-    market: '市場',
-    other: '其他',
+    tech: 'news.domainTech',
+    defense: 'news.domainDefense',
+    geopolitics: 'news.domainGeopolitics',
+    energy: 'news.domainEnergy',
+    finance: 'news.domainFinance',
+    currency: 'news.domainCurrency',
+    supply_chain: 'news.domainSupplyChain',
+    market: 'news.domainMarket',
+    other: 'news.domainOther',
 };
 
 const sentimentLabels = {
-    bullish: '偏多',
-    bearish: '偏空',
-    neutral: '中性',
+    bullish: 'news.sentimentBullish',
+    bearish: 'news.sentimentBearish',
+    neutral: 'news.sentimentNeutral',
 };
 
 const kindLabels = {
-    article: '文章',
-    video: '影片',
+    article: 'news.kindArticle',
+    video: 'news.kindVideo',
 };
 
 function formatDateTime(value) {
@@ -64,25 +66,29 @@ function defaultProvider(providers) {
 }
 
 function SettingsPrompt() {
+    const { t } = useI18n();
+
     return (
         <p className="news-settings-prompt">
-            尚未設定 AI 模型。請先到
+            {t('news.settingsPromptPrefix')}
             {' '}
-            <Link href="/settings">系統設定</Link>
+            <Link href="/settings">{t('news.settingsLink')}</Link>
             {' '}
-            新增一個模型，才能使用 AI 分析。
+            {t('news.settingsPromptSuffix')}
         </p>
     );
 }
 
 function ModelPicker({ providers, value, onChange }) {
+    const { t } = useI18n();
+
     if (!providers || providers.length === 0) {
         return null;
     }
 
     return (
         <label className="form-field">
-            <span>使用的模型</span>
+            <span>{t('news.modelPickerLabel')}</span>
             <select onChange={(event) => onChange(event.target.value)} value={value ?? ''}>
                 {providers.map((provider) => (
                     <option key={provider.id} value={String(provider.id)}>
@@ -95,6 +101,7 @@ function ModelPicker({ providers, value, onChange }) {
 }
 
 function FilterBar({ filters, facets }) {
+    const { t } = useI18n();
     const [form, setForm] = useState({
         market: filters.market ?? '',
         domain: filters.domain ?? '',
@@ -140,77 +147,77 @@ function FilterBar({ filters, facets }) {
                     type="button"
                 >
                     <SlidersHorizontal aria-hidden="true" size={15} />
-                    篩選{activeCount > 0 ? `（已套用 ${activeCount} 項）` : ''}
+                    {t('news.filterToggle')}{activeCount > 0 ? t('news.filterActiveCount', { count: activeCount }) : ''}
                     <ChevronDown aria-hidden="true" className={open ? 'is-open' : undefined} size={15} />
                 </button>
                 {activeCount > 0 ? (
-                    <button className="news-filter__reset" onClick={reset} type="button">清除</button>
+                    <button className="news-filter__reset" onClick={reset} type="button">{t('news.filterReset')}</button>
                 ) : null}
             </div>
 
             {open ? (
         <form className="news-filter-bar" onSubmit={submit}>
             <label className="form-field">
-                <span>市場</span>
+                <span>{t('news.filterMarket')}</span>
                 <select onChange={(event) => update('market', event.target.value)} value={form.market}>
-                    <option value="">全部</option>
+                    <option value="">{t('news.filterAll')}</option>
                     {facets.markets.map((market) => (
                         <option key={market} value={market}>{market}</option>
                     ))}
                 </select>
             </label>
             <label className="form-field">
-                <span>領域</span>
+                <span>{t('news.filterDomain')}</span>
                 <select onChange={(event) => update('domain', event.target.value)} value={form.domain}>
-                    <option value="">全部</option>
+                    <option value="">{t('news.filterAll')}</option>
                     {facets.domains.map((domain) => (
-                        <option key={domain} value={domain}>{domainLabels[domain] ?? domain}</option>
+                        <option key={domain} value={domain}>{t(domainLabels[domain] ?? domain)}</option>
                     ))}
                 </select>
             </label>
             <label className="form-field">
-                <span>類型</span>
+                <span>{t('news.filterKind')}</span>
                 <select onChange={(event) => update('kind', event.target.value)} value={form.kind}>
-                    <option value="">全部</option>
-                    <option value="article">文章</option>
-                    <option value="video">影片</option>
+                    <option value="">{t('news.filterAll')}</option>
+                    <option value="article">{t('news.kindArticle')}</option>
+                    <option value="video">{t('news.kindVideo')}</option>
                 </select>
             </label>
             <label className="form-field">
-                <span>來源</span>
+                <span>{t('news.filterSource')}</span>
                 <select onChange={(event) => update('source', event.target.value)} value={form.source}>
-                    <option value="">全部</option>
+                    <option value="">{t('news.filterAll')}</option>
                     {(facets.sources ?? []).map((source) => (
                         <option key={source} value={source}>{source}</option>
                     ))}
                 </select>
             </label>
             <label className="form-field">
-                <span>股票代號</span>
+                <span>{t('news.filterSymbol')}</span>
                 <input
                     maxLength="32"
                     onChange={(event) => update('symbol', event.target.value.toUpperCase())}
-                    placeholder="NVDA 或 2330.TW"
+                    placeholder={t('news.filterSymbolPlaceholder')}
                     type="search"
                     value={form.symbol}
                 />
             </label>
             <label className="form-field">
-                <span>關鍵字</span>
+                <span>{t('news.filterKeyword')}</span>
                 <input
                     maxLength="120"
                     onChange={(event) => update('q', event.target.value)}
-                    placeholder="標題或摘要"
+                    placeholder={t('news.filterKeywordPlaceholder')}
                     type="search"
                     value={form.q}
                 />
             </label>
             <label className="form-field">
-                <span>起</span>
+                <span>{t('news.filterFrom')}</span>
                 <input onChange={(event) => update('from', event.target.value)} type="date" value={form.from} />
             </label>
             <label className="form-field">
-                <span>迄</span>
+                <span>{t('news.filterTo')}</span>
                 <input onChange={(event) => update('to', event.target.value)} type="date" value={form.to} />
             </label>
             {/* 分類器把明顯與投資無關的新聞標為雜訊並預設隱藏。這個開關是檢查
@@ -221,9 +228,9 @@ function FilterBar({ filters, facets }) {
                     onChange={(event) => update('include_irrelevant', event.target.checked ? '1' : '')}
                     type="checkbox"
                 />
-                <span>顯示雜訊新聞</span>
+                <span>{t('news.filterShowIrrelevant')}</span>
             </label>
-            <button className="button-primary" type="submit">篩選</button>
+            <button className="button-primary" type="submit">{t('news.filterSubmit')}</button>
         </form>
             ) : null}
         </div>
@@ -238,6 +245,7 @@ function FilterBar({ filters, facets }) {
  * 新聞換模型。
  */
 function DailySummaryPanel({ providers, summary, providerId, onProviderChange }) {
+    const { t } = useI18n();
     const form = useForm({
         llm_provider_setting_id: providerId ?? '',
         model: '',
@@ -258,8 +266,8 @@ function DailySummaryPanel({ providers, summary, providerId, onProviderChange })
         <section className="stock-panel news-daily-summary">
             <div className="panel-heading">
                 <div>
-                    <p className="section-kicker">今日總經摘要</p>
-                    <h2>用我的模型整理今日重點</h2>
+                    <p className="section-kicker">{t('news.dailySummaryKicker')}</p>
+                    <h2>{t('news.dailySummaryTitle')}</h2>
                 </div>
                 <Bot aria-hidden="true" size={22} />
             </div>
@@ -275,7 +283,7 @@ function DailySummaryPanel({ providers, summary, providerId, onProviderChange })
                     />
                     <button className="button-secondary" disabled={form.processing} type="submit">
                         <Sparkles aria-hidden="true" size={18} />
-                        <span>產生今日摘要</span>
+                        <span>{t('news.generateDailySummary')}</span>
                     </button>
                 </form>
             )}
@@ -288,7 +296,7 @@ function DailySummaryPanel({ providers, summary, providerId, onProviderChange })
                 <article className="analysis-item news-daily-summary__result">
                     <div className="analysis-item__head">
                         <span className={`status-pill status-pill--${summary.status === 'failed' ? 'failed' : 'neutral'}`}>
-                            {summary.status === 'failed' ? 'AI 未完成' : '今日總經'}
+                            {summary.status === 'failed' ? t('news.aiIncomplete') : t('news.dailyMacro')}
                         </span>
                         <small>{summary.provider_type} · {summary.model} · {formatDateTime(summary.created_at)}</small>
                     </div>
@@ -324,6 +332,8 @@ function DailySummaryPanel({ providers, summary, providerId, onProviderChange })
 }
 
 function AnalysisResult({ analysis }) {
+    const { t } = useI18n();
+
     if (!analysis) {
         return null;
     }
@@ -337,13 +347,13 @@ function AnalysisResult({ analysis }) {
         return (
             <article className="analysis-item news-analysis-result">
                 <div className="analysis-item__head">
-                    <span className="status-pill status-pill--failed">AI 未完成</span>
+                    <span className="status-pill status-pill--failed">{t('news.aiIncomplete')}</span>
                     <small>{analysis.model} · {formatDateTime(analysis.created_at)}</small>
                 </div>
                 {analysis.failure ? (
                     <FailureNote failure={analysis.failure} />
                 ) : (
-                    <p className="analysis-item__pending-note">分析未成功，可重新送出。</p>
+                    <p className="analysis-item__pending-note">{t('news.analysisFailedRetry')}</p>
                 )}
             </article>
         );
@@ -355,9 +365,9 @@ function AnalysisResult({ analysis }) {
     return (
         <article className="analysis-item news-analysis-result">
             <div className="analysis-item__head">
-                <span className={`status-pill status-pill--${sentiment}`}>{label}</span>
+                <span className={`status-pill status-pill--${sentiment}`}>{t(label)}</span>
                 {analysis.impact_score ? (
-                    <span className="news-impact">影響 {analysis.impact_score}/5</span>
+                    <span className="news-impact">{t('news.impactScore', { score: analysis.impact_score })}</span>
                 ) : null}
                 <small>{analysis.model} · {formatDateTime(analysis.created_at)}</small>
             </div>
@@ -384,13 +394,15 @@ function FailureNote({ failure }) {
  * 「還在跑」而不是留白讓使用者以為按鈕沒反應。
  */
 function PendingAnalysis({ createdAt, model }) {
+    const { t } = useI18n();
+
     return (
         <article className="analysis-item analysis-item--pending news-analysis-result">
             <div className="analysis-item__head">
-                <span className="status-pill status-pill--pending">分析中</span>
+                <span className="status-pill status-pill--pending">{t('news.statusAnalyzing')}</span>
                 <small>{model} · {formatDateTime(createdAt)}</small>
             </div>
-            <p className="analysis-item__pending-note">已排入佇列，完成後會自動顯示。</p>
+            <p className="analysis-item__pending-note">{t('news.queuedNote')}</p>
         </article>
     );
 }
@@ -403,6 +415,7 @@ function PendingAnalysis({ createdAt, model }) {
  * 沿用該選擇並在按鈕上標示目前用哪一個，避免使用者不知道會用什麼模型送出。
  */
 function ItemAnalyzeForm({ item, providerId, providerName }) {
+    const { t } = useI18n();
     const form = useForm({
         llm_provider_setting_id: providerId ?? '',
         model: '',
@@ -422,28 +435,30 @@ function ItemAnalyzeForm({ item, providerId, providerName }) {
         <form className="analysis-action news-analyze-form" onSubmit={submit}>
             <button className="button-secondary" disabled={form.processing || !providerId} type="submit">
                 <Sparkles aria-hidden="true" size={18} />
-                <span>{form.processing ? '分析中…' : '分析這則新聞'}</span>
+                <span>{form.processing ? t('common.analyzing') : t('news.analyzeThis')}</span>
             </button>
-            {providerName ? <small className="field-hint">使用 {providerName}</small> : null}
+            {providerName ? <small className="field-hint">{t('news.usingModel', { name: providerName })}</small> : null}
             <FieldError message={form.errors.llm_provider_setting_id} />
         </form>
     );
 }
 
 function NewsCard({ item, providers, providerId, providerName }) {
+    const { t } = useI18n();
+
     return (
         <article className="news-card">
             <div className="news-card-meta">
                 {item.kind === 'video' ? (
                     <span className="news-chip news-chip--video">
-                        <Video aria-hidden="true" size={14} /> {kindLabels.video}
+                        <Video aria-hidden="true" size={14} /> {t(kindLabels.video)}
                     </span>
                 ) : null}
                 {/* 顯示全部命中的領域，不只主領域。跨領域新聞（例如對半導體加徵
                     關稅＝科技＋地緣政治＋供應鏈）往往影響最大，只顯示第一個會
                     把這個資訊藏起來。舊資料沒有 domains 欄位時退回單一 domain。 */}
                 {(item.domains?.length ? item.domains : [item.domain]).map((domain) => (
-                    <span className="news-chip" key={domain}>{domainLabels[domain] ?? domain}</span>
+                    <span className="news-chip" key={domain}>{t(domainLabels[domain] ?? domain)}</span>
                 ))}
                 {item.market ? <span className="news-chip">{item.market}</span> : null}
                 <span className="news-source">{item.source}</span>
@@ -476,11 +491,11 @@ function NewsCard({ item, providers, providerId, providerName }) {
             <div className="news-card-ai">
                 {providers.length === 0 ? (
                     <p className="news-settings-prompt">
-                        想要 AI 解讀？請先到
+                        {t('news.newsCardAiPromptPrefix')}
                         {' '}
-                        <Link href="/settings">系統設定</Link>
+                        <Link href="/settings">{t('news.settingsLink')}</Link>
                         {' '}
-                        新增模型。
+                        {t('news.newsCardAiPromptSuffix')}
                     </p>
                 ) : (
                     <ItemAnalyzeForm item={item} providerId={providerId} providerName={providerName} />
@@ -499,6 +514,7 @@ function NewsCard({ item, providers, providerId, providerName }) {
  * 它是延伸推論而非新聞事實。
  */
 function TransmissionChains({ chains }) {
+    const { t } = useI18n();
     const [open, setOpen] = useState(false);
 
     if (!chains || chains.length === 0) {
@@ -509,7 +525,7 @@ function TransmissionChains({ chains }) {
         <div className="news-transmission">
             <button className="news-transmission__toggle" onClick={() => setOpen((v) => !v)} type="button">
                 <GitBranch aria-hidden="true" size={13} />
-                可能影響的板塊（{chains.map((c) => c.label).join('、')}）{open ? '　收合' : '　展開'}
+                {t('news.affectedSectors', { list: chains.map((c) => c.label).join(t('news.listSeparator')) })}{open ? t('news.collapse') : t('news.expand')}
             </button>
 
             {open ? (
@@ -524,7 +540,7 @@ function TransmissionChains({ chains }) {
                             {chain.sectors.map((sector) => (
                                 <div className="news-transmission__sector" key={sector.name}>
                                     <span className={`news-transmission__dir is-${sector.direction}`}>
-                                        {sector.direction === 'positive' ? '正向' : sector.direction === 'negative' ? '負向' : '中性'}
+                                        {sector.direction === 'positive' ? t('news.dirPositive') : sector.direction === 'negative' ? t('news.dirNegative') : t('news.dirNeutral')}
                                     </span>
                                     <strong>{sector.name}</strong>
                                     <span className="news-symbols">
@@ -543,7 +559,7 @@ function TransmissionChains({ chains }) {
                         </div>
                     ))}
                     <p className="news-transmission__note">
-                        依規則推導的可能影響路徑，非新聞事實，也不是投資建議。方向僅描述事件對板塊的影響方向，不保證後續走勢。
+                        {t('news.transmissionNote')}
                     </p>
                 </div>
             ) : null}
@@ -558,6 +574,7 @@ function TransmissionChains({ chains }) {
  * 發現某個媒體的新聞不見了卻不知原因。這裡把失效攤開，並提供可點的來源連結。
  */
 function FeedSourcePanel({ sources }) {
+    const { t } = useI18n();
     const [open, setOpen] = useState(false);
 
     if (!sources || sources.length === 0) {
@@ -571,11 +588,11 @@ function FeedSourcePanel({ sources }) {
         <section className="feed-sources">
             <div className="feed-sources__head">
                 <button className="feed-sources__toggle" onClick={() => setOpen((v) => !v)} type="button">
-                    資料來源（{sources.length}）{open ? '　收合' : '　展開'}
+                    {t('news.feedSources', { count: sources.length })}{open ? t('news.collapse') : t('news.expand')}
                 </button>
                 {broken.length > 0 ? (
                     <span className="feed-sources__alert">
-                        <AlertTriangle aria-hidden="true" size={14} /> {broken.length} 個來源目前沒有新內容
+                        <AlertTriangle aria-hidden="true" size={14} /> {t('news.feedBroken', { count: broken.length })}
                     </span>
                 ) : null}
             </div>
@@ -592,8 +609,8 @@ function FeedSourcePanel({ sources }) {
                             <small>{s.market}</small>
                             {s.healthy === false ? (
                                 <small className="feed-sources__reason">
-                                    連續 {s.stale_runs} 次無新內容
-                                    {s.last_fresh_at ? `・最後更新 ${formatDateTime(s.last_fresh_at)}` : ''}
+                                    {t('news.feedStale', { count: s.stale_runs })}
+                                    {s.last_fresh_at ? t('news.feedLastFresh', { time: formatDateTime(s.last_fresh_at) }) : ''}
                                 </small>
                             ) : null}
                         </li>
@@ -614,6 +631,7 @@ export default function NewsIndex({
     latestDailySummary = null,
     feedSources = [],
 }) {
+    const { t } = useI18n();
     const data = items.data ?? [];
     const providers = llmProviders ?? [];
 
@@ -631,15 +649,15 @@ export default function NewsIndex({
     const stalled = useAnalysisPolling(hasPending, ['items', 'latestDailySummary']);
 
     return (
-        <AppShell title="即時新聞">
+        <AppShell title={t('news.pageTitle')}>
             <section className="news-panel">
                 <header className="news-header">
                     <p className="section-kicker">
-                        <Newspaper aria-hidden="true" size={16} /> 財經新聞串流
+                        <Newspaper aria-hidden="true" size={16} /> {t('news.newsStreamKicker')}
                     </p>
                     <p className="news-update-line">
-                        最後更新：{formatDateTime(lastUpdatedAt)}
-                        {nextUpdateTimes.length > 0 ? ` ・ 下次更新：${nextUpdateTimes.join(' / ')} (台北時間)` : ''}
+                        {t('news.lastUpdated', { time: formatDateTime(lastUpdatedAt) })}
+                        {nextUpdateTimes.length > 0 ? t('news.nextUpdate', { times: nextUpdateTimes.join(' / ') }) : ''}
                     </p>
                 </header>
 
@@ -647,9 +665,7 @@ export default function NewsIndex({
 
                 {stalled ? (
                     <p className="queue-stalled-hint">
-                        分析排隊超過 10 分鐘仍未完成，已停止等待。請確認佇列處理程序有在執行
-                        （<code>composer dev</code> 會一併啟動，或另開終端機執行 <code>php artisan queue:work</code>），
-                        重新整理後即可看到結果。
+                        {t('news.stalledPrefix')}<code>composer dev</code>{t('news.stalledMiddle')}<code>php artisan queue:work</code>{t('news.stalledSuffix')}
                     </p>
                 ) : null}
 
@@ -663,7 +679,7 @@ export default function NewsIndex({
                 <FilterBar facets={facets} filters={filters} />
 
                 {data.length === 0 ? (
-                    <p className="news-empty">目前沒有符合條件的新聞。</p>
+                    <p className="news-empty">{t('news.newsEmptyFiltered')}</p>
                 ) : (
                     <div className="news-list">
                         {data.map((item) => (

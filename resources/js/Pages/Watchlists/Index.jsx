@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Briefcase, Plus, Save, Trash2, X } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 import StockSearchBox from '../../Components/StockSearchBox';
+import { useI18n } from '../../i18n';
 
 function FieldError({ message }) {
     if (!message) {
@@ -23,6 +24,7 @@ function TextField({ error, label, ...props }) {
 }
 
 function CreateWatchlistForm() {
+    const { t } = useI18n();
     const form = useForm({ name: '' });
 
     const submit = (event) => {
@@ -37,22 +39,23 @@ function CreateWatchlistForm() {
         <form className="watchlist-create" onSubmit={submit}>
             <TextField
                 error={form.errors.name}
-                label="新增清單"
+                label={t('watchlists.createLabel')}
                 maxLength="80"
                 onChange={(event) => form.setData('name', event.target.value)}
-                placeholder="例如：核心持股"
+                placeholder={t('watchlists.createPlaceholder')}
                 type="text"
                 value={form.data.name}
             />
             <button className="button-primary" disabled={form.processing} type="submit">
                 <Plus aria-hidden="true" size={18} />
-                <span>建立</span>
+                <span>{t('watchlists.createButton')}</span>
             </button>
         </form>
     );
 }
 
 function RenameWatchlistForm({ watchlist }) {
+    const { t } = useI18n();
     const form = useForm({ name: watchlist.name });
 
     const submit = (event) => {
@@ -66,13 +69,13 @@ function RenameWatchlistForm({ watchlist }) {
         <form className="watchlist-title-form" onSubmit={submit}>
             <TextField
                 error={form.errors.name}
-                label="清單名稱"
+                label={t('watchlists.nameLabel')}
                 maxLength="80"
                 onChange={(event) => form.setData('name', event.target.value)}
                 type="text"
                 value={form.data.name}
             />
-            <button className="icon-button" disabled={form.processing} title="儲存名稱" type="submit">
+            <button className="icon-button" disabled={form.processing} title={t('watchlists.saveNameTitle')} type="submit">
                 <Save aria-hidden="true" size={18} />
             </button>
         </form>
@@ -80,6 +83,7 @@ function RenameWatchlistForm({ watchlist }) {
 }
 
 function AddInstrumentForm({ watchlist }) {
+    const { t } = useI18n();
     const form = useForm({
         symbol: '',
         name: '',
@@ -106,17 +110,17 @@ function AddInstrumentForm({ watchlist }) {
     return (
         <form className="instrument-form" onSubmit={(event) => event.preventDefault()}>
             <div className="form-field">
-                <span>股票名稱或代號</span>
+                <span>{t('watchlists.stockNameOrSymbol')}</span>
                 <StockSearchBox market="tw" onSelect={onSelect} />
                 <FieldError message={form.errors.symbol} />
                 {form.errors.market ? <FieldError message={form.errors.market} /> : null}
             </div>
             <TextField
                 error={form.errors.note}
-                label="備註"
+                label={t('watchlists.noteLabel')}
                 maxLength="255"
                 onChange={(event) => form.setData('note', event.target.value)}
-                placeholder="財報、估值、追蹤理由或風險提醒"
+                placeholder={t('watchlists.notePlaceholder')}
                 type="text"
                 value={form.data.note}
             />
@@ -134,11 +138,12 @@ function AddInstrumentForm({ watchlist }) {
  * 另建平行端點只會讓兩套邏輯日後分歧。
  */
 function AddToPortfolio({ instrument, held }) {
+    const { t } = useI18n();
     const [open, setOpen] = useState(false);
     const form = useForm({ symbol: instrument.symbol, shares: '', avg_cost: '', note: '' });
 
     if (held) {
-        return <span className="instrument-row__held">已在投資組合</span>;
+        return <span className="instrument-row__held">{t('watchlists.alreadyInPortfolio')}</span>;
     }
 
     const submit = (event) => {
@@ -156,7 +161,7 @@ function AddToPortfolio({ instrument, held }) {
         return (
             <button className="instrument-row__add" onClick={() => setOpen(true)} type="button">
                 <Briefcase aria-hidden="true" size={14} />
-                加入持倉
+                {t('watchlists.addToPortfolio')}
             </button>
         );
     }
@@ -164,7 +169,7 @@ function AddToPortfolio({ instrument, held }) {
     return (
         <form className="instrument-row__portfolio" onSubmit={submit}>
             <label>
-                <span>股數</span>
+                <span>{t('watchlists.shares')}</span>
                 <input
                     autoFocus
                     onChange={(event) => form.setData('shares', event.target.value)}
@@ -175,7 +180,7 @@ function AddToPortfolio({ instrument, held }) {
                 />
             </label>
             <label>
-                <span>平均成本</span>
+                <span>{t('watchlists.avgCost')}</span>
                 <input
                     onChange={(event) => form.setData('avg_cost', event.target.value)}
                     placeholder="580.5"
@@ -185,15 +190,16 @@ function AddToPortfolio({ instrument, held }) {
                 />
             </label>
             <button className="button-secondary" disabled={form.processing} type="submit">
-                {form.processing ? '加入中…' : '確認'}
+                {form.processing ? t('watchlists.addingInProgress') : t('watchlists.confirmAdd')}
             </button>
-            <button onClick={() => { form.reset(); setOpen(false); }} type="button">取消</button>
+            <button onClick={() => { form.reset(); setOpen(false); }} type="button">{t('common.cancel')}</button>
             <FieldError message={form.errors.symbol ?? form.errors.shares ?? form.errors.avg_cost} />
         </form>
     );
 }
 
 function InstrumentRow({ item, watchlist, held }) {
+    const { t } = useI18n();
     const instrument = item.instrument;
 
     const remove = () => {
@@ -207,7 +213,7 @@ function InstrumentRow({ item, watchlist, held }) {
             {/* 只有代號與名稱包進連結，移除鈕留在外面——把整列做成連結會讓
                 點擊刪除同時觸發導航，Link 內嵌 button 也是無效的 HTML。 */}
             <Link
-                aria-label={`查看 ${instrument.symbol} 個股分析`}
+                aria-label={t('watchlists.viewAnalysisAria', { symbol: instrument.symbol })}
                 className="instrument-row__link"
                 href={`/stocks/search?symbol=${encodeURIComponent(instrument.symbol)}`}
             >
@@ -220,9 +226,9 @@ function InstrumentRow({ item, watchlist, held }) {
                 <span>{instrument.currency}</span>
                 {instrument.exchange ? <span>{instrument.exchange}</span> : null}
             </div>
-            {item.note ? <p>{item.note}</p> : <p className="muted-text">尚無備註</p>}
+            {item.note ? <p>{item.note}</p> : <p className="muted-text">{t('watchlists.noNote')}</p>}
             <AddToPortfolio held={held} instrument={instrument} />
-            <button className="icon-button" onClick={remove} title="移除股票" type="button">
+            <button className="icon-button" onClick={remove} title={t('watchlists.removeStockTitle')} type="button">
                 <X aria-hidden="true" size={18} />
             </button>
         </article>
@@ -230,6 +236,8 @@ function InstrumentRow({ item, watchlist, held }) {
 }
 
 function WatchlistCard({ watchlist, heldInstrumentIds }) {
+    const { t } = useI18n();
+
     const destroy = () => {
         router.delete(`/watchlists/${watchlist.id}`, {
             preserveScroll: true,
@@ -240,7 +248,7 @@ function WatchlistCard({ watchlist, heldInstrumentIds }) {
         <article className="watchlist-card">
             <header className="watchlist-card__header">
                 <RenameWatchlistForm watchlist={watchlist} />
-                <button className="icon-button icon-button--danger" onClick={destroy} title="刪除清單" type="button">
+                <button className="icon-button icon-button--danger" onClick={destroy} title={t('watchlists.deleteListTitle')} type="button">
                     <Trash2 aria-hidden="true" size={18} />
                 </button>
             </header>
@@ -257,8 +265,8 @@ function WatchlistCard({ watchlist, heldInstrumentIds }) {
                     ))
                 ) : (
                     <div className="empty-state">
-                        <strong>尚未加入股票</strong>
-                        <span>加入第一個股票代號，開始追蹤這份清單。</span>
+                        <strong>{t('watchlists.emptyItemsTitle')}</strong>
+                        <span>{t('watchlists.emptyItemsHint')}</span>
                     </div>
                 )}
             </div>
@@ -269,15 +277,17 @@ function WatchlistCard({ watchlist, heldInstrumentIds }) {
 }
 
 export default function WatchlistsIndex({ watchlists = [], heldInstrumentIds = [] }) {
+    const { t } = useI18n();
+
     return (
-        <AppShell title="自選清單">
+        <AppShell title={t('nav.watchlists')}>
             <div className="watchlists-page">
                 <section className="watchlists-header">
                     <div>
-                        <p className="section-kicker">自選清單</p>
-                        <h2>依策略管理追蹤標的</h2>
+                        <p className="section-kicker">{t('nav.watchlists')}</p>
+                        <h2>{t('watchlists.manageByStrategy')}</h2>
                         <p>
-                            建立個人化清單，加入已建立的股票標的，並用簡短備註記錄後續分析重點。
+                            {t('watchlists.pageDescription')}
                         </p>
                     </div>
                     <CreateWatchlistForm />
@@ -294,8 +304,8 @@ export default function WatchlistsIndex({ watchlists = [], heldInstrumentIds = [
                         ))
                     ) : (
                         <div className="watchlist-card empty-state">
-                            <strong>尚無自選清單</strong>
-                            <span>建立清單後，可依市場、投資假設或檢查週期分組追蹤股票。</span>
+                            <strong>{t('watchlists.emptyListsTitle')}</strong>
+                            <span>{t('watchlists.emptyListsHint')}</span>
                         </div>
                     )}
                 </section>

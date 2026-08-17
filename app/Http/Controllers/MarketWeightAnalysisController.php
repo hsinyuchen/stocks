@@ -40,10 +40,13 @@ class MarketWeightAnalysisController extends Controller
         ]);
 
         $user = $request->user();
+        $locale = $user->profile?->locale ?? 'zh';
         $setting = $this->resolveSetting($user, $data['llm_provider_setting_id'] ?? null);
 
         if ($setting === null) {
-            return redirect()->back()->with('error', '請先在設定新增 AI 模型。');
+            return redirect()->back()->with('error', $locale === 'en'
+                ? 'Please add an AI model in Settings first.'
+                : '請先在設定新增 AI 模型。');
         }
 
         $model = trim((string) ($data['model'] ?? '')) ?: (string) $setting->model;
@@ -61,7 +64,7 @@ class MarketWeightAnalysisController extends Controller
             'data_as_of' => CarbonImmutable::now(),
         ]);
 
-        RunMarketWeightAnalysis::dispatch($analysis->id, $setting->id, $model);
+        RunMarketWeightAnalysis::dispatch($analysis->id, $setting->id, $model, $locale);
 
         return redirect()->route('market.weight-analysis');
     }
