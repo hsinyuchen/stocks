@@ -6,6 +6,7 @@ use App\Enums\AnalysisStatus;
 use App\Models\StockAnalysis;
 use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
+use App\Services\Fundamentals\FundamentalsService;
 use App\Services\Llm\LlmProviderFactory;
 use App\Services\Margin\MarginDataService;
 use App\Services\StockAnalysisService;
@@ -56,6 +57,7 @@ class RunStockAnalysis implements ShouldQueue
         ChipDataService $chipData,
         MarginDataService $marginData,
         BrokerBranchDataService $brokerData,
+        FundamentalsService $fundamentalsData,
         FinMindTokenResolver $tokens,
     ): void {
         $analysis = StockAnalysis::query()->with('instrument')->find($this->analysisId);
@@ -82,7 +84,23 @@ class RunStockAnalysis implements ShouldQueue
             // 券商分點為 Sponsor 付費資料：免費 token 回 null，走降級不影響其餘分析。
             $brokerBranch = $brokerData->summaryFor($analysis->instrument);
 
-            $result = $analysisService->analyze($analysis->instrument->symbol, $this->model, $llm, $chipFlows, $marginFlows, $brokerBranch, $this->locale);
+            // 基本面與估值分位為 SOP 的基本面/估值面向所需（best-effort，非台股/失敗回 null）。
+            $fundamentalsModel = $fundamentalsData->forInstrument($analysis->instrument);
+            $fundamentals = $fundamentalsModel === null ? null : [
+                'per' => $fundamentalsModel->per,
+                'pbr' => $fundamentalsModel->pbr,
+                'dividend_yield' => $fundamentalsModel->dividendYield,
+                'eps' => $fundamentalsModel->eps,
+                'eps_quarter' => $fundamentalsModel->epsQuarter,
+                'roe' => $fundamentalsModel->roe,
+                'revenue' => $fundamentalsModel->revenue,
+                'revenue_month' => $fundamentalsModel->revenueMonth,
+                'revenue_yoy' => $fundamentalsModel->revenueYoy,
+                'data_as_of' => $fundamentalsModel->dataAsOf,
+            ];
+            $valuation = $fundamentalsModel === null ? null : $fundamentalsData->valuationPercentiles($analysis->instrument);
+
+            $result = $analysisService->analyze($analysis->instrument->symbol, $this->model, $llm, $chipFlows, $marginFlows, $brokerBranch, $this->locale, $fundamentals, $valuation);
             $provider = (string) ($result['llm']['provider'] ?? 'unknown');
 
             // 只在仍是 pending 時寫入：reaper 可能已因逾時把它標成失敗，這裡再寫回

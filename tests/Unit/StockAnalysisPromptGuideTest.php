@@ -58,6 +58,30 @@ class StockAnalysisPromptGuideTest extends TestCase
         $this->assertStringContainsString('END_FIELD_GUIDE', $prompt);
     }
 
+    /** SOP v2：免責、來源分級、加權評分、一票否決、可交易性、輸出格式必須進 prompt。 */
+    public function test_prompt_embeds_the_sop_v2_framework(): void
+    {
+        $prompt = $this->analyzeWithSignal(['stance' => 'watch', 'score' => 1, 'reasons' => []]);
+
+        $this->assertStringContainsString('非投資建議、非買賣推介、非獲利保證', $prompt);
+        $this->assertStringContainsString('T1 一手官方', $prompt);
+        $this->assertStringContainsString('一票否決', $prompt);
+        $this->assertStringContainsString('BEGIN_TRADABILITY', $prompt);
+        $this->assertStringContainsString('可交易性檢查', $prompt);
+        $this->assertStringContainsString('社交套利判斷', $prompt);
+        $this->assertStringContainsString('先看結論', $prompt);
+    }
+
+    /** 沒有基本面資料時必須明示資料不足，SOP 的基本面/估值面向不得臆測補洞。 */
+    public function test_prompt_marks_fundamentals_insufficient_when_absent(): void
+    {
+        $prompt = $this->analyzeWithSignal(['stance' => 'watch', 'score' => 1, 'reasons' => []]);
+
+        $this->assertStringContainsString('BEGIN_FUNDAMENTALS', $prompt);
+        $this->assertStringContainsString('資料不足：本次未提供基本面資料', $prompt);
+        $this->assertStringContainsString('資料不足：本次未提供估值分位', $prompt);
+    }
+
     /** null 指標必須被說明為「資料不足」，否則模型會當成 0 而誤判為中性或偏空。 */
     public function test_guide_explains_null_indicators_are_warmup_not_zero(): void
     {

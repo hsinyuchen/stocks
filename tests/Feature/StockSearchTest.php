@@ -11,6 +11,7 @@ use App\Models\StockAnalysis;
 use App\Models\User;
 use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
+use App\Services\Fundamentals\FundamentalsService;
 use App\Services\Llm\LlmProviderFactory;
 use App\Services\Margin\MarginDataService;
 use App\Services\StockAnalysisService;
@@ -381,6 +382,7 @@ class StockSearchTest extends TestCase
             app(ChipDataService::class),
             app(MarginDataService::class),
             app(BrokerBranchDataService::class),
+            app(FundamentalsService::class),
             app(FinMindTokenResolver::class),
         );
 

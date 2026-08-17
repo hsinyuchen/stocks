@@ -72,10 +72,10 @@ class StockAnalysisServiceTest extends TestCase
         $this->assertSame('NVDA', $news->lastRelatedNewsSymbol);
         $this->assertSame(5, $news->lastRelatedNewsLimit);
         $this->assertNotNull($llm->lastPrompt);
-        $this->assertStringContainsString(
-            '請使用繁體中文回答，內容僅供研究參考，不保證為投資建議。',
-            $llm->lastPrompt,
-        );
+        // intro 要求繁中輸出；免責與 SOP 輸出格式改由專屬區塊承載。
+        $this->assertStringContainsString('請使用繁體中文回答', $llm->lastPrompt);
+        $this->assertStringContainsString('非投資建議、非買賣推介、非獲利保證', $llm->lastPrompt);
+        $this->assertStringContainsString('BEGIN_OUTPUT_FORMAT', $llm->lastPrompt);
         $this->assertStringContainsString('BEGIN_SYMBOL', $llm->lastPrompt);
         $this->assertStringContainsString('Symbol: NVDA', $llm->lastPrompt);
         $this->assertStringContainsString('END_SYMBOL', $llm->lastPrompt);

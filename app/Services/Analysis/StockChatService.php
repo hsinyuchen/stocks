@@ -61,6 +61,7 @@ final class StockChatService
         private readonly MarginDataService $margin,
         private readonly BrokerBranchDataService $brokerBranch,
         private readonly LlmJsonParser $json = new LlmJsonParser,
+        private readonly SopGuide $sop = new SopGuide,
     ) {}
 
     /**
@@ -152,6 +153,14 @@ final class StockChatService
         // decision = refuse 即可。少一段它不需要複誦的長文字，也少一次被模仿的機會。
         $guide = $this->fieldGuide->forRuleSignal($context['rule_signal'] ?? []);
 
+        // SOP 紀律（僅紀律，不含輸出格式 v2——問答的輸出契約是 JSON，不可換成報告格式）。
+        $sourceTiers = $this->sop->sourceTiers($locale);
+        $dataSufficiency = $this->sop->dataSufficiency($locale);
+        $antiManipulation = $this->sop->antiManipulation($locale);
+        $ratingLine = $locale === 'en'
+            ? 'If you give a rating or call, always attach a confidence level; a rating from social heat without T1/T2 support is low confidence at best. Before any entry/stop suggestion, add a tradability caveat (attention/disposition status not checked, liquidity, cost).'
+            : '若給出評級或操作判斷，一律附信心等級；僅憑社群熱度而無 T1/T2 佐證者最高只能低信心。給任何進場/停損建議前，附可交易性提醒（注意股/處置股未查、流動性、成本）。';
+
         if ($locale === 'en') {
             return <<<SYSTEM
 You are the dedicated AI investment advisor for the single stock "{$symbol}　{$name}", and you serve only this stock.
@@ -179,6 +188,12 @@ BEGIN_FIELD_GUIDE
 - Users may ask subject-less follow-ups like "what about the risks" or "compared with that one". Restore the subject from BEGIN_CONVERSATION_HISTORY before answering; if the completed question falls in the refuse scope, still refuse.
 - For missing data, say plainly "this page does not have that data"; do not fill with estimates or say "generally it is around".
 END_FIELD_GUIDE
+BEGIN_SOP_DISCIPLINE
+{$sourceTiers}
+{$dataSufficiency}
+{$antiManipulation}
+{$ratingLine}
+END_SOP_DISCIPLINE
 BEGIN_OUTPUT_CONTRACT
 Return only one JSON object, with no other text before or after and no code fences:
 {"decision":"answer","answer":"your answer"}
@@ -218,6 +233,12 @@ BEGIN_FIELD_GUIDE
 - 使用者可能追問「那風險呢」「跟剛剛那個比呢」這種省略主詞的問題。請依 BEGIN_CONVERSATION_HISTORY 補回主詞再作答；補完後若落在必須拒答的範圍，一樣要拒答。
 - 缺少的資料請直接說「本頁沒有這項資料」，不要用推估值填補，也不要說「一般來說大約是」。
 END_FIELD_GUIDE
+BEGIN_SOP_DISCIPLINE
+{$sourceTiers}
+{$dataSufficiency}
+{$antiManipulation}
+{$ratingLine}
+END_SOP_DISCIPLINE
 BEGIN_OUTPUT_CONTRACT
 只回傳一個 JSON 物件，前後不要有任何其他文字，也不要包程式碼圍欄：
 {"decision":"answer","answer":"回答內容"}
