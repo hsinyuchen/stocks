@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Watchlist;
 
+use App\Contracts\YieldCurveProvider;
+use App\Data\YieldCurveData;
 use App\Enums\AnalysisStatus;
 use App\Jobs\RunWatchlistAnalysis;
 use App\Models\Instrument;
@@ -11,6 +13,7 @@ use App\Models\Watchlist;
 use App\Models\WatchlistAnalysis;
 use App\Services\Analysis\WatchlistAnalysisService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -222,5 +225,58 @@ class WatchlistAnalysisTest extends TestCase
         $this->assertSame('2330.TW', $stock['symbol']);
         $this->assertNotNull($stock['chip']);
         $this->assertNotNull($stock['margin']);
+    }
+
+    /**
+     * 自選股不分市場：美股與台股傳導表不共用任何代號，若整份報告套用單一
+     * 市場敘述，非該市場的標的會拿到錯誤（甚至方向相反）的傳導鏈（finding #1）。
+     * 這裡驗證混合自選股會依市場各自取一次，兩條鏈都要出現，且各標的掛在
+     * 自己市場的板塊底下。
+     */
+    public function test_mixed_market_watchlist_gets_both_transmission_chains(): void
+    {
+        Http::preventStrayRequests();
+        Cache::flush();
+
+        // 殖利率上行（bear）：tw 只有 level 規則命中 tw_level_bear，
+        // us 依象限命中 us_bear_steepening（quadrant 優先於 level）。
+        $long = [];
+        $short = [];
+
+        for ($i = 0; $i < 130; $i++) {
+            $date = sprintf('2026-%02d-%02d', 1 + intdiv($i, 28), ($i % 28) + 1);
+            $long[$date] = 4.00 + $i * 0.01;
+            $short[$date] = 3.00;
+        }
+
+        $curve = YieldCurveData::aligned(['10y' => $long, '3m' => $short]);
+
+        $this->app->bind(YieldCurveProvider::class, fn () => new class($curve) implements YieldCurveProvider
+        {
+            public function __construct(private readonly YieldCurveData $curve) {}
+
+            public function curve(array $tenors, int $days): YieldCurveData
+            {
+                return $this->curve;
+            }
+        });
+
+        $tw = Instrument::factory()->create(['symbol' => '2330.TW', 'market' => 'TW']);
+        $us = Instrument::factory()->create(['symbol' => 'NVDA', 'market' => 'US']);
+
+        $result = app(WatchlistAnalysisService::class)->analyze([$tw, $us], null, 'reference-model');
+
+        $rates = $result['payload']['rates'];
+        $this->assertTrue($rates['available']);
+
+        // 兩條傳導鏈都要現身，而不是只有台股那條蓋掉全部。
+        $this->assertStringContainsString('自選股命中 2330.TW', $rates['block']);
+        $this->assertStringContainsString('自選股命中 NVDA', $rates['block']);
+
+        // 各標的掛在自己市場的板塊下：2330.TW 是台股電子權值，NVDA 是美股長天期成長股，
+        // 不得互相串線（例如 NVDA 被套用台股「外資調節現貨」的敘述）。
+        $bySymbol = array_column($rates['affected'], 'sector', 'symbol');
+        $this->assertSame('電子權值', $bySymbol['2330.TW']);
+        $this->assertSame('長天期成長股', $bySymbol['NVDA']);
     }
 }

@@ -17,6 +17,7 @@ use App\Services\Margin\MarginDataService;
 use App\Services\Rates\RatesNarrative;
 use App\Services\SignalEngine;
 use App\Services\TechnicalIndicatorService;
+use App\Support\MarketResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -67,18 +68,15 @@ class WatchlistAnalysisService
     {
         $background = $this->gatherBackground();
 
-        // 台股報告看的是「美債 → 美元 → 外資流向」這條間接鏈。取交集與組區塊
-        // 的邏輯集中在 RatesNarrative，此處只留呼叫。
-        $rates = $this->ratesNarrative->forAudience(
-            'tw',
-            array_map(static fn (Instrument $i): string => $i->symbol, $instruments),
-            'watchlist',
-            $locale,
-        );
+        $symbols = array_values(array_map(static fn (Instrument $i): string => $i->symbol, $instruments));
+
+        // 自選股不限市場：美股走折現率直接鏈、台股走美元／外資間接鏈，兩表
+        // 板塊與代號完全不重疊，套用單一市場敘述會讓另一市場的標的拿到
+        // 不相關甚至相反的傳導鏈（見 finding #1）。依市場分組各自取一次。
+        $rates = $this->ratesForWatchlist($symbols, $locale);
 
         $futures = $this->gatherFutures();
         $stocks = array_map(fn (Instrument $instrument): array => $this->gatherStock($instrument), $instruments);
-        $symbols = array_values(array_map(static fn (Instrument $i): string => $i->symbol, $instruments));
 
         $payload = [
             'background' => $background,
@@ -151,6 +149,44 @@ class WatchlistAnalysisService
                 'metadata' => $response->metadata,
             ],
             'data_as_of' => CarbonImmutable::now()->toIso8601String(),
+        ];
+    }
+
+    /**
+     * 依市場分組取利率環境敘述，組裝邏輯仍全部留在 RatesNarrative（此處只做
+     * 分組與串接），與 SymbolContextService::ratesContext() 用同一套
+     * MarketResolver::isTaiwan() 判斷市場。
+     *
+     * @param  list<string>  $symbols
+     * @return array{available: bool, affected: list<array<string, mixed>>, block: string}
+     */
+    private function ratesForWatchlist(array $symbols, string $locale): array
+    {
+        $taiwan = array_values(array_filter($symbols, MarketResolver::isTaiwan(...)));
+        $us = array_values(array_filter($symbols, static fn (string $s): bool => ! MarketResolver::isTaiwan($s)));
+
+        $groups = array_filter([['tw', $taiwan], ['us', $us]], static fn (array $pair): bool => $pair[1] !== []);
+
+        if ($groups === []) {
+            // 自選股為空時仍回一份台股敘述，維持既有「無自選股仍有環境背景」的行為。
+            return $this->ratesNarrative->forAudience('tw', [], 'watchlist', $locale);
+        }
+
+        $blocks = [];
+        $affected = [];
+        $available = false;
+
+        foreach ($groups as [$market, $group]) {
+            $result = $this->ratesNarrative->forAudience($market, $group, 'watchlist', $locale);
+            $blocks[] = $result['block'];
+            $affected = [...$affected, ...$result['affected']];
+            $available = $available || $result['available'];
+        }
+
+        return [
+            'available' => $available,
+            'affected' => $affected,
+            'block' => implode("\n", $blocks),
         ];
     }
 
