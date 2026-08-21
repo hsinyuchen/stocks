@@ -4,8 +4,10 @@ namespace Tests\Feature\Rates;
 
 use App\Data\DailyPriceData;
 use App\Services\Fake\FakeYieldCurveProvider;
+use App\Services\Market\CachedMarketDataProvider;
 use App\Services\Market\YahooChartMarketDataProvider;
 use App\Services\Rates\YahooYieldCurveProvider;
+use ReflectionProperty;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -105,5 +107,30 @@ class YieldCurveProviderTest extends TestCase
 
         $this->assertGreaterThanOrEqual(130, count($curve->dates));
         $this->assertNotNull($curve->tenorDeltaBp('10y', 60));
+    }
+
+    /**
+     * 守住建構子預設值，不讓它被「簡化」成容器綁定的 MarketDataProvider。
+     *
+     * 這是本分支頭號不變量（殖利率代號不得建立 Instrument）在正式環境唯一的
+     * 防線：CachedMarketDataProvider::dailyPrices() 會呼叫
+     * Instrument::createOrFirst()，一旦預設值被改成 app(MarketDataProvider::class)，
+     * ^TNX 就會被建成看似可交易的標的並污染搜尋／自選股／選股器全站字典
+     * （設計文件記錄過這個迴歸已發生過一次）。
+     *
+     * 其他測試全都手動注入 stub 上游，YieldSymbolsAreNotInstrumentsTest 也是把
+     * YieldCurveProvider 整個換成 fake，都不會走到這個預設值——只有這裡直接
+     * `new YahooYieldCurveProvider()` 不帶參數，才會真正檢查建構子預設。
+     * 純離線、不碰容器與網路：用 ReflectionProperty 讀私有屬性型別即可。
+     */
+    public function test_default_constructor_upstream_is_the_uncached_yahoo_provider(): void
+    {
+        $provider = new YahooYieldCurveProvider;
+
+        $property = new ReflectionProperty(YahooYieldCurveProvider::class, 'upstream');
+        $upstream = $property->getValue($provider);
+
+        $this->assertInstanceOf(YahooChartMarketDataProvider::class, $upstream);
+        $this->assertNotInstanceOf(CachedMarketDataProvider::class, $upstream);
     }
 }
