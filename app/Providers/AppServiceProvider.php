@@ -11,6 +11,7 @@ use App\Contracts\MarketDataProvider;
 use App\Contracts\MarketInstitutionalProvider;
 use App\Contracts\NewsProvider;
 use App\Contracts\SymbolNewsProvider;
+use App\Contracts\YieldCurveProvider;
 use App\Contracts\YoutubeWorkerRunner;
 use App\Services\BrokerBranch\FinMindBrokerBranchDataProvider;
 use App\Services\Chip\FinMindChipDataProvider;
@@ -23,6 +24,7 @@ use App\Services\Fake\FakeMarketDataProvider;
 use App\Services\Fake\FakeMarketInstitutionalProvider;
 use App\Services\Fake\FakeNewsProvider;
 use App\Services\Fake\FakeSymbolNewsProvider;
+use App\Services\Fake\FakeYieldCurveProvider;
 use App\Services\Fundamentals\FinMindFundamentalsProvider;
 use App\Services\Futures\FinMindFuturesDataProvider;
 use App\Services\Margin\FinMindMarginDataProvider;
@@ -34,6 +36,7 @@ use App\Services\Market\YahooChartMarketDataProvider;
 use App\Services\News\DbNewsProvider;
 use App\Services\News\GoogleNewsSymbolNewsProvider;
 use App\Services\News\ProcessYoutubeWorkerRunner;
+use App\Services\Rates\YahooYieldCurveProvider;
 use App\Services\Search\FinMindStockSearchProvider;
 use App\Support\FinMindTokenResolver;
 use Illuminate\Support\ServiceProvider;
@@ -97,6 +100,14 @@ class AppServiceProvider extends ServiceProvider
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeFundamentalsProvider::class)
                 : new FinMindFundamentalsProvider($app->make(FinMindTokenResolver::class));
+        });
+
+        // 美債殖利率曲線：沿用 market_data.driver 開關（測試 fake，正式走 Yahoo）。
+        // 刻意不複用 MarketDataProvider——見 YieldCurveProvider contract 的說明。
+        $this->app->bind(YieldCurveProvider::class, function ($app): YieldCurveProvider {
+            return config('services.market_data.driver') === 'fake'
+                ? $app->make(FakeYieldCurveProvider::class)
+                : $app->make(YahooYieldCurveProvider::class);
         });
 
         // 台股籌碼面（三大法人買賣超）：同樣沿用 market_data.driver 開關。
