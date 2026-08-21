@@ -129,11 +129,22 @@ class RatesRegimeServiceTest extends TestCase
 
     public function test_delta_exactly_at_threshold_is_treated_as_neutral(): void
     {
-        // 20 根 Δ10Y 剛好 +10bp，等於門檻。判定採嚴格大於，故為中性（保守側）。
+        // 門檻須與 delta 位元級相等，才能讓 `>` 與 `>=` 產生不同結果來鑑別
+        // 突變。0.005/根累積 20 根的浮點誤差落在 10.0 以下第 15 位小數
+        // （實測 9.99999999999996447286），寫死字面量 10.0 無法命中；
+        // 故先用同一組固定序列跑一次拿到真實 delta，回填門檻後再跑一次，
+        // 兩次都用同一份 fixture，確保門檻與 delta 是同一個浮點值。
+        $probe = $this->regime(longStep: 0.005, shortStep: 0.005);
+        $delta = $probe->window('20d')['delta_level_bp'];
+
+        $this->assertEqualsWithDelta(10.0, $delta, 0.001);
+
+        config()->set('rates.windows.20d.level_bp', $delta);
+
         $regime = $this->regime(longStep: 0.005, shortStep: 0.005);
         $window = $regime->window('20d');
 
-        $this->assertEqualsWithDelta(10.0, $window['delta_level_bp'], 0.001);
+        $this->assertSame($delta, $window['delta_level_bp']);
         $this->assertSame('neutral', $window['level']);
     }
 
