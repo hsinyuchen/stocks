@@ -135,22 +135,23 @@ class TransmissionMapperTest extends TestCase
     /**
      * 反向事件必須翻轉板塊方向。
      *
-     * 升息與降息共用一條規則，若沿用 sectors 宣告的固定方向，降息新聞會被標成
-     * 「金融正向」——與事實相反，而這個結論會同時進到 UI 與 LLM prompt。
+     * 記憶體價格上漲與下跌共用一條規則，direction_cues 應翻轉板塊方向。
+     * (原本用升息／降息測試此行為，但 rate_policy 已中性化：關鍵字只能偵測事件，
+     * 方向由實際殖利率數據決定。用 memory_cycle 確認 direction_cues 機制仍可運作。)
      */
     public function test_reverse_direction_cue_flips_every_sector(): void
     {
-        $hike = $this->map('Fed 宣布升息一碼 抑制通膨');
-        $cut = $this->map('Fed 宣布降息一碼 市場歡呼');
+        $priceHike = $this->map('記憶體報價上揚供不應求缺貨');
+        $priceDrop = $this->map('長鑫擴產 DRAM 現貨價下滑庫存去化');
 
-        $this->assertSame('forward', $hike[0]['polarity']);
-        $this->assertSame('reverse', $cut[0]['polarity']);
+        $this->assertSame('forward', $priceHike[0]['polarity']);
+        $this->assertSame('reverse', $priceDrop[0]['polarity']);
 
-        $financeOnHike = collect($hike[0]['sectors'])->first(fn (array $s): bool => str_contains($s['name'], '金融'));
-        $financeOnCut = collect($cut[0]['sectors'])->first(fn (array $s): bool => str_contains($s['name'], '金融'));
+        $memoryOnHike = collect($priceHike[0]['sectors'])->first(fn (array $s): bool => $s['name'] === '記憶體');
+        $memoryOnDrop = collect($priceDrop[0]['sectors'])->first(fn (array $s): bool => $s['name'] === '記憶體');
 
-        $this->assertSame('positive', $financeOnHike['direction']);
-        $this->assertSame('negative', $financeOnCut['direction']);
+        $this->assertSame('positive', $memoryOnHike['direction']);
+        $this->assertSame('negative', $memoryOnDrop['direction']);
     }
 
     public function test_currency_direction_flips_between_depreciation_and_appreciation(): void

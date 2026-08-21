@@ -421,24 +421,21 @@ return [
                 'keywords' => ['升息', '降息', 'rate cut', 'rate hike', 'fomc', '通膨', 'inflation', 'cpi', '殖利率', 'yield'],
                 'domains' => ['finance'],
             ],
-            // sectors 的方向以「升息」為基準；降息時整組翻轉。
-            'direction_cues' => [
-                'forward' => ['升息', '緊縮', 'rate hike', 'hawkish', 'tightening'],
-                'reverse' => ['降息', '寬鬆', 'rate cut', 'dovish', 'easing'],
-            ],
+            // 刻意不設 direction_cues，且所有 sector 方向為 neutral：本規則只負責
+            // 「偵測到利率事件、指出相關板塊」，方向一律由實際殖利率走勢決定
+            // （config('rates.transmission') 與 RatesRegimeService）。
+            //
+            // 原因：關鍵字只能猜方向，殖利率是事實。舊版把「升息」判為金融正向，
+            // 但升息若伴隨曲線平坦化（熊平），銀行利差反而收窄，結論相反；而
+            // 這個錯誤結論會同時進到 UI 與 LLM prompt。
             'chain' => [
                 '政策利率預期改變，公債殖利率同向調整',
                 '折現率變動，長天期成長股評價敏感度最高',
-                '銀行利差與壽險投資收益反向於降息；高負債與高評價族群反向於升息',
+                '方向與強度以實際殖利率環境為準，見利率環境區塊',
             ],
             'sectors' => [
-                // 方向以「升息」為基準：金融受惠於利差擴大，長天期成長股受折現率
-                // 上升壓抑。降息時兩者反向，UI 的方向標示需搭配新聞本身判讀。
-                ['name' => '金融（利差與壽險投資收益）', 'direction' => 'positive', 'symbols' => ['2881.TW', '2882.TW', 'JPM']],
-                // 這裡列的是「長天期高評價」這個特性的概念代表，不是嚴謹的產業
-                // 分類——挑美股是因為該特性在美股表現得最純粹。台股對利率的直接
-                // 反應主要在上方金融股，故不另列台股成長股以免誤導。
-                ['name' => '長天期成長股（評價對利率敏感）', 'direction' => 'negative', 'symbols' => ['TSLA', 'NVDA']],
+                ['name' => '金融（利差與投資收益）', 'direction' => 'neutral', 'symbols' => ['2881.TW', '2882.TW', 'JPM']],
+                ['name' => '長天期成長股（評價對利率敏感）', 'direction' => 'neutral', 'symbols' => ['TSLA', 'NVDA']],
             ],
         ],
         [

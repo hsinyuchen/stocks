@@ -32,6 +32,10 @@ return [
      * 不影響其餘背景與整份報告（best-effort）。
      *
      * group 對應下方 groups 的顯示名稱；順序即報告內的呈現順序。
+     *
+     * 美債殖利率不列於此：已由利率環境區塊（config/rates.php）提供完整曲線與
+     * 環境判定，列在這裡只會在同一份報告重複顯示同一個數字。美元指數屬匯率、
+     * 不屬利率，仍保留。
      */
     'indicators' => [
         ['symbol' => '^GSPC', 'label' => 'S&P 500', 'group' => 'us_equity'],
@@ -39,7 +43,6 @@ return [
         ['symbol' => '^DJI', 'label' => '道瓊工業', 'group' => 'us_equity'],
         ['symbol' => '^SOX', 'label' => '費城半導體', 'group' => 'semiconductor'],
         ['symbol' => '^VIX', 'label' => 'VIX 波動率', 'group' => 'volatility'],
-        ['symbol' => '^TNX', 'label' => '美債 10 年殖利率', 'group' => 'rates'],
         ['symbol' => 'DX-Y.NYB', 'label' => '美元指數', 'group' => 'forex'],
         ['symbol' => 'USDTWD=X', 'label' => '美元/台幣', 'group' => 'forex'],
         ['symbol' => 'USDJPY=X', 'label' => '美元/日圓', 'group' => 'forex'],
