@@ -42,7 +42,6 @@ class MarketBearishFlipDetector
     public function detect(): array
     {
         $config = (array) config('alerts.market_bearish_flip', []);
-        $minScore = max(1, (int) ($config['min_dimensions'] ?? 4));
 
         // null 代表資料抓不到，與 false（條件不成立）語意不同。
         $raw = [
@@ -71,6 +70,8 @@ class MarketBearishFlipDetector
         }
 
         $max = count($raw);
+        // 上限夾到維度數：門檻設超過 $max 會讓警報永遠不可能觸發，且沒有任何提示。
+        $minScore = min($max, max(1, (int) ($config['min_dimensions'] ?? 4)));
         $triggered = $score >= $minScore;
 
         return [

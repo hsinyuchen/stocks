@@ -268,7 +268,18 @@ class AlertEvaluatorTest extends TestCase
 
             public function detect(): array
             {
-                return ['triggered' => true, 'reason' => null, 'dimensions' => ['futures' => true, 'spot' => true, 'technical' => true, 'fx' => true]];
+                // 完整比照 detect() 的真實回傳形狀：AlertEvaluator 觸發時會讀
+                // score/max/unavailable/reason 記 log（見 finding #4），缺鍵會
+                // 直接噴 Undefined array key。
+                return [
+                    'triggered' => true,
+                    'score' => 4,
+                    'max' => 5,
+                    'min_score' => 4,
+                    'dimensions' => ['futures' => true, 'spot' => true, 'technical' => true, 'fx' => true, 'rates' => false],
+                    'unavailable' => [],
+                    'reason' => null,
+                ];
             }
         });
 

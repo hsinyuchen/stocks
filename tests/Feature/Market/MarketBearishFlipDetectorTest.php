@@ -314,6 +314,22 @@ class MarketBearishFlipDetectorTest extends TestCase
         $this->assertSame(5, $result['min_score']);
     }
 
+    /**
+     * 門檻設定值超過維度數（誤植或改了維度數卻忘了同步設定）時，若不夾上限，
+     * 警報會永遠不可能觸發且沒有任何提示（finding #4）。夾到維度數後，
+     * 五維全成立仍應正常觸發。
+     */
+    public function test_min_dimensions_above_dimension_count_is_clamped_to_max(): void
+    {
+        config()->set('alerts.market_bearish_flip.min_dimensions', 99);
+        $this->bindDimensions();
+
+        $result = app(MarketBearishFlipDetector::class)->detect();
+
+        $this->assertSame(5, $result['min_score']);
+        $this->assertTrue($result['triggered']);
+    }
+
     public function test_alert_evaluator_contract_is_preserved(): void
     {
         // AlertEvaluator 只讀 detect()['triggered']，改計分制不得破壞這個鍵。

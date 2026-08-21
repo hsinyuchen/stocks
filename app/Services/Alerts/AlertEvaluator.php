@@ -98,9 +98,30 @@ class AlertEvaluator
     {
         return match ($type) {
             'market_futures_flip' => $this->futuresFlip->detect()['triggered'],
-            'market_bearish_flip' => $this->bearishFlip->detect()['triggered'],
+            'market_bearish_flip' => $this->detectBearishFlip(),
             default => false,
         };
+    }
+
+    /**
+     * 五維計分從嚴格 AND 放寬為「至少 N 維成立」後，score/max/unavailable 這些
+     * 能回溯「哪幾維撐起這次觸發」的資訊，只有 detect() 算出來、從未被讀取。
+     * 觸發當下記一筆 info，讓寬鬆規則下的誤報事後可追（見 finding #4）。
+     */
+    private function detectBearishFlip(): bool
+    {
+        $result = $this->bearishFlip->detect();
+
+        if ($result['triggered']) {
+            Log::info('alert: market bearish flip triggered', [
+                'score' => $result['score'],
+                'max' => $result['max'],
+                'unavailable' => $result['unavailable'],
+                'reason' => $result['reason'],
+            ]);
+        }
+
+        return $result['triggered'];
     }
 
     private function matchesPrice(Alert $alert, MarketQuoteData $quote): bool
