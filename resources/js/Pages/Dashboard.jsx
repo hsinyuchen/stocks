@@ -216,6 +216,94 @@ function MarketBreadth({ breadth }) {
     );
 }
 
+/**
+ * 美債利率環境面板。
+ *
+ * 兩個窗口並列而不擇一：短窗口是戰術判定，長窗口是戰略背景，兩者分歧本身就是
+ * 資訊（例如長期上行、短期停滯 = 可能是回檔而非轉向）。任一維中性時後端給的
+ * quadrant 為 null，此處就只顯示 level 與 shape，不自行拼湊象限。
+ */
+function RatesPanel({ rates }) {
+    const { t } = useI18n();
+
+    if (!rates) {
+        return null;
+    }
+
+    const levelLabel = (value) => ({
+        bear: t('dashboard.ratesLevelBear'),
+        bull: t('dashboard.ratesLevelBull'),
+    }[value] ?? t('dashboard.ratesLevelNeutral'));
+
+    const shapeLabel = (value) => ({
+        steepening: t('dashboard.ratesShapeSteepening'),
+        flattening: t('dashboard.ratesShapeFlattening'),
+    }[value] ?? t('dashboard.ratesShapeNeutral'));
+
+    const quadrantLabel = (value) => ({
+        bear_steepening: t('dashboard.ratesQuadrantBearSteepening'),
+        bear_flattening: t('dashboard.ratesQuadrantBearFlattening'),
+        bull_steepening: t('dashboard.ratesQuadrantBullSteepening'),
+        bull_flattening: t('dashboard.ratesQuadrantBullFlattening'),
+    }[value] ?? null);
+
+    const windows = Object.entries(rates.windows ?? {});
+
+    return (
+        <section className="table-panel">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">
+                        <Gauge aria-hidden="true" size={16} /> {t('dashboard.ratesKicker')}
+                    </p>
+                    <h2>{t('dashboard.ratesTitle')}</h2>
+                </div>
+                {rates.as_of ? (
+                    <small className="dashboard-coverage">{t('dashboard.dataDate', { date: rates.as_of })}</small>
+                ) : null}
+            </div>
+
+            {!rates.available ? (
+                <p className="dashboard-coverage-note">{t('dashboard.ratesUnavailable')}</p>
+            ) : (
+                <>
+                    <div className="metric-strip">
+                        <article className="metric-card">
+                            <span>{rates.long_label}</span>
+                            <strong>{Number(rates.long_yield).toFixed(3)}</strong>
+                            <small>%</small>
+                        </article>
+                        <article className="metric-card">
+                            <span>{rates.short_label}</span>
+                            <strong>{Number(rates.short_yield).toFixed(3)}</strong>
+                            <small>%</small>
+                        </article>
+                        <article className="metric-card">
+                            <span>{t('dashboard.ratesSpread')}</span>
+                            <strong className={changeClass(rates.spread_bp)}>{Number(rates.spread_bp).toFixed(1)} bp</strong>
+                            <small>
+                                {rates.inverted
+                                    ? t('dashboard.ratesInverted')
+                                    : rates.recently_uninverted
+                                        ? t('dashboard.ratesRecentlyUninverted')
+                                        : ''}
+                            </small>
+                        </article>
+                        {windows.map(([key, w]) => (
+                            <article className="metric-card" key={key}>
+                                <span>{t('dashboard.ratesWindowLabel', { days: w.days })}</span>
+                                <strong>{quadrantLabel(w.quadrant) ?? levelLabel(w.level)}</strong>
+                                <small>{quadrantLabel(w.quadrant) ? '' : shapeLabel(w.shape)}</small>
+                            </article>
+                        ))}
+                    </div>
+                    <p className="dashboard-coverage-note">{t('dashboard.ratesNote')}</p>
+                </>
+            )}
+        </section>
+    );
+}
+
 function MarketSnapshot({ items }) {
     const { t } = useI18n();
 
@@ -653,6 +741,7 @@ export default function Dashboard({
 
                     <MarketSnapshot items={marketSnapshot} />
                     <MarketBreadth breadth={marketBreadth} />
+                    <RatesPanel rates={marketBreadth?.rates ?? null} />
                     <WatchlistMovers coverage={watchlistCoverage} items={watchlistMovers} />
                     <LatestNews items={latestNews} />
                     <TransmissionFocus items={transmissionFocus} />

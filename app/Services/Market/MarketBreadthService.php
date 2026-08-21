@@ -3,18 +3,21 @@
 namespace App\Services\Market;
 
 use App\Services\Futures\FuturesDataService;
+use App\Services\Rates\RatesRegimeService;
 
 /**
- * 大盤風向：全市場三大法人現貨買賣超 ＋ 期貨/選擇權籌碼，組成儀表板的一個面板。
+ * 大盤風向：全市場三大法人現貨買賣超、期貨/選擇權籌碼、美債利率環境，組成儀表板的一個面板。
  *
- * 兩者都是盤後才變的大盤層級資料，各自快取（現貨快取在 MarketInstitutionalService）。
- * 全 best-effort：抓不到的區塊標 available=false，不影響另一區塊，也不擋儀表板。
+ * 三者都是盤後才變的市場層級資料，各自快取（現貨在 MarketInstitutionalService，
+ * 利率在 YieldCurveService）。全 best-effort：抓不到的區塊標 available=false，
+ * 不影響其他區塊，也不擋儀表板。
  */
 class MarketBreadthService
 {
     public function __construct(
         private readonly MarketInstitutionalService $institutional,
         private readonly FuturesDataService $futures,
+        private readonly RatesRegimeService $rates,
     ) {}
 
     /**
@@ -25,6 +28,7 @@ class MarketBreadthService
         return [
             'institutional' => $this->institutionalBlock(),
             'futures' => $this->futuresBlock(),
+            'rates' => $this->ratesBlock(),
         ];
     }
 
@@ -67,6 +71,24 @@ class MarketBreadthService
             'put_call_ratio' => $snapshot->putCallRatio(),
             'option_put_oi' => $snapshot->optionPutOi,
             'option_call_oi' => $snapshot->optionCallOi,
+        ];
+    }
+
+    /**
+     * 美債利率環境。與台股籌碼區塊互不影響：曲線抓不到時 available=false，
+     * 其餘區塊照常。
+     *
+     * @return array<string, mixed>
+     */
+    private function ratesBlock(): array
+    {
+        $tenors = (array) config('rates.tenors', []);
+        $long = (string) config('rates.spread.long', '10y');
+        $short = (string) config('rates.spread.short', '3m');
+
+        return $this->rates->current()->toArray() + [
+            'long_label' => (string) ($tenors[$long]['label'] ?? $long),
+            'short_label' => (string) ($tenors[$short]['label'] ?? $short),
         ];
     }
 }
