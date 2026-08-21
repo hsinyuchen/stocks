@@ -12,6 +12,7 @@ use App\Exceptions\LlmRequestException;
 use App\Services\Analysis\SignalFieldGuide;
 use App\Services\Analysis\SopGuide;
 use App\Services\Analysis\SymbolContextService;
+use App\Services\Rates\RatesNarrative;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 
 class StockAnalysisService
@@ -22,7 +23,8 @@ class StockAnalysisService
     /**
      * 前四個參數保留原樣：既有測試以四個位置參數直接 new 這個 service，改成注入
      * SymbolContextService 會讓它們無法建構。這裡把它們原封不動轉交過去，脈絡
-     * 邏輯本身只有 SymbolContextService 一份。
+     * 邏輯本身只有 SymbolContextService 一份。RatesNarrative 走 app() 解析，
+     * 因為它依賴多層 Rates 服務，不是能給常數預設值的零參數類別。
      *
      * 後兩個參數同理給預設值，容器仍會照常注入。
      */
@@ -35,7 +37,7 @@ class StockAnalysisService
         ?SymbolContextService $context = null,
         private readonly SopGuide $sop = new SopGuide,
     ) {
-        $this->context = $context ?? new SymbolContextService($marketData, $news, $indicators, $signals);
+        $this->context = $context ?? new SymbolContextService($marketData, $news, $indicators, $signals, app(RatesNarrative::class));
     }
 
     /**

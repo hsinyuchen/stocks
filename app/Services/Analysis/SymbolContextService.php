@@ -8,8 +8,10 @@ use App\Data\ChipFlowData;
 use App\Data\MarginFlowData;
 use App\Data\MarketQuoteData;
 use App\Data\NewsItemData;
+use App\Services\Rates\RatesNarrative;
 use App\Services\SignalEngine;
 use App\Services\TechnicalIndicatorService;
+use App\Support\MarketResolver;
 
 /**
  * 個股脈絡的唯一組裝來源。
@@ -34,6 +36,7 @@ final class SymbolContextService
         private readonly NewsProvider $news,
         private readonly TechnicalIndicatorService $indicators,
         private readonly SignalEngine $signals,
+        private readonly RatesNarrative $ratesNarrative,
     ) {}
 
     /**
@@ -57,7 +60,8 @@ final class SymbolContextService
      *     rule_signal: array<string, mixed>,
      *     news: list<NewsItemData>,
      *     data_as_of: string,
-     *     has_prices: bool
+     *     has_prices: bool,
+     *     rates: array{block: string, affected: list<array<string, mixed>>}
      * }
      */
     public function forSymbol(string $symbol, array $chipFlows = [], array $marginFlows = [], ?array $brokerBranch = null): array
@@ -65,6 +69,7 @@ final class SymbolContextService
         $quote = $this->marketData->quote($symbol);
         $prices = $this->marketData->dailyPrices($symbol, self::PRICE_BARS);
         $news = $this->news->relatedNews($symbol, self::NEWS_LIMIT);
+        $rates = $this->ratesContext($symbol);
 
         if ($prices === []) {
             return [
@@ -79,6 +84,7 @@ final class SymbolContextService
                 'news' => $news,
                 'data_as_of' => $quote->asOf,
                 'has_prices' => false,
+                'rates' => $rates,
             ];
         }
 
@@ -95,6 +101,7 @@ final class SymbolContextService
             'news' => $news,
             'data_as_of' => $quote->asOf,
             'has_prices' => true,
+            'rates' => $rates,
         ];
     }
 
@@ -113,5 +120,21 @@ final class SymbolContextService
         }
 
         return $ruleSignal;
+    }
+
+    /**
+     * 該檔所處的利率環境與傳導歸屬（best-effort）。
+     *
+     * 市場由代號推導：美股走折現率直接鏈（板塊輪動），台股走美元與外資流向的
+     * 間接鏈。抓不到時只標無法取得，其餘脈絡照常。
+     *
+     * @return array{block: string, affected: list<array<string, mixed>>}
+     */
+    private function ratesContext(string $symbol): array
+    {
+        $market = MarketResolver::isTaiwan($symbol) ? 'tw' : 'us';
+
+        // forAudience 已含 best-effort 例外處理，此處不需再包 try/catch。
+        return $this->ratesNarrative->forAudience($market, [$symbol], 'symbol');
     }
 }
