@@ -97,12 +97,17 @@ return [
                     '長端折現率上升幅度大於短端',
                     '長久期資產評價壓力最重，銀行利差同時擴大',
                 ],
+                'chain_en' => [
+                    'Term premium and inflation expectations rise',
+                    'Long-end discount rates rise more than short-end rates',
+                    'Long-duration assets face the heaviest valuation pressure, while bank spreads widen at the same time',
+                ],
                 'sectors' => [
-                    ['name' => '銀行', 'direction' => 'positive', 'why' => '借短貸長，淨利差隨曲線陡峭化擴大', 'symbols' => ['JPM', 'BAC']],
-                    ['name' => '長天期成長股', 'direction' => 'negative', 'why' => '折現率上升，現金流集中在遠期的高評價標的受壓最重', 'symbols' => ['TSLA', 'NVDA']],
-                    ['name' => 'REITs', 'direction' => 'negative', 'why' => '融資成本上升，且相對股息吸引力被無風險殖利率壓縮', 'symbols' => ['O', 'VNQ']],
-                    ['name' => '公用事業', 'direction' => 'negative', 'why' => '債券替代性質，殖利率上行時資金流出且負債成本上升', 'symbols' => ['XLU']],
-                    ['name' => '能源與原物料', 'direction' => 'positive', 'why' => '熊陡常伴隨通膨預期升溫，實體資產受惠', 'symbols' => ['XOM', 'CVX']],
+                    ['name' => '銀行', 'name_en' => 'Banks', 'direction' => 'positive', 'why' => '借短貸長，淨利差隨曲線陡峭化擴大', 'why_en' => 'Borrows short and lends long, so net interest margin widens as the curve steepens', 'symbols' => ['JPM', 'BAC']],
+                    ['name' => '長天期成長股', 'name_en' => 'Long-duration growth', 'direction' => 'negative', 'why' => '折現率上升，現金流集中在遠期的高評價標的受壓最重', 'why_en' => 'As discount rates rise, richly-valued names with cash flows concentrated far in the future face the heaviest pressure', 'symbols' => ['TSLA', 'NVDA']],
+                    ['name' => 'REITs', 'name_en' => 'REITs', 'direction' => 'negative', 'why' => '融資成本上升，且相對股息吸引力被無風險殖利率壓縮', 'why_en' => 'Financing costs rise, and relative dividend appeal is squeezed by the higher risk-free yield', 'symbols' => ['O', 'VNQ']],
+                    ['name' => '公用事業', 'name_en' => 'Utilities', 'direction' => 'negative', 'why' => '債券替代性質，殖利率上行時資金流出且負債成本上升', 'why_en' => 'As a bond-proxy sector, capital flows out and debt costs rise as yields climb', 'symbols' => ['XLU']],
+                    ['name' => '能源與原物料', 'name_en' => 'Energy & materials', 'direction' => 'positive', 'why' => '熊陡常伴隨通膨預期升溫，實體資產受惠', 'why_en' => 'Bear steepening is often accompanied by rising inflation expectations, which benefits real assets', 'symbols' => ['XOM', 'CVX']],
                 ],
             ],
             [
@@ -114,12 +119,17 @@ return [
                     '曲線收窄，銀行存放利差被壓縮',
                     '折現率仍上升，同時經濟放緩預期升溫',
                 ],
+                'chain_en' => [
+                    'Policy-tightening expectations push the short end up more than the long end',
+                    'The curve narrows, compressing banks\' deposit-to-loan spread',
+                    'Discount rates keep rising while expectations of an economic slowdown build',
+                ],
                 'sectors' => [
                     // 與熊陡同為殖利率上行，但對銀行的結論相反——這是採四象限的核心理由。
-                    ['name' => '銀行', 'direction' => 'negative', 'why' => '短端資金成本上升快於長端放款收益，淨利差收窄', 'symbols' => ['JPM', 'BAC']],
-                    ['name' => '長天期成長股', 'direction' => 'negative', 'why' => '折現率上升壓抑遠期現金流評價', 'symbols' => ['TSLA', 'NVDA']],
-                    ['name' => '小型股與高負債', 'direction' => 'negative', 'why' => '再融資成本上升，且對經濟放緩最敏感', 'symbols' => ['IWM']],
-                    ['name' => '大型防禦與必需消費', 'direction' => 'positive', 'why' => '現金流穩定、負債比低，緊縮末期相對抗跌', 'symbols' => ['XLP']],
+                    ['name' => '銀行', 'name_en' => 'Banks', 'direction' => 'negative', 'why' => '短端資金成本上升快於長端放款收益，淨利差收窄', 'why_en' => 'Short-end funding costs rise faster than long-end lending yields, narrowing net interest margin', 'symbols' => ['JPM', 'BAC']],
+                    ['name' => '長天期成長股', 'name_en' => 'Long-duration growth', 'direction' => 'negative', 'why' => '折現率上升壓抑遠期現金流評價', 'why_en' => 'Rising discount rates weigh on the valuation of far-future cash flows', 'symbols' => ['TSLA', 'NVDA']],
+                    ['name' => '小型股與高負債', 'name_en' => 'Small caps & leveraged', 'direction' => 'negative', 'why' => '再融資成本上升，且對經濟放緩最敏感', 'why_en' => 'Refinancing costs rise, and this group is the most sensitive to an economic slowdown', 'symbols' => ['IWM']],
+                    ['name' => '大型防禦與必需消費', 'name_en' => 'Large-cap defensives & staples', 'direction' => 'positive', 'why' => '現金流穩定、負債比低，緊縮末期相對抗跌', 'why_en' => 'Stable cash flows and low leverage make this group relatively resilient late in a tightening cycle', 'symbols' => ['XLP']],
                 ],
             ],
             [
@@ -131,12 +141,17 @@ return [
                     '折現率下降，長久期資產評價修復',
                     '但陡峭化也可能是衰退定價，需與信用利差併看',
                 ],
+                'chain_en' => [
+                    'Rate-cut expectations push the short end down more than the long end',
+                    'Discount rates fall, and long-duration asset valuations recover',
+                    'But steepening can also reflect recession pricing, so it must be read together with credit spreads',
+                ],
                 'sectors' => [
-                    ['name' => '長天期成長股', 'direction' => 'positive', 'why' => '折現率下降，遠期現金流評價回升', 'symbols' => ['NVDA', 'TSLA']],
-                    ['name' => 'REITs', 'direction' => 'positive', 'why' => '融資成本下降，且相對股息吸引力回升', 'symbols' => ['O', 'VNQ']],
-                    ['name' => '小型股', 'direction' => 'positive', 'why' => '再融資壓力緩解，對降息彈性最大', 'symbols' => ['IWM']],
+                    ['name' => '長天期成長股', 'name_en' => 'Long-duration growth', 'direction' => 'positive', 'why' => '折現率下降，遠期現金流評價回升', 'why_en' => 'As discount rates fall, the valuation of far-future cash flows recovers', 'symbols' => ['NVDA', 'TSLA']],
+                    ['name' => 'REITs', 'name_en' => 'REITs', 'direction' => 'positive', 'why' => '融資成本下降，且相對股息吸引力回升', 'why_en' => 'Financing costs fall, and relative dividend appeal recovers', 'symbols' => ['O', 'VNQ']],
+                    ['name' => '小型股', 'name_en' => 'Small caps', 'direction' => 'positive', 'why' => '再融資壓力緩解，對降息彈性最大', 'why_en' => 'Refinancing pressure eases, and this group has the highest sensitivity to rate cuts', 'symbols' => ['IWM']],
                     // 牛陡對銀行是兩股相反力量，不給單一方向。
-                    ['name' => '銀行', 'direction' => 'mixed', 'why' => '利差擴大有利，但若陡峭化源自衰退定價，信用成本上升不利', 'symbols' => ['JPM', 'BAC']],
+                    ['name' => '銀行', 'name_en' => 'Banks', 'direction' => 'mixed', 'why' => '利差擴大有利，但若陡峭化源自衰退定價，信用成本上升不利', 'why_en' => 'A wider spread is favorable, but if the steepening stems from recession pricing, rising credit costs are unfavorable', 'symbols' => ['JPM', 'BAC']],
                 ],
             ],
             [
@@ -148,12 +163,17 @@ return [
                     '成長放緩擔憂升溫，資金轉向防禦',
                     '折現率下降但景氣能見度轉差',
                 ],
+                'chain_en' => [
+                    'Safe-haven buying floods into the long end, pulling it down faster than the short end',
+                    'Concerns about slowing growth build, and capital rotates into defensives',
+                    'Discount rates fall even as economic visibility worsens',
+                ],
                 'sectors' => [
-                    ['name' => '公用事業', 'direction' => 'positive', 'why' => '長端殖利率下行時債券替代標的受青睞', 'symbols' => ['XLU']],
-                    ['name' => '必需消費', 'direction' => 'positive', 'why' => '需求剛性，景氣轉弱時相對抗跌', 'symbols' => ['XLP']],
-                    ['name' => '長天期成長股', 'direction' => 'positive', 'why' => '折現率下降支撐評價', 'symbols' => ['NVDA']],
-                    ['name' => '銀行', 'direction' => 'negative', 'why' => '利差收窄疊加景氣放緩下的信用風險', 'symbols' => ['JPM', 'BAC']],
-                    ['name' => '景氣循環股', 'direction' => 'negative', 'why' => '曲線平坦化通常反映需求前景轉弱', 'symbols' => ['CAT']],
+                    ['name' => '公用事業', 'name_en' => 'Utilities', 'direction' => 'positive', 'why' => '長端殖利率下行時債券替代標的受青睞', 'why_en' => 'Bond-proxy names are favored when long-end yields fall', 'symbols' => ['XLU']],
+                    ['name' => '必需消費', 'name_en' => 'Consumer staples', 'direction' => 'positive', 'why' => '需求剛性，景氣轉弱時相對抗跌', 'why_en' => 'Demand is inelastic, making this group relatively resilient when the economy weakens', 'symbols' => ['XLP']],
+                    ['name' => '長天期成長股', 'name_en' => 'Long-duration growth', 'direction' => 'positive', 'why' => '折現率下降支撐評價', 'why_en' => 'Falling discount rates support valuations', 'symbols' => ['NVDA']],
+                    ['name' => '銀行', 'name_en' => 'Banks', 'direction' => 'negative', 'why' => '利差收窄疊加景氣放緩下的信用風險', 'why_en' => 'A narrowing spread compounds with the credit risk from a slowing economy', 'symbols' => ['JPM', 'BAC']],
+                    ['name' => '景氣循環股', 'name_en' => 'Cyclicals', 'direction' => 'negative', 'why' => '曲線平坦化通常反映需求前景轉弱', 'why_en' => 'Curve flattening typically reflects a weakening demand outlook', 'symbols' => ['CAT']],
                 ],
             ],
             [
@@ -164,10 +184,14 @@ return [
                     '殖利率上行，無風險報酬率墊高',
                     '折現率上升壓抑長久期資產評價',
                 ],
+                'chain_en' => [
+                    'Yields rise, lifting the risk-free rate of return',
+                    'Rising discount rates weigh on long-duration asset valuations',
+                ],
                 'sectors' => [
-                    ['name' => '長天期成長股', 'direction' => 'negative', 'why' => '折現率上升，遠期現金流現值下降', 'symbols' => ['TSLA', 'NVDA']],
-                    ['name' => 'REITs', 'direction' => 'negative', 'why' => '融資成本上升且股息相對吸引力下降', 'symbols' => ['O', 'VNQ']],
-                    ['name' => '公用事業', 'direction' => 'negative', 'why' => '債券替代性質，資金被無風險利率吸走', 'symbols' => ['XLU']],
+                    ['name' => '長天期成長股', 'name_en' => 'Long-duration growth', 'direction' => 'negative', 'why' => '折現率上升，遠期現金流現值下降', 'why_en' => 'As discount rates rise, the present value of far-future cash flows falls', 'symbols' => ['TSLA', 'NVDA']],
+                    ['name' => 'REITs', 'name_en' => 'REITs', 'direction' => 'negative', 'why' => '融資成本上升且股息相對吸引力下降', 'why_en' => 'Financing costs rise and relative dividend appeal declines', 'symbols' => ['O', 'VNQ']],
+                    ['name' => '公用事業', 'name_en' => 'Utilities', 'direction' => 'negative', 'why' => '債券替代性質，資金被無風險利率吸走', 'why_en' => 'As a bond-proxy sector, capital is drawn away by the higher risk-free rate', 'symbols' => ['XLU']],
                 ],
             ],
             [
@@ -178,9 +202,13 @@ return [
                     '殖利率下行，無風險報酬率下降',
                     '折現率下降支撐長久期資產評價',
                 ],
+                'chain_en' => [
+                    'Yields fall, lowering the risk-free rate of return',
+                    'Falling discount rates support long-duration asset valuations',
+                ],
                 'sectors' => [
-                    ['name' => '長天期成長股', 'direction' => 'positive', 'why' => '折現率下降，遠期現金流現值回升', 'symbols' => ['NVDA', 'TSLA']],
-                    ['name' => 'REITs', 'direction' => 'positive', 'why' => '融資成本下降且股息相對吸引力回升', 'symbols' => ['O', 'VNQ']],
+                    ['name' => '長天期成長股', 'name_en' => 'Long-duration growth', 'direction' => 'positive', 'why' => '折現率下降，遠期現金流現值回升', 'why_en' => 'As discount rates fall, the present value of far-future cash flows recovers', 'symbols' => ['NVDA', 'TSLA']],
+                    ['name' => 'REITs', 'name_en' => 'REITs', 'direction' => 'positive', 'why' => '融資成本下降且股息相對吸引力回升', 'why_en' => 'Financing costs fall and relative dividend appeal recovers', 'symbols' => ['O', 'VNQ']],
                 ],
             ],
             [
@@ -188,8 +216,9 @@ return [
                 'when' => ['shape' => 'steepening'],
                 'conviction' => 'medium',
                 'chain' => ['殖利率方向未明，但曲線陡峭化', '長短端利差擴大'],
+                'chain_en' => ['Yield direction is unclear, but the curve is steepening', 'The long-short spread widens'],
                 'sectors' => [
-                    ['name' => '銀行', 'direction' => 'positive', 'why' => '借短貸長，淨利差隨利差擴大而改善', 'symbols' => ['JPM', 'BAC']],
+                    ['name' => '銀行', 'name_en' => 'Banks', 'direction' => 'positive', 'why' => '借短貸長，淨利差隨利差擴大而改善', 'why_en' => 'Borrows short and lends long, so net interest margin improves as the spread widens', 'symbols' => ['JPM', 'BAC']],
                 ],
             ],
             [
@@ -197,8 +226,9 @@ return [
                 'when' => ['shape' => 'flattening'],
                 'conviction' => 'medium',
                 'chain' => ['殖利率方向未明，但曲線平坦化', '長短端利差收窄'],
+                'chain_en' => ['Yield direction is unclear, but the curve is flattening', 'The long-short spread narrows'],
                 'sectors' => [
-                    ['name' => '銀行', 'direction' => 'negative', 'why' => '存放利差被壓縮，獲利能力承壓', 'symbols' => ['JPM', 'BAC']],
+                    ['name' => '銀行', 'name_en' => 'Banks', 'direction' => 'negative', 'why' => '存放利差被壓縮，獲利能力承壓', 'why_en' => 'Deposit-to-loan spread is compressed, pressuring profitability', 'symbols' => ['JPM', 'BAC']],
                 ],
             ],
             [
@@ -210,10 +240,15 @@ return [
                     '歷史上多次領先於衰退，但樣本僅約 6 次',
                     '僅供參考觀察，不構成預測，且領先時間差異極大',
                 ],
+                'chain_en' => [
+                    'The yield curve is inverted, or has just un-inverted after being inverted',
+                    'Historically this has often led recessions, but the sample is only about 6 instances',
+                    'Reference only, not a forecast, and the lead time varies enormously',
+                ],
                 'sectors' => [
-                    ['name' => '防禦性板塊', 'direction' => 'positive', 'why' => '衰退預期升溫時資金偏好現金流穩定標的', 'symbols' => ['XLP', 'XLU']],
-                    ['name' => '景氣循環股', 'direction' => 'negative', 'why' => '需求前景與衰退預期直接相關', 'symbols' => ['CAT']],
-                    ['name' => '小型股', 'direction' => 'negative', 'why' => '融資條件與景氣敏感度最高', 'symbols' => ['IWM']],
+                    ['name' => '防禦性板塊', 'name_en' => 'Defensive sectors', 'direction' => 'positive', 'why' => '衰退預期升溫時資金偏好現金流穩定標的', 'why_en' => 'As recession expectations build, capital favors names with stable cash flows', 'symbols' => ['XLP', 'XLU']],
+                    ['name' => '景氣循環股', 'name_en' => 'Cyclicals', 'direction' => 'negative', 'why' => '需求前景與衰退預期直接相關', 'why_en' => 'Demand outlook is directly tied to recession expectations', 'symbols' => ['CAT']],
+                    ['name' => '小型股', 'name_en' => 'Small caps', 'direction' => 'negative', 'why' => '融資條件與景氣敏感度最高', 'why_en' => 'Highest sensitivity to financing conditions and the economic cycle', 'symbols' => ['IWM']],
                 ],
             ],
         ],
@@ -234,12 +269,17 @@ return [
                     '美元走強，外資對新興市場的配置意願下降',
                     '外資調節台股現貨，權值股首當其衝',
                 ],
+                'chain_en' => [
+                    'US Treasury yields rise, increasing the relative appeal of dollar assets',
+                    'The dollar strengthens, reducing foreign investors\' willingness to allocate to emerging markets',
+                    'Foreign investors trim Taiwan equity holdings, hitting large-cap weighted stocks first',
+                ],
                 'sectors' => [
-                    ['name' => '全市場', 'direction' => 'negative', 'why' => '外資是台股主要邊際資金，美元走強時流出壓力上升', 'symbols' => ['0050.TW']],
-                    ['name' => '電子權值', 'direction' => 'negative', 'why' => '外資持股比重最高，調節時最先被賣', 'symbols' => ['2330.TW', '2317.TW', '2454.TW']],
-                    ['name' => '高股息族群', 'direction' => 'negative', 'why' => '與美債無風險殖利率競爭資金，利差優勢被壓縮', 'symbols' => ['0056.TW']],
+                    ['name' => '全市場', 'name_en' => 'Broad market', 'direction' => 'negative', 'why' => '外資是台股主要邊際資金，美元走強時流出壓力上升', 'why_en' => 'Foreign investors are the main marginal capital in Taiwan equities; outflow pressure rises as the dollar strengthens', 'symbols' => ['0050.TW']],
+                    ['name' => '電子權值', 'name_en' => 'Large-cap tech', 'direction' => 'negative', 'why' => '外資持股比重最高，調節時最先被賣', 'why_en' => 'Foreign ownership is highest here, so these names are sold first when positions are trimmed', 'symbols' => ['2330.TW', '2317.TW', '2454.TW']],
+                    ['name' => '高股息族群', 'name_en' => 'High-dividend names', 'direction' => 'negative', 'why' => '與美債無風險殖利率競爭資金，利差優勢被壓縮', 'why_en' => 'Competes for capital against the risk-free yield on US Treasuries, and its yield-spread advantage is squeezed', 'symbols' => ['0056.TW']],
                     // 台壽險對美債的反應是雙向的，不可給單一方向。
-                    ['name' => '壽險金融', 'direction' => 'mixed', 'why' => '持有大量美元債：殖利率上行使既有部位評價承壓，但新資金再投資收益率上升，且台幣貶值帶來海外部位換算利益；淨效果依帳列分類與升息階段而異', 'symbols' => ['2881.TW', '2882.TW']],
+                    ['name' => '壽險金融', 'name_en' => 'Life insurers', 'direction' => 'mixed', 'why' => '持有大量美元債：殖利率上行使既有部位評價承壓，但新資金再投資收益率上升，且台幣貶值帶來海外部位換算利益；淨效果依帳列分類與升息階段而異', 'why_en' => 'Holds large USD bond positions: rising yields put the mark on existing holdings under pressure, but reinvestment yields on new money rise, and TWD depreciation produces translation gains on overseas positions; the net effect depends on accounting classification and the stage of the rate cycle', 'symbols' => ['2881.TW', '2882.TW']],
                 ],
             ],
             [
@@ -251,11 +291,16 @@ return [
                     '美元轉弱，外資對新興市場配置意願回升',
                     '外資回補台股現貨，權值股與成長股受惠',
                 ],
+                'chain_en' => [
+                    'US Treasury yields fall, reducing the relative appeal of dollar assets',
+                    'The dollar weakens, and foreign investors\' willingness to allocate to emerging markets recovers',
+                    'Foreign investors add back Taiwan equity holdings, benefiting large-cap weighted and growth stocks',
+                ],
                 'sectors' => [
-                    ['name' => '全市場', 'direction' => 'positive', 'why' => '美元轉弱時外資回流，台股邊際資金改善', 'symbols' => ['0050.TW']],
-                    ['name' => '電子權值', 'direction' => 'positive', 'why' => '外資回補時最先被買回', 'symbols' => ['2330.TW', '2317.TW', '2454.TW']],
-                    ['name' => '高股息族群', 'direction' => 'positive', 'why' => '無風險殖利率下降，股息相對吸引力回升', 'symbols' => ['0056.TW']],
-                    ['name' => '壽險金融', 'direction' => 'mixed', 'why' => '既有美元債部位評價回升，但新資金再投資收益率下降，且台幣升值造成海外部位換算損失', 'symbols' => ['2881.TW', '2882.TW']],
+                    ['name' => '全市場', 'name_en' => 'Broad market', 'direction' => 'positive', 'why' => '美元轉弱時外資回流，台股邊際資金改善', 'why_en' => 'As the dollar weakens, foreign capital flows back in, improving Taiwan equities\' marginal funding', 'symbols' => ['0050.TW']],
+                    ['name' => '電子權值', 'name_en' => 'Large-cap tech', 'direction' => 'positive', 'why' => '外資回補時最先被買回', 'why_en' => 'These names are bought back first when foreign investors add back positions', 'symbols' => ['2330.TW', '2317.TW', '2454.TW']],
+                    ['name' => '高股息族群', 'name_en' => 'High-dividend names', 'direction' => 'positive', 'why' => '無風險殖利率下降，股息相對吸引力回升', 'why_en' => 'As the risk-free yield falls, relative dividend appeal recovers', 'symbols' => ['0056.TW']],
+                    ['name' => '壽險金融', 'name_en' => 'Life insurers', 'direction' => 'mixed', 'why' => '既有美元債部位評價回升，但新資金再投資收益率下降，且台幣升值造成海外部位換算損失', 'why_en' => 'The mark on existing USD bond positions recovers, but reinvestment yields on new money fall, and TWD appreciation produces translation losses on overseas positions', 'symbols' => ['2881.TW', '2882.TW']],
                 ],
             ],
             [
@@ -267,9 +312,14 @@ return [
                     '台股以出口為主，對美國終端需求高度敏感',
                     '僅供參考觀察，不構成預測，歷史樣本極少',
                 ],
+                'chain_en' => [
+                    'The yield curve is inverted, or has just un-inverted after being inverted',
+                    'Taiwan equities are export-driven and highly sensitive to US end demand',
+                    'Reference only, not a forecast, and the historical sample is very small',
+                ],
                 'sectors' => [
-                    ['name' => '電子出口', 'direction' => 'negative', 'why' => '美國需求走弱直接反映在台廠接單與稼動率', 'symbols' => ['2330.TW', '2317.TW']],
-                    ['name' => '航運', 'direction' => 'negative', 'why' => '貨櫃運量與全球終端需求連動', 'symbols' => ['2603.TW', '2609.TW']],
+                    ['name' => '電子出口', 'name_en' => 'Tech exporters', 'direction' => 'negative', 'why' => '美國需求走弱直接反映在台廠接單與稼動率', 'why_en' => 'Weaker US demand shows up directly in Taiwanese manufacturers\' order intake and utilization rates', 'symbols' => ['2330.TW', '2317.TW']],
+                    ['name' => '航運', 'name_en' => 'Shipping', 'direction' => 'negative', 'why' => '貨櫃運量與全球終端需求連動', 'why_en' => 'Container volumes track global end demand', 'symbols' => ['2603.TW', '2609.TW']],
                 ],
             ],
         ],

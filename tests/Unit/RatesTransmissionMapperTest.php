@@ -205,14 +205,31 @@ class RatesTransmissionMapperTest extends TestCase
         $this->assertSame([], $chains);
     }
 
-    public function test_english_locale_falls_back_to_chinese_until_translations_exist(): void
+    public function test_english_locale_falls_back_to_chinese_when_en_fields_are_absent(): void
     {
-        // 本任務的 config 尚無 _en 欄位，回退中文是預期行為——空字串會讓
-        // prompt 與 UI 完全失去機制說明。Task 13 補上英文後即自動生效。
+        // Task 13 補齊了 config 的 _en 欄位，本測試不再能用真實 config 鎖住
+        // 「尚未翻譯」這個前提。改用暫時去掉 _en 欄位的 stub 規則，直接驗證
+        // present() 的回退機制本身：缺 _en 時退中文，而不是留空字串——空字串
+        // 會讓 prompt 與 UI 完全失去機制說明。真實 config 是否翻譯齊全，交給
+        // test_every_rule_in_both_markets_has_english_fields 把關。
+        config()->set('rates.transmission.us', [[
+            'key' => 'stub',
+            'when' => ['quadrant' => 'bear_steepening'],
+            'conviction' => 'high',
+            'chain' => ['中文步驟'],
+            'sectors' => [[
+                'name' => '銀行',
+                'direction' => 'positive',
+                'why' => '中文機制',
+                'symbols' => ['JPM'],
+            ]],
+        ]]);
+
         $chains = (new RatesTransmissionMapper)->map($this->regime('bear', 'steepening'), 'us', 'en');
 
-        $this->assertSame('銀行', $this->sector($chains, '銀行')['name']);
-        $this->assertNotSame('', $this->sector($chains, '銀行')['why']);
+        $this->assertSame(['中文步驟'], $chains[0]['chain']);
+        $this->assertSame('銀行', $chains[0]['sectors'][0]['name']);
+        $this->assertSame('中文機制', $chains[0]['sectors'][0]['why']);
     }
 
     public function test_english_locale_prefers_en_fields_when_present(): void
