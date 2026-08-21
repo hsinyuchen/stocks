@@ -64,7 +64,7 @@ class StockAnalysisService
         ?array $fundamentals = null,
         ?array $valuation = null,
     ): array {
-        $context = $this->context->forSymbol($symbol, $chipFlows, $marginFlows, $brokerBranch);
+        $context = $this->context->forSymbol($symbol, $chipFlows, $marginFlows, $brokerBranch, $locale);
         $quote = $context['quote'];
         $technicalSnapshot = $context['technical_snapshot'];
         $ruleSignal = $context['rule_signal'];
@@ -100,7 +100,7 @@ class StockAnalysisService
             ];
         }
 
-        $prompt = $this->buildPrompt($symbol, $quote, $technicalSnapshot, $ruleSignal, $news, $locale, $fundamentals, $valuation);
+        $prompt = $this->buildPrompt($symbol, $quote, $technicalSnapshot, $ruleSignal, $news, $locale, $fundamentals, $valuation, $context['rates']);
 
         try {
             $response = $llm->complete($model, $prompt);
@@ -157,6 +157,9 @@ class StockAnalysisService
         ];
     }
 
+    /**
+     * @param  array{block: string, affected: list<array<string, mixed>>}  $rates
+     */
     private function buildPrompt(
         string $symbol,
         object $quote,
@@ -166,6 +169,7 @@ class StockAnalysisService
         string $locale = 'zh',
         ?array $fundamentals = null,
         ?array $valuation = null,
+        array $rates = [],
     ): string {
         $en = $locale === 'en';
         $technicalSnapshotJson = json_encode($technicalSnapshot, JSON_UNESCAPED_UNICODE);
@@ -175,6 +179,10 @@ class StockAnalysisService
             $news,
         ));
         $fieldGuide = $this->fieldGuide->forRuleSignal($ruleSignal);
+
+        // RatesNarrative 已把「抓不到就明說」bake 進 block；不省略這段，否則模型會
+        // 誤以為利率因素不存在。mixed 與其 why 已包含在 block 文字裡，原樣帶入，不重組。
+        $ratesBlock = (string) ($rates['block'] ?? '');
 
         // 基本面與估值分位為 best-effort：null（非台股/抓取失敗/未提供）時明示資料不足，
         // 讓 SOP 的基本面(20%)、估值(15%)面向據實降權，不臆測。
@@ -224,6 +232,9 @@ END_TECHNICAL_SNAPSHOT
 BEGIN_RULE_SIGNAL
 Rule signal: {$ruleSignalJson}
 END_RULE_SIGNAL
+BEGIN_RATES
+{$ratesBlock}
+END_RATES
 BEGIN_FUNDAMENTALS
 {$fundamentalsJson}
 END_FUNDAMENTALS

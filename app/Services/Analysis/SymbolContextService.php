@@ -50,6 +50,9 @@ final class SymbolContextService
      * 由呼叫端傳入並直接掛在 rule_signal.broker_branch。它已是聚合摘要而非原始序列，
      * 故不經 SignalEngine 計算（保持 stance/score 語意不變）。null 代表無此資料。
      *
+     * $locale 只影響 rates.block 的敘述語言（RatesNarrative 依 locale 產生英/中文句子）；
+     * 其餘欄位維持原型或既有語意，由呼叫端各自決定要不要在組 prompt 時翻譯。
+     *
      * @param  list<ChipFlowData>  $chipFlows
      * @param  list<MarginFlowData>  $marginFlows
      * @param  array<string, mixed>|null  $brokerBranch
@@ -64,12 +67,12 @@ final class SymbolContextService
      *     rates: array{block: string, affected: list<array<string, mixed>>}
      * }
      */
-    public function forSymbol(string $symbol, array $chipFlows = [], array $marginFlows = [], ?array $brokerBranch = null): array
+    public function forSymbol(string $symbol, array $chipFlows = [], array $marginFlows = [], ?array $brokerBranch = null, string $locale = 'zh'): array
     {
         $quote = $this->marketData->quote($symbol);
         $prices = $this->marketData->dailyPrices($symbol, self::PRICE_BARS);
         $news = $this->news->relatedNews($symbol, self::NEWS_LIMIT);
-        $rates = $this->ratesContext($symbol);
+        $rates = $this->ratesContext($symbol, $locale);
 
         if ($prices === []) {
             return [
@@ -130,11 +133,11 @@ final class SymbolContextService
      *
      * @return array{block: string, affected: list<array<string, mixed>>}
      */
-    private function ratesContext(string $symbol): array
+    private function ratesContext(string $symbol, string $locale = 'zh'): array
     {
         $market = MarketResolver::isTaiwan($symbol) ? 'tw' : 'us';
 
         // forAudience 已含 best-effort 例外處理，此處不需再包 try/catch。
-        return $this->ratesNarrative->forAudience($market, [$symbol], 'symbol');
+        return $this->ratesNarrative->forAudience($market, [$symbol], 'symbol', $locale);
     }
 }

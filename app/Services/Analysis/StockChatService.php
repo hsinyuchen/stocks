@@ -71,16 +71,19 @@ final class StockChatService
      * 與原始籌碼／融資序列——「本益比現在算貴嗎」「營收年增幾趴」是問答最常收到
      * 的問題，而那些欄位不在分析用的脈絡裡。
      *
+     * $locale 透傳給 SymbolContextService，只影響 rates.block 的敘述語言——其餘欄位
+     * 是原始數字/JSON，不隨 locale 變化。
+     *
      * @return array<string, mixed>
      */
-    public function contextFor(Instrument $instrument): array
+    public function contextFor(Instrument $instrument, string $locale = 'zh'): array
     {
         $chipFlows = $this->chip->forInstrument($instrument);
         $marginFlows = $this->margin->forInstrument($instrument);
         // 券商分點主力摘要（Sponsor 付費；免費 token 回 null 走降級）。掛進 rule_signal，
         // 隨 BEGIN_RULE_SIGNAL 一起進 prompt，欄位指南已涵蓋解讀。
         $brokerBranch = $this->brokerBranch->summaryFor($instrument);
-        $base = $this->context->forSymbol($instrument->symbol, $chipFlows, $marginFlows, $brokerBranch);
+        $base = $this->context->forSymbol($instrument->symbol, $chipFlows, $marginFlows, $brokerBranch, $locale);
         $fundamentals = $this->fundamentals->forInstrument($instrument);
 
         return [
@@ -96,6 +99,7 @@ final class StockChatService
             'has_prices' => $base['has_prices'],
             'technical_snapshot' => $base['technical_snapshot'],
             'rule_signal' => $base['rule_signal'],
+            'rates' => $base['rates'],
             'fundamentals' => $fundamentals === null ? null : [
                 'per' => $fundamentals->per,
                 'pbr' => $fundamentals->pbr,
@@ -187,6 +191,7 @@ BEGIN_FIELD_GUIDE
 - If industry-chain, peer, or macro content is not in the data sections, only give qualitative comments from public common knowledge, and you must state that it is background inference, not page data; in that case give no specific numbers (market share, revenue mix, shipments, target price, analyst estimates).
 - Users may ask subject-less follow-ups like "what about the risks" or "compared with that one". Restore the subject from BEGIN_CONVERSATION_HISTORY before answering; if the completed question falls in the refuse scope, still refuse.
 - For missing data, say plainly "this page does not have that data"; do not fill with estimates or say "generally it is around".
+- For the rates regime, use only the BEGIN_RATES block below; do not infer a direction from headlines. A sector marked "mixed" cuts both ways by mechanism — report both sides with their reason, do not pick one.
 END_FIELD_GUIDE
 BEGIN_SOP_DISCIPLINE
 {$sourceTiers}
@@ -232,6 +237,7 @@ BEGIN_FIELD_GUIDE
 - 產業鏈、競爭對手、總體事件的內容若沒有出現在資料段裡，只能以公開常識做定性說明，並且必須明講那是背景推論而非本頁資料；這種情況下不得給出任何具體數字（市占率、營收比重、出貨量、目標價、法人預估）。
 - 使用者可能追問「那風險呢」「跟剛剛那個比呢」這種省略主詞的問題。請依 BEGIN_CONVERSATION_HISTORY 補回主詞再作答；補完後若落在必須拒答的範圍，一樣要拒答。
 - 缺少的資料請直接說「本頁沒有這項資料」，不要用推估值填補，也不要說「一般來說大約是」。
+- 利率環境一律以下方 BEGIN_RATES 區塊為準，不得從新聞標題推測方向。標示 mixed 的板塊代表機制上雙向，須連同 why 兩面並陳，不可自行選一邊。
 END_FIELD_GUIDE
 BEGIN_SOP_DISCIPLINE
 {$sourceTiers}
@@ -273,6 +279,13 @@ SYSTEM;
 
         $technicalJson = $this->jsonOrNote($context['technical_snapshot'] ?? [], '（本次未提供技術指標）');
         $ruleSignalJson = $this->jsonOrNote($context['rule_signal'] ?? [], '（本次未提供規則訊號）');
+
+        // rates.block 已是 RatesNarrative 組好的敘述文字（含 mixed 與 why），不走
+        // jsonOrNote（那是給陣列/物件用的）；直接原樣帶入，缺席才用本函式既有慣用的
+        // 「本次未提供」語句頂上，維持與其他資料段一致的降級語氣。
+        $ratesText = $context['rates']['block'] ?? null;
+        $ratesBlock = is_string($ratesText) && $ratesText !== '' ? $ratesText : '（本次未提供利率資料）';
+
         $fundamentalsJson = $this->jsonOrNote($context['fundamentals'] ?? null, '（本次未提供基本面資料）');
         $valuationJson = $this->jsonOrNote($context['valuation_percentiles'] ?? null, '（觀測樣本不足，未提供估值分位）');
         $chipJson = $this->jsonOrNote($context['chip_flows'] ?? [], '（本次未提供籌碼資料）');
@@ -297,6 +310,9 @@ END_TECHNICAL_SNAPSHOT
 BEGIN_RULE_SIGNAL
 {$ruleSignalJson}
 END_RULE_SIGNAL
+BEGIN_RATES
+{$ratesBlock}
+END_RATES
 BEGIN_FUNDAMENTALS
 {$fundamentalsJson}
 END_FUNDAMENTALS
@@ -335,7 +351,7 @@ PROMPT;
         LlmProvider $llm,
         string $locale = 'zh',
     ): array {
-        $context = $this->contextFor($instrument);
+        $context = $this->contextFor($instrument, $locale);
         $system = $this->buildSystemPrompt($context, $locale);
         $prompt = $this->buildUserPrompt($context, $question, $history);
 
