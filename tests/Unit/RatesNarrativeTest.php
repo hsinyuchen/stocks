@@ -86,6 +86,34 @@ class RatesNarrativeTest extends TestCase
         $this->assertStringNotContainsString('日窗口', $block);
     }
 
+    /**
+     * chainLines() 的表頭行早就依 locale 分支，但板塊行（縮排兩格的 `- 名稱：方向（why）`）
+     * 一路是字面全形標點、不隨 locale 分支，英文報告因此夾雜全形冒號／括號
+     * （見 finding #5）。只斷言標頭與窗口行的既有測試看不出這個問題。
+     */
+    public function test_english_sector_lines_have_no_full_width_punctuation_or_han_characters(): void
+    {
+        $this->bindBearSteepening();
+
+        $narrative = app(RatesNarrative::class);
+        // snapshot() 的 locale 決定板塊名／why 走 mapper 的哪套翻譯，block() 的
+        // locale 只管表頭與窗口行；兩者都要是 'en'，否則板塊行仍是 snapshot()
+        // 預設 'zh' 帶出來的中文欄位，不是本測試要驗證的全形標點分支。
+        $block = $narrative->block($narrative->snapshot('us', 'en'), 'en');
+
+        $sectorLines = array_values(array_filter(
+            explode("\n", $block),
+            static fn (string $line): bool => str_starts_with($line, '  - '),
+        ));
+
+        $this->assertNotEmpty($sectorLines, '英文 us 板塊區塊應至少有一行板塊敘述');
+
+        foreach ($sectorLines as $line) {
+            $this->assertSame(0, preg_match('/\p{Han}/u', $line), "英文板塊行不應含漢字：{$line}");
+            $this->assertSame(0, preg_match('/[：（）]/u', $line), "英文板塊行不應含全形標點：{$line}");
+        }
+    }
+
     public function test_block_carries_the_mechanism_not_just_a_direction(): void
     {
         $this->bindBearSteepening();

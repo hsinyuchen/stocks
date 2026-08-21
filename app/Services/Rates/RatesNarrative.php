@@ -225,12 +225,22 @@ class RatesNarrative
         $lines = [$header];
 
         foreach ((array) ($chain['sectors'] ?? []) as $sector) {
-            $lines[] = sprintf(
-                '  - %s：%s（%s）',
-                (string) ($sector['name'] ?? ''),
-                (string) ($sector['direction'] ?? 'neutral'),
-                (string) ($sector['why'] ?? ''),
-            );
+            // 板塊名與 why 已由 RatesTransmissionMapper 依 locale 譯過，但這裡的
+            // 全形冒號／括號是字面標點，不隨內容語言自動變成半形，須自行分支
+            // （否則英文報告會夾雜全形標點，見 finding #5）。
+            $lines[] = $locale === 'en'
+                ? sprintf(
+                    '  - %s: %s (%s)',
+                    (string) ($sector['name'] ?? ''),
+                    (string) ($sector['direction'] ?? 'neutral'),
+                    (string) ($sector['why'] ?? ''),
+                )
+                : sprintf(
+                    '  - %s：%s（%s）',
+                    (string) ($sector['name'] ?? ''),
+                    (string) ($sector['direction'] ?? 'neutral'),
+                    (string) ($sector['why'] ?? ''),
+                );
         }
 
         return implode("\n", $lines);
