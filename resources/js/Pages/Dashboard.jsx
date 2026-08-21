@@ -240,6 +240,13 @@ function RatesPanel({ rates }) {
         flattening: t('dashboard.ratesShapeFlattening'),
     }[value] ?? t('dashboard.ratesShapeNeutral'));
 
+    // 後端只給天期 key（'10y' / '3m'）：這份 snapshot 全站共用快取，不能挾帶
+    // 語系相依的顯示文字，顯示名稱一律在這裡查 i18n。
+    const tenorLabel = (key) => ({
+        '10y': t('dashboard.ratesTenor10y'),
+        '3m': t('dashboard.ratesTenor3m'),
+    }[key] ?? key);
+
     const quadrantLabel = (value) => ({
         bear_steepening: t('dashboard.ratesQuadrantBearSteepening'),
         bear_flattening: t('dashboard.ratesQuadrantBearFlattening'),
@@ -269,12 +276,12 @@ function RatesPanel({ rates }) {
                 <>
                     <div className="metric-strip">
                         <article className="metric-card">
-                            <span>{rates.long_label}</span>
+                            <span>{tenorLabel(rates.long_tenor)}</span>
                             <strong>{Number(rates.long_yield).toFixed(3)}</strong>
                             <small>%</small>
                         </article>
                         <article className="metric-card">
-                            <span>{rates.short_label}</span>
+                            <span>{tenorLabel(rates.short_tenor)}</span>
                             <strong>{Number(rates.short_yield).toFixed(3)}</strong>
                             <small>%</small>
                         </article>

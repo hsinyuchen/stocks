@@ -78,17 +78,16 @@ class MarketBreadthService
      * 美債利率環境。與台股籌碼區塊互不影響：曲線抓不到時 available=false，
      * 其餘區塊照常。
      *
+     * 只回傳天期 key（如 '10y'），不回傳顯示用 label：這份 snapshot 是全站
+     * 共用的快取，不能挾帶語系相依內容，顯示文字交由前端 i18n 依 key 解析。
+     *
      * @return array<string, mixed>
      */
     private function ratesBlock(): array
     {
-        $tenors = (array) config('rates.tenors', []);
-        $long = (string) config('rates.spread.long', '10y');
-        $short = (string) config('rates.spread.short', '3m');
-
         return $this->rates->current()->toArray() + [
-            'long_label' => (string) ($tenors[$long]['label'] ?? $long),
-            'short_label' => (string) ($tenors[$short]['label'] ?? $short),
+            'long_tenor' => (string) config('rates.spread.long', '10y'),
+            'short_tenor' => (string) config('rates.spread.short', '3m'),
         ];
     }
 }

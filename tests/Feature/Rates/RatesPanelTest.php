@@ -30,7 +30,9 @@ class RatesPanelTest extends TestCase
         $this->assertFalse($snapshot['rates']['inverted']);
         $this->assertSame('bull_steepening', $snapshot['rates']['windows']['20d']['quadrant']);
         $this->assertGreaterThan(0, $snapshot['rates']['spread_bp']);
-        $this->assertSame('美債 10 年', $snapshot['rates']['long_label']);
+        // breadth snapshot 全站共用快取，不得挾帶語系相依內容：只斷言 key，
+        // 顯示文字交由前端 i18n 解析（見 finding #2）。
+        $this->assertSame('10y', $snapshot['rates']['long_tenor']);
     }
 
     public function test_rates_block_reports_unavailable_without_faking_values(): void

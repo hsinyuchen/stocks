@@ -179,6 +179,8 @@ export default {
         "triggeredPrice": " | Trigger :price",
         "ratesKicker": "US Treasuries",
         "ratesTitle": "Rates regime",
+        "ratesTenor10y": "US 10Y",
+        "ratesTenor3m": "US 3M",
         "ratesSpread": "10Y−3M spread",
         "ratesUnavailable": "Rates data unavailable",
         "ratesInverted": "Yield curve inverted",

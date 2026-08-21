@@ -180,6 +180,8 @@ export default {
         "triggeredPrice": "｜觸發價 :price",
         "ratesKicker": "美債利率",
         "ratesTitle": "利率環境",
+        "ratesTenor10y": "美債 10 年",
+        "ratesTenor3m": "美債 3 個月",
         "ratesSpread": "10Y−3M 利差",
         "ratesUnavailable": "利率資料無法取得",
         "ratesInverted": "殖利率曲線倒掛",
