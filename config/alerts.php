@@ -32,18 +32,29 @@ return [
     | 大盤真翻空警報（market_bearish_flip）
     |--------------------------------------------------------------------------
     |
-    | 方法論 4 維共振：期貨籌碼 + 現貨籌碼 + 市場結構(技術) + 外匯資金，四者同時
-    | 成立才算「真翻空」（波段空頭起漲），任一維度不成立或缺資料即不觸發（安全側）。
+    | 五維計分：期貨籌碼 + 現貨籌碼 + 市場結構(技術) + 外匯資金 + 美債利率環境，
+    | 達 min_dimensions 維即觸發。維度抓不到只是不計分並列入 unavailable，不會
+    | 讓整個警報失效（安全但不靜默）。
     |
     | 各維度：
     |  1. 期貨：沿用 market_futures_flip（外資期貨淨空連續站上門檻，排除結算週）。
     |  2. 現貨：外資現貨淨賣超連續 spot_streak_days 日 ≥ spot_net_sell_yi 億元。
     |  3. 技術：^TWII 最新收盤同時跌破月線(ma20)與季線(ma60)。
     |  4. 匯率：USD/TWD 站上 fx_ma_days 日均且區間走升（台幣趨勢貶值）。
+    |  5. 利率：美債 10Y 主窗口殖利率上行，或殖利率曲線倒掛。
     |
     */
 
     'market_bearish_flip' => [
+        /*
+         * 觸發門檻：五維中至少幾維成立。
+         *
+         * 舊版為 4 維嚴格 AND，且每維抓不到就回 false——單一資料源斷線會讓警報
+         * 整天不可能觸發，且使用者分不出「沒發生」與「抓不到」。改計分後資料
+         * 斷線只是少一分，並在 unavailable 明列，不再靜默失效。
+         */
+        'min_dimensions' => (int) env('ALERT_BEAR_MIN_DIMENSIONS', 4),
+
         // 現貨：外資單日淨賣超門檻（億元）；淨額 ≤ -(spot_net_sell_yi 億) 才算當日大賣。
         'spot_net_sell_yi' => (int) env('ALERT_BEAR_SPOT_NET_SELL_YI', 150),
         'spot_streak_days' => (int) env('ALERT_BEAR_SPOT_STREAK_DAYS', 3),
