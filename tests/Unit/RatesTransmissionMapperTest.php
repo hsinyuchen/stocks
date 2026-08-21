@@ -130,6 +130,38 @@ class RatesTransmissionMapperTest extends TestCase
         $this->assertStringContainsString('外資', implode(' ', $chains[0]['chain']));
     }
 
+    public function test_taiwan_bull_flattening_resolves_to_its_own_quadrant_rule(): void
+    {
+        // 牛平是台股表唯一的象限規則：牛平下「殖利率水準 → 美元」這一步方向
+        // 本身會反轉（避險買盤推長端下行，美元轉強而非轉弱），level-only 設計
+        // 假設的鏈條不成立，故不該落到 tw_level_bull。
+        $chains = (new RatesTransmissionMapper)->map($this->regime('bull', 'flattening'), 'tw');
+
+        $this->assertNotSame([], $chains);
+        $this->assertSame('tw_bull_flattening', $chains[0]['key']);
+        $this->assertSame('high', $chains[0]['conviction']);
+    }
+
+    public function test_taiwan_bull_steepening_still_falls_through_to_level_rule(): void
+    {
+        // 牛陡的美元通道方向不變（降息定價、risk-on、美元轉弱、外資回流），
+        // 加了 bull_flattening 象限規則後，其他三象限仍必須落到 level 規則。
+        $chains = (new RatesTransmissionMapper)->map($this->regime('bull', 'steepening'), 'tw');
+
+        $this->assertNotSame([], $chains);
+        $this->assertSame('tw_level_bull', $chains[0]['key']);
+        $this->assertSame('medium', $chains[0]['conviction']);
+    }
+
+    public function test_taiwan_bull_flattening_broad_market_direction_is_mixed(): void
+    {
+        // 折現率下降支撐評價、避險情境下美元轉強外資流出，兩股力量相反，
+        // 全市場不得給單一方向。
+        $chains = (new RatesTransmissionMapper)->map($this->regime('bull', 'flattening'), 'tw');
+
+        $this->assertSame('mixed', $this->sector($chains, '全市場')['direction']);
+    }
+
     public function test_taiwan_life_insurers_are_marked_mixed_not_directional(): void
     {
         // 台壽險持有大量美元債：殖利率上行造成既有部位評價壓力，但新資金再投資

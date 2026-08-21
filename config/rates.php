@@ -255,11 +255,47 @@ return [
 
         /*
          * 台股：美債不直接作用於折現率，而是走「殖利率水準 → 美元 → 外資流向」
-         * 的間接鏈，主要輸出是全市場方向，板塊分化為次要。因此刻意不定義象限
+         * 的間接鏈，主要輸出是全市場方向，板塊分化為次要。原則上不需要象限
          * 規則——曲線形狀對這條傳導鏈沒有可靠的差異化影響，硬套美股的板塊輪動
          * 會失真。
+         *
+         * 例外是 bull_flattening（見下方該規則的註解）：這個象限下「殖利率水準
+         * → 美元」這一步本身方向相反，level-only 設計的前提不成立，故補一條
+         * 象限規則。其餘三個象限的美元通道方向確實不隨曲線形狀改變，維持只用
+         * level 規則。
          */
         'tw' => [
+            [
+                /*
+                 * 牛平（bull flattening）是本表唯一的象限規則，因為它是唯一一個
+                 * 「殖利率水準 → 美元」這一步方向會反轉的象限：牛平的領先力量是
+                 * 避險買盤湧入長端（衰退定價、risk-off），美元傾向轉強而非轉弱，
+                 * 外資不必然回流——這與 tw_level_bull 假設的「殖利率下行→美元
+                 * 轉弱→外資回補」鏈條相反。其餘三象限（熊陡/熊平/牛陡）的美元
+                 * 通道方向不隨曲線形狀改變，故不需要各自的象限規則。
+                 */
+                'key' => 'tw_bull_flattening',
+                'when' => ['quadrant' => 'bull_flattening'],
+                'conviction' => 'high',
+                'chain' => [
+                    '避險買盤湧入美債長端，長端殖利率下行快於短端，通常對應景氣衰退定價而非趨勢性降息',
+                    '此情境下美元傾向轉強而非轉弱，外資對新興市場的配置意願不必然回升，與典型的「殖利率下行→美元轉弱→外資回補」鏈條相反',
+                    '折現率下降本身支撐評價，但風險趨避下的資金外流與美國終端需求走弱同時施壓，全市場方向由兩股力量拉鋸決定',
+                ],
+                'chain_en' => [
+                    'Safe-haven buying floods into the US Treasury long end, pulling long-end yields down faster than the short end, which typically reflects recession pricing rather than a trending rate cut',
+                    'In this setting the dollar tends to strengthen rather than weaken, so foreign investors\' willingness to allocate to emerging markets does not necessarily recover — the reverse of the typical "yields fall, dollar weakens, foreign investors return" chain',
+                    'The fall in discount rates itself supports valuations, but risk-averse capital outflows and weakening US end demand press in the opposite direction at the same time, so the broad-market direction is a tug-of-war between the two forces',
+                ],
+                'sectors' => [
+                    // 兩股相反力量：折現率下降支撐評價，但避險情境下美元轉強、外資流出，不給單一方向。
+                    ['name' => '全市場', 'name_en' => 'Broad market', 'direction' => 'mixed', 'why' => '殖利率下行原可支撐評價，但牛平屬避險買盤而非降息趨勢，美元轉強、外資對新興市場配置意願不升反降；評價支撐與資金外流兩股力量方向相反，無法給單一結論', 'why_en' => 'Falling yields would normally support valuations, but bull flattening reflects safe-haven buying rather than a rate-cut trend: the dollar strengthens and foreign investors\' willingness to allocate to emerging markets does not rise — it falls. Valuation support and capital outflows pull in opposite directions, so no single direction can be given', 'symbols' => ['0050.TW']],
+                    // 與 tw_level_bull 的電子權值（正向）不同：牛平常伴隨美國衰退定價，需求面壓力是與匯率/資金流無關的獨立負向因子。
+                    ['name' => '電子出口', 'name_en' => 'Tech exporters', 'direction' => 'negative', 'why' => '牛平常對應美國衰退定價，終端電子需求展望轉弱直接壓抑台廠接單與稼動率；此效應獨立於匯率與資金流方向，即使美元走勢對其他板塊呈現拉鋸，出口電子的需求壓力仍偏空', 'why_en' => 'Bull flattening typically corresponds to recession pricing, and a weakening outlook for end electronics demand directly pressures Taiwanese makers\' order intake and utilization; this effect is independent of the FX and fund-flow direction, so even where the dollar\'s path is a tug-of-war for other sectors, export electronics still faces net demand pressure', 'symbols' => ['2330.TW', '2317.TW']],
+                    // 與 tw_level_bull 的壽險金融（mixed）同源但機制不同：這裡美元傾向轉強而非轉弱，換算損益方向與典型牛市相反。
+                    ['name' => '壽險金融', 'name_en' => 'Life insurers', 'direction' => 'mixed', 'why' => '既有美元債部位評價隨長端殖利率下行回升，但新資金再投資收益率同步下降；牛平屬避險買盤而非趨勢性降息，美元傾向轉強而非轉弱，海外部位換算損益方向與典型牛市相反，淨效果仍難判定單一方向', 'why_en' => 'The mark on existing USD bond positions recovers as long-end yields fall, but reinvestment yields on new money fall in tandem; because bull flattening reflects safe-haven buying rather than a trending rate cut, the dollar tends to strengthen rather than weaken, so the translation gain or loss on overseas positions runs opposite to a typical bull market, and the net effect remains hard to pin down as a single direction', 'symbols' => ['2881.TW', '2882.TW']],
+                ],
+            ],
             [
                 'key' => 'tw_level_bear',
                 'when' => ['level' => 'bear'],
