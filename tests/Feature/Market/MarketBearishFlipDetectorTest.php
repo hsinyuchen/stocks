@@ -197,6 +197,66 @@ class MarketBearishFlipDetectorTest extends TestCase
         $this->assertStringContainsString('5 維中 3 維成立', $result['reason']);
     }
 
+    public function test_futures_dimension_fails_when_net_short_does_not_reach_threshold(): void
+    {
+        $this->bindDimensions(futuresShort: false);
+
+        $result = app(MarketBearishFlipDetector::class)->detect();
+
+        $this->assertFalse($result['dimensions']['futures']);
+        $this->assertNotContains('futures', $result['unavailable']);
+    }
+
+    public function test_futures_dimension_is_unavailable_when_series_is_too_short(): void
+    {
+        $this->bindDimensions(futuresShort: null);
+
+        $result = app(MarketBearishFlipDetector::class)->detect();
+
+        $this->assertFalse($result['dimensions']['futures']);
+        $this->assertContains('futures', $result['unavailable']);
+    }
+
+    public function test_spot_dimension_fails_when_net_sell_does_not_reach_threshold(): void
+    {
+        $this->bindDimensions(spotSelling: false);
+
+        $result = app(MarketBearishFlipDetector::class)->detect();
+
+        $this->assertFalse($result['dimensions']['spot']);
+        $this->assertNotContains('spot', $result['unavailable']);
+    }
+
+    public function test_spot_dimension_is_unavailable_when_series_is_too_short(): void
+    {
+        $this->bindDimensions(spotSelling: null);
+
+        $result = app(MarketBearishFlipDetector::class)->detect();
+
+        $this->assertFalse($result['dimensions']['spot']);
+        $this->assertContains('spot', $result['unavailable']);
+    }
+
+    public function test_technical_dimension_fails_when_index_is_above_moving_averages(): void
+    {
+        $this->bindDimensions(indexDeclining: false);
+
+        $result = app(MarketBearishFlipDetector::class)->detect();
+
+        $this->assertFalse($result['dimensions']['technical']);
+        $this->assertNotContains('technical', $result['unavailable']);
+    }
+
+    public function test_technical_dimension_is_unavailable_when_price_history_is_too_short(): void
+    {
+        $this->bindDimensions(indexDeclining: null);
+
+        $result = app(MarketBearishFlipDetector::class)->detect();
+
+        $this->assertFalse($result['dimensions']['technical']);
+        $this->assertContains('technical', $result['unavailable']);
+    }
+
     public function test_rates_dimension_holds_when_yields_rise(): void
     {
         $this->bindDimensions(ratesBearish: true);
