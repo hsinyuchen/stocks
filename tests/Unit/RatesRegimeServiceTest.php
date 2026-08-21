@@ -163,8 +163,13 @@ class RatesRegimeServiceTest extends TestCase
 
     public function test_recently_uninverted_when_spread_turned_positive_within_lookback(): void
     {
-        // 起點倒掛（10Y 3.00 < 3M 4.00），10Y 每根 +2bp 逐步轉正。
-        $regime = $this->regime(longStep: 0.02, shortStep: 0.0, longStart: 3.00, shortStart: 4.00);
+        // 起點倒掛（10Y 3.00 < 3M 4.00），10Y 每根 +0.8bp 逐步轉正。
+        // 130 根、回看窗 60 根 → 只看第 70~129 根。轉正點在第 125 根
+        // （spread[i] = -1.00 + 0.008i，i=125 時歸零），落在窗內第 55 根，
+        // 故第 70~124 根仍是負值：curve 目前未倒掛，但回看窗內曾經倒掛。
+        // 步幅必須夠小才能讓轉正點落在窗內；用 0.02 時轉正點在第 50 根，
+        // 早於窗口起點（第 70 根），回看窗內已無倒掛可言。
+        $regime = $this->regime(longStep: 0.008, shortStep: 0.0, longStart: 3.00, shortStart: 4.00);
 
         $this->assertFalse($regime->inverted);
         $this->assertTrue($regime->recentlyUninverted);
