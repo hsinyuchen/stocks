@@ -206,12 +206,16 @@ class SecEdgarFinancialsProviderTest extends TestCase
 
         $this->provider()->financials('NVDA', 30);
 
-        Http::assertSent(function ($request) {
-            if (! str_contains($request->url(), 'data.sec.gov')) {
-                return true;
-            }
+        // 只針對 companyfacts 請求斷言：先前的寫法對非 data.sec.gov 的請求一律
+        // return true，ticker map 請求會先滿足 assertSent，companyfacts 的 UA
+        // 其實從未被檢查（測試結構上不可能失敗）。
+        $isCompanyFacts = static fn ($request): bool => str_contains($request->url(), 'data.sec.gov/api/xbrl/companyfacts/');
 
-            return str_contains($request->header('User-Agent')[0] ?? '', '@');
-        });
+        Http::assertSent(fn ($request): bool => $isCompanyFacts($request)
+            && str_contains($request->header('User-Agent')[0] ?? '', '@'));
+
+        // 反向：不得存在缺聯絡資訊的 companyfacts 請求。
+        Http::assertNotSent(fn ($request): bool => $isCompanyFacts($request)
+            && ! str_contains($request->header('User-Agent')[0] ?? '', '@'));
     }
 }
