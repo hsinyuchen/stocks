@@ -104,8 +104,8 @@ class AppServiceProvider extends ServiceProvider
                 : new FinMindFundamentalsProvider($app->make(FinMindTokenResolver::class));
         });
 
-        // 營運資金財報序列：沿用 market_data.driver 開關（測試 fake，正式走 Routing）。
-        // Routing 實作在後續任務加入，屆時再把 else 分支換掉。
+        // 營運資金財報序列：目前無條件綁定 fake，因為 routing 實作尚未在本任務加入；
+        // 後續任務補上後，此處會換成依 market_data.driver 判斷的版本。
         $this->app->bind(CompanyFinancialsProvider::class, function ($app): CompanyFinancialsProvider {
             return $app->make(FakeCompanyFinancialsProvider::class);
         });

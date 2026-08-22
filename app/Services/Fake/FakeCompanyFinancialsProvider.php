@@ -103,8 +103,11 @@ class FakeCompanyFinancialsProvider implements CompanyFinancialsProvider
         $out = [];
 
         for ($i = 0; $i < 18; $i++) {
+            $year = 2025 + intdiv($i, 12);
+            $month = ($i % 12) + 1;
+
             $out[] = [
-                'month' => sprintf('2025-%02d-01', ($i % 12) + 1),
+                'month' => sprintf('%04d-%02d-01', $year, $month),
                 'revenue' => 300.0 + $i * 5.0,
                 'yoy' => 0.05,
             ];

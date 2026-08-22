@@ -51,6 +51,44 @@ class CompanyFinancialsProviderTest extends TestCase
         $this->assertNull($data->latestQuarter());
     }
 
+    public function test_default_monthly_revenue_is_strictly_ascending_with_no_duplicates(): void
+    {
+        $data = (new FakeCompanyFinancialsProvider)->financials('2330.TW', 30);
+
+        $months = array_column($data->monthlyRevenue, 'month');
+
+        $this->assertSame(array_unique($months), $months, '月份不得重複');
+
+        $sorted = $months;
+        sort($sorted);
+        $this->assertSame($sorted, $months, '月份必須嚴格遞增（舊→新）');
+    }
+
+    public function test_with_quarters_then_with_empty_clears_the_quarters_override(): void
+    {
+        $provider = (new FakeCompanyFinancialsProvider)
+            ->withQuarters([new QuarterlyFinancials(period: '2026Q1', revenue: 100.0, inventories: 50.0)])
+            ->withEmpty();
+
+        $data = $provider->financials('2330.TW', 30);
+
+        $this->assertFalse($data->hasAny());
+        $this->assertNull($data->latestQuarter());
+    }
+
+    public function test_with_empty_then_with_quarters_clears_the_empty_override(): void
+    {
+        $provider = (new FakeCompanyFinancialsProvider)
+            ->withEmpty()
+            ->withQuarters([new QuarterlyFinancials(period: '2026Q1', revenue: 100.0, inventories: 50.0)]);
+
+        $data = $provider->financials('2330.TW', 30);
+
+        $this->assertTrue($data->hasAny());
+        $this->assertCount(1, $data->quarters);
+        $this->assertSame(100.0, $data->latestQuarter()->revenue);
+    }
+
     public function test_container_resolves_fake_in_test_environment(): void
     {
         // phpunit.xml 鎖 MARKET_DATA_DRIVER=fake，測試不得打真實網路。
