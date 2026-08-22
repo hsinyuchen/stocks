@@ -2,8 +2,10 @@
 
 namespace App\Services\Fundamentals;
 
+use App\Contracts\CompanyFinancialsProvider;
 use App\Contracts\FundamentalsProvider;
 use App\Data\FundamentalsData;
+use App\Data\OrderInventoryData;
 use App\Models\Fundamental;
 use App\Models\Instrument;
 use App\Support\DailyDataFreshness;
@@ -13,7 +15,10 @@ use Illuminate\Support\Facades\Log;
 
 class FundamentalsService
 {
-    public function __construct(private readonly FundamentalsProvider $provider) {}
+    public function __construct(
+        private readonly FundamentalsProvider $provider,
+        private readonly CompanyFinancialsProvider $financials,
+    ) {}
 
     /**
      * 台股基本面（快取優先）。非台股回 null。best-effort：抓失敗不擋頁面。
@@ -49,6 +54,27 @@ class FundamentalsService
         if (! $this->hasAnyMetric($data)) {
             return $this->handleFailure($instrument, $row);
         }
+
+        // 序列與估值共用同一次「是否過期」判斷與同一列快取，避免兩套 TTL
+        // 各自漂移，也避免為了型別潔癖多打一次 FinMind——資產負債表本來就在抓。
+        $orderInventory = $this->financials->financials(
+            $instrument->symbol,
+            (int) config('order_inventory.history_months', 30),
+        );
+
+        $data = new FundamentalsData(
+            per: $data->per,
+            pbr: $data->pbr,
+            dividendYield: $data->dividendYield,
+            eps: $data->eps,
+            epsQuarter: $data->epsQuarter,
+            roe: $data->roe,
+            revenue: $data->revenue,
+            revenueMonth: $data->revenueMonth,
+            revenueYoy: $data->revenueYoy,
+            dataAsOf: $data->dataAsOf,
+            orderInventory: $orderInventory->hasAny() ? $orderInventory : null,
+        );
 
         // 成功抓取：寫入指標、刷新 fetched_at、清除 failed_at（persist 預設 failedAt=null）。
         $this->persist($instrument, $data);
@@ -188,6 +214,7 @@ class FundamentalsService
                 'data_as_of' => $key,
                 'fetched_at' => now(),
                 'failed_at' => $failedAt,
+                'order_inventory' => $data->orderInventory?->toArray(),
             ],
         );
     }
@@ -220,6 +247,9 @@ class FundamentalsService
             eps: $f($row->eps), epsQuarter: $row->eps_quarter?->toDateString(), roe: $f($row->roe),
             revenue: $f($row->revenue), revenueMonth: $row->revenue_month?->toDateString(),
             revenueYoy: $f($row->revenue_yoy), dataAsOf: $row->data_as_of?->toDateString(),
+            orderInventory: is_array($row->order_inventory)
+                ? OrderInventoryData::fromArray($row->order_inventory)
+                : null,
         );
     }
 }
