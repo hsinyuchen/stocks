@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Contracts\BrokerBranchDataProvider;
 use App\Contracts\ChipDataProvider;
+use App\Contracts\CompanyFinancialsProvider;
 use App\Contracts\FundamentalsProvider;
 use App\Contracts\FuturesDataProvider;
 use App\Contracts\MarginDataProvider;
@@ -17,6 +18,7 @@ use App\Services\BrokerBranch\FinMindBrokerBranchDataProvider;
 use App\Services\Chip\FinMindChipDataProvider;
 use App\Services\Fake\FakeBrokerBranchDataProvider;
 use App\Services\Fake\FakeChipDataProvider;
+use App\Services\Fake\FakeCompanyFinancialsProvider;
 use App\Services\Fake\FakeFundamentalsProvider;
 use App\Services\Fake\FakeFuturesDataProvider;
 use App\Services\Fake\FakeMarginDataProvider;
@@ -100,6 +102,12 @@ class AppServiceProvider extends ServiceProvider
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeFundamentalsProvider::class)
                 : new FinMindFundamentalsProvider($app->make(FinMindTokenResolver::class));
+        });
+
+        // 營運資金財報序列：沿用 market_data.driver 開關（測試 fake，正式走 Routing）。
+        // Routing 實作在後續任務加入，屆時再把 else 分支換掉。
+        $this->app->bind(CompanyFinancialsProvider::class, function ($app): CompanyFinancialsProvider {
+            return $app->make(FakeCompanyFinancialsProvider::class);
         });
 
         // 美債殖利率曲線：沿用 market_data.driver 開關（測試 fake，正式走 Yahoo）。
