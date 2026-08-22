@@ -40,8 +40,10 @@ class OrderInventoryIndustryPolicy
         // 順序刻意：not_applicable 必須先於 adjust 與 suited 比對。三桶名稱
         // 理論上可能互相包含（例如某桶「金融」是另一桶「金融科技」的子字串），
         // 這時排除規則要贏，否則名稱較寬的桶會先命中，把該不適用的標的判成適用。
-        // 目前 29 個正式設定值彼此不包含，順序在今天不可觀測，
-        // 見 tests/Unit/OrderInventoryIndustryPolicyTest.php 中自造重疊桶名的測試。
+        // 目前的正式設定值彼此不包含，順序在今天不可觀測；此不變量由
+        // tests/Unit/OrderInventoryIndustryPolicyTest.php 的
+        // configured_industry_values_never_overlap_across_buckets 常駐驗證
+        // （另有自造重疊桶名的測試覆蓋順序邏輯本身）。
         foreach (['not_applicable', 'adjust', 'suited'] as $bucket) {
             if ($this->matches($industry, (array) config("order_inventory.industry.{$bucket}", []))) {
                 return $this->result($bucket, $bucket !== 'not_applicable', $this->noteFor($bucket));

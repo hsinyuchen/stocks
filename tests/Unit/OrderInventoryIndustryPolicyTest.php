@@ -79,6 +79,50 @@ class OrderInventoryIndustryPolicyTest extends TestCase
     }
 
     #[Test]
+    public function configured_industry_values_never_overlap_across_buckets(): void
+    {
+        // 直接讀「真實」config（本測試方法未呼叫 config([...]) 覆寫，Laravel
+        // 每個測試方法都有獨立的 app 容器，不會受其他測試裡的覆寫污染）。
+        // matches() 的比對順序（not_applicable 先於 adjust、suited）只有在
+        // 桶名之間存在跨桶包含關係時才會被觸發；這條測試確保「今天的正式
+        // 設定值之間沒有跨桶包含」這個前提本身持續成立——config 未來改動、
+        // 不小心引入跨桶包含時，這裡要紅，而不是靠人工全配對驗證一次就算數。
+        // 順序邏輯本身另有 not_applicable_bucket_wins_when_bucket_names_overlap
+        // 用人造重疊桶名覆蓋。
+        $buckets = [
+            'suited' => (array) config('order_inventory.industry.suited', []),
+            'adjust' => (array) config('order_inventory.industry.adjust', []),
+            'not_applicable' => (array) config('order_inventory.industry.not_applicable', []),
+        ];
+
+        $bucketNames = array_keys($buckets);
+        $overlaps = [];
+
+        // 只比對「不同桶」的配對，每對桶只比一次：同桶內互相包含是無害的
+        // （例如 not_applicable 裡的「證券」⊂「受益證券」），不應算進來。
+        for ($i = 0; $i < count($bucketNames); $i++) {
+            for ($j = $i + 1; $j < count($bucketNames); $j++) {
+                [$bucketA, $bucketB] = [$bucketNames[$i], $bucketNames[$j]];
+
+                foreach ($buckets[$bucketA] as $a) {
+                    foreach ($buckets[$bucketB] as $b) {
+                        if (str_contains($a, $b) || str_contains($b, $a)) {
+                            $overlaps[] = "{$bucketA}:'{$a}' <-> {$bucketB}:'{$b}'";
+                        }
+                    }
+                }
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $overlaps,
+            "設定值跨桶互相包含，matches() 依賴的比對順序會被觸發，需要人工確認排除規則仍勝出：\n"
+                .implode("\n", $overlaps),
+        );
+    }
+
+    #[Test]
     public function taiwan_distributors_are_applicable_but_need_adjusted_reading(): void
     {
         $result = (new OrderInventoryIndustryPolicy)->evaluate($this->data('tw', '貿易百貨'));

@@ -178,9 +178,11 @@ return [
      * 「金融保險業」寫成「金融保險」），因為比對是 str_contains(FinMind 字串,
      * 設定值)——config 值太長會漏掉 FinMind 回較短寫法的情形（見
      * OrderInventoryIndustryPolicy::matches() docblock）。「工業」是複合詞尾
-     * （鋼鐵工業、塑膠工業…）不算單字尾綴，不縮。縮短後仍須確認 29 個值
-     * 之間無跨桶包含關係，見 tests/Unit/OrderInventoryIndustryPolicyTest.php
-     * 的全配對檢查腳本輸出（附於審查記錄，非自動測試）。
+     * （鋼鐵工業、塑膠工業…）不算單字尾綴，不縮。縮短後仍須確認目前的正式
+     * 設定值之間無跨桶包含關係，這項不變量由
+     * tests/Unit/OrderInventoryIndustryPolicyTest.php 的
+     * configured_industry_values_never_overlap_across_buckets 常駐驗證
+     * （同桶內互相包含無害，例如「證券」⊂「受益證券」，測試已排除）。
      */
     'industry' => [
         'suited' => [
