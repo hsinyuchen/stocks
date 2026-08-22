@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Contracts\BrokerBranchDataProvider;
 use App\Contracts\ChipDataProvider;
+use App\Contracts\CompanyFinancialsProvider;
 use App\Contracts\FundamentalsProvider;
 use App\Contracts\FuturesDataProvider;
 use App\Contracts\MarginDataProvider;
@@ -17,6 +18,7 @@ use App\Services\BrokerBranch\FinMindBrokerBranchDataProvider;
 use App\Services\Chip\FinMindChipDataProvider;
 use App\Services\Fake\FakeBrokerBranchDataProvider;
 use App\Services\Fake\FakeChipDataProvider;
+use App\Services\Fake\FakeCompanyFinancialsProvider;
 use App\Services\Fake\FakeFundamentalsProvider;
 use App\Services\Fake\FakeFuturesDataProvider;
 use App\Services\Fake\FakeMarginDataProvider;
@@ -26,6 +28,10 @@ use App\Services\Fake\FakeNewsProvider;
 use App\Services\Fake\FakeSymbolNewsProvider;
 use App\Services\Fake\FakeYieldCurveProvider;
 use App\Services\Fundamentals\FinMindFundamentalsProvider;
+use App\Services\Fundamentals\RoutingCompanyFinancialsProvider;
+use App\Services\Fundamentals\SecEdgarFinancialsProvider;
+use App\Services\Fundamentals\SecTickerCikResolver;
+use App\Services\Fundamentals\TaiwanIndustryResolver;
 use App\Services\Futures\FinMindFuturesDataProvider;
 use App\Services\Margin\FinMindMarginDataProvider;
 use App\Services\Market\CachedMarketDataProvider;
@@ -94,12 +100,37 @@ class AppServiceProvider extends ServiceProvider
             return new FinMindStockSearchProvider($app->make(FinMindTokenResolver::class));
         });
 
+        // FinMind 台股基本面 provider 必須全程同一個實例：它同時實作
+        // FundamentalsProvider（估值）與 CompanyFinancialsProvider（財報序列），
+        // 兩邊要的 dataset 有三個是重複的（資產負債表／損益表／月營收），靠實例內的
+        // rows() memo 才只抓一次。各綁一份會讓 memo 失效、每檔的 FinMind 呼叫翻倍，
+        // 免費層額度更容易撞（FinMindGate 一跳就整批降級）。
+        $this->app->singleton(FinMindFundamentalsProvider::class, function ($app): FinMindFundamentalsProvider {
+            return new FinMindFundamentalsProvider(
+                $app->make(FinMindTokenResolver::class),
+                20,
+                new TaiwanIndustryResolver($app->make(FinMindTokenResolver::class)),
+            );
+        });
+
         // 台股基本面：沿用 market_data.driver 開關（測試 fake，正式走 FinMind）。
         // token 建構子注入，與其他 FinMind provider 一致。
         $this->app->bind(FundamentalsProvider::class, function ($app): FundamentalsProvider {
             return config('services.market_data.driver') === 'fake'
                 ? $app->make(FakeFundamentalsProvider::class)
-                : new FinMindFundamentalsProvider($app->make(FinMindTokenResolver::class));
+                : $app->make(FinMindFundamentalsProvider::class);
+        });
+
+        // 營運資金財報序列：沿用 market_data.driver 開關（測試 fake，正式走 Routing）。
+        $this->app->bind(CompanyFinancialsProvider::class, function ($app): CompanyFinancialsProvider {
+            if (config('services.market_data.driver') === 'fake') {
+                return $app->make(FakeCompanyFinancialsProvider::class);
+            }
+
+            return new RoutingCompanyFinancialsProvider(
+                taiwan: $app->make(FinMindFundamentalsProvider::class),
+                unitedStates: new SecEdgarFinancialsProvider(new SecTickerCikResolver),
+            );
         });
 
         // 美債殖利率曲線：沿用 market_data.driver 開關（測試 fake，正式走 Yahoo）。

@@ -15,5 +15,6 @@ final readonly class FundamentalsData
         public ?string $revenueMonth = null,   // YYYY-MM-DD（該月首日）
         public ?float $revenueYoy = null,
         public ?string $dataAsOf = null,       // 估值資料日 YYYY-MM-DD
+        public ?OrderInventoryData $orderInventory = null,
     ) {}
 }

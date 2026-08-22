@@ -2,29 +2,55 @@
 
 namespace App\Services\Fundamentals;
 
+use App\Contracts\CompanyFinancialsProvider;
 use App\Contracts\FundamentalsProvider;
 use App\Data\FundamentalsData;
+use App\Data\OrderInventoryData;
+use App\Data\QuarterlyFinancials;
 use App\Support\FinMindGate;
 use App\Support\FinMindTokenResolver;
 use App\Support\MarketResolver;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 
-class FinMindFundamentalsProvider implements FundamentalsProvider
+class FinMindFundamentalsProvider implements CompanyFinancialsProvider, FundamentalsProvider
 {
     private const ENDPOINT = 'https://api.finmindtrade.com/api/v4/data';
+
+    /**
+     * 同一次請求內的 rows() 結果快取："dataset|dataId|startDate" => 列。
+     *
+     * @var array<string, list<array<string, mixed>>>
+     */
+    private array $memo = [];
+
+    private ?string $memoDataId = null;
 
     public function __construct(
         private readonly FinMindTokenResolver $tokens,
         private readonly int $timeoutSeconds = 20,
+        private readonly ?TaiwanIndustryResolver $industry = null,
     ) {}
+
+    /** 共用 dataset 的回溯起始日。估值與序列必須用同一個值，memo 才命中。 */
+    private function historyStart(?int $months = null): string
+    {
+        $months ??= (int) config('order_inventory.history_months', 30);
+
+        return now()->subMonths(max(1, $months))->toDateString();
+    }
 
     public function fetch(string $symbol): FundamentalsData
     {
         $dataId = MarketResolver::taiwanCode($symbol);   // 2330.TW → 2330
+        // 三個共用 dataset 的起始日必須與 financials() 一致，否則 memo key 不同、
+        // 同一份資料會被抓兩次。視窗放寬不影響估值：ttmEps()/roe() 取最新四季，
+        // latestRevenue()/revenueYoy() 依年月配對，多回幾列結果不變。
+        $start = $this->historyStart();
         $per = $this->rows('TaiwanStockPER', $dataId, now()->subDays(30)->toDateString());
-        $fs = $this->rows('TaiwanStockFinancialStatements', $dataId, now()->subMonths(18)->toDateString());
-        $bs = $this->rows('TaiwanStockBalanceSheet', $dataId, now()->subMonths(18)->toDateString());
-        $mr = $this->rows('TaiwanStockMonthRevenue', $dataId, now()->subMonths(18)->toDateString());
+        $fs = $this->rows('TaiwanStockFinancialStatements', $dataId, $start);
+        $bs = $this->rows('TaiwanStockBalanceSheet', $dataId, $start);
+        $mr = $this->rows('TaiwanStockMonthRevenue', $dataId, $start);
 
         [$eps, $epsQuarter] = $this->ttmEps($fs);
 
@@ -42,6 +68,136 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
         );
     }
 
+    public function financials(string $symbol, int $months): OrderInventoryData
+    {
+        $dataId = MarketResolver::taiwanCode($symbol);
+        $start = $this->historyStart($months);
+
+        $bs = $this->rows('TaiwanStockBalanceSheet', $dataId, $start);
+        $fs = $this->rows('TaiwanStockFinancialStatements', $dataId, $start);
+        $cf = $this->rows('TaiwanStockCashFlowsStatement', $dataId, $start);
+        $mr = $this->rows('TaiwanStockMonthRevenue', $dataId, $start);
+
+        $fields = (array) config('order_inventory.finmind_fields', []);
+        $byDate = [];
+
+        // 三個 dataset 的列形狀相同（date / type / value），依季末日歸戶。
+        foreach ([$bs, $fs, $cf] as $rows) {
+            foreach ($rows as $row) {
+                $date = (string) ($row['date'] ?? '');
+                $type = (string) ($row['type'] ?? '');
+                $value = $row['value'] ?? null;
+
+                if ($date === '' || $type === '' || ! is_numeric($value)) {
+                    continue;
+                }
+
+                $field = array_search($type, $fields, true);
+
+                if ($field !== false) {
+                    $byDate[$date][$field] = (float) $value;
+                }
+            }
+        }
+
+        if ($byDate === []) {
+            return OrderInventoryData::empty();
+        }
+
+        ksort($byDate);
+        $max = max(1, (int) config('order_inventory.max_quarters', 12));
+        $byDate = array_slice($byDate, -$max, null, true);
+
+        $quarters = [];
+
+        foreach ($byDate as $date => $values) {
+            $quarters[] = $this->toQuarter((string) $date, $values);
+        }
+
+        return new OrderInventoryData(
+            quarters: $quarters,
+            monthlyRevenue: $this->monthlyRevenueSeries($mr),
+            market: 'tw',
+            industry: $this->industry?->resolve($symbol),
+            // 台股財報附註未公開於資料源，存貨組成恆不可得。這是與美股的
+            // 關鍵差異：那邊是實測數字，這邊只能靠代理訊號推論。
+            inventoryCompositionAvailable: false,
+            dataAsOf: array_key_last($byDate),
+        );
+    }
+
+    /**
+     * @param  array<string, float>  $values
+     */
+    private function toQuarter(string $date, array $values): QuarterlyFinancials
+    {
+        $num = static fn (string $key): ?float => isset($values[$key]) ? (float) $values[$key] : null;
+        $capex = $num('capex');
+
+        return new QuarterlyFinancials(
+            period: $this->periodFromDate($date),
+            endDate: $date,
+            revenue: $num('revenue'),
+            costOfGoodsSold: $num('cost_of_goods_sold'),
+            grossProfit: $num('gross_profit'),
+            netIncome: $num('net_income'),
+            inventories: $num('inventories'),
+            accountsReceivable: $num('accounts_receivable'),
+            accountsPayable: $num('accounts_payable'),
+            accountsPayableRelatedParties: $num('accounts_payable_related_parties'),
+            contractLiabilities: $num('contract_liabilities'),
+            operatingCashFlow: $num('operating_cash_flow'),
+            // 現金流的資本支出為流出、原值為負；框架以正值論述其規模。
+            capex: $capex === null ? null : abs($capex),
+        );
+    }
+
+    /** '2026-06-30' → '2026Q2' */
+    private function periodFromDate(string $date): string
+    {
+        $month = (int) substr($date, 5, 2);
+
+        return substr($date, 0, 4).'Q'.max(1, (int) ceil($month / 3));
+    }
+
+    /**
+     * 同 latestRevenue()/latestMonthRow()：用 revenue_year/revenue_month 定位所屬月份，
+     * 不用 date（date 落後所屬營收月一個月，用它會讓整條序列標錯月）。
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array{month: string, revenue: float, yoy: ?float}>
+     */
+    private function monthlyRevenueSeries(array $rows): array
+    {
+        $byMonth = [];
+
+        foreach ($rows as $row) {
+            $revenue = $row['revenue'] ?? null;
+
+            if (! isset($row['revenue_year'], $row['revenue_month']) || ! is_numeric($revenue)) {
+                continue;
+            }
+
+            $month = sprintf('%04d-%02d-01', (int) $row['revenue_year'], (int) $row['revenue_month']);
+            $byMonth[$month] = (float) $revenue;
+        }
+
+        ksort($byMonth);
+        $out = [];
+
+        foreach ($byMonth as $month => $revenue) {
+            // 以月份鍵直接查去年同月，不用位置（i-12）：序列允許缺月，位置式配對
+            // 一旦缺一個月，之後每一筆都會拿 11 或 13 個月前的值當基期，而錯的
+            // 數字會被持久化進 JSON 欄位、下游無從察覺。與 revenueYoy() 同策略。
+            $base = $byMonth[CarbonImmutable::parse($month)->subYear()->format('Y-m-01')] ?? null;
+            $yoy = $base !== null && $base > 0 ? ($revenue - $base) / $base : null;
+
+            $out[] = ['month' => (string) $month, 'revenue' => $revenue, 'yoy' => $yoy];
+        }
+
+        return $out;
+    }
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -49,8 +205,24 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
     {
         // 免費層額度冷卻中：跳過。本方法一次分析被呼叫多次（PER/財報/資產/營收），
         // 冷卻一旦開啟，後續幾個 dataset 都會直接略過，不再逐一撞額度。
+        // 短路必須在 memo 之前，且回的 [] 不寫入 memo——否則額度冷卻在同一次請求
+        // 中途結束時，後續呼叫仍會拿到快取的空陣列。
         if (FinMindGate::isTripped()) {
             return [];
+        }
+
+        // 本實例同時服務估值與序列，兩邊有三個 dataset 重複。以實例陣列記憶，
+        // 換標的（$dataId 變動）時整個清空：常駐 queue worker 會用同一個
+        // singleton 跑過整個股池，不清會無限成長，也會跨日拿到陳舊資料。
+        if ($this->memoDataId !== $dataId) {
+            $this->memo = [];
+            $this->memoDataId = $dataId;
+        }
+
+        $key = "$dataset|$dataId|$startDate";
+
+        if (array_key_exists($key, $this->memo)) {
+            return $this->memo[$key];
         }
 
         $response = Http::timeout($this->timeoutSeconds)->get(self::ENDPOINT, array_filter([
@@ -66,7 +238,7 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
 
         $data = $response->json('data');
 
-        return is_array($data) ? $data : [];
+        return $this->memo[$key] = is_array($data) ? $data : [];
     }
 
     /** PER 資料集：最新一列（依 date 排序）取指定欄。 */
