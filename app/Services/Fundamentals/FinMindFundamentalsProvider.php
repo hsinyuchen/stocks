@@ -139,6 +139,9 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
     }
 
     /**
+     * 同 latestRevenue()/latestMonthRow()：用 revenue_year/revenue_month 定位所屬月份，
+     * 不用 date（date 落後所屬營收月一個月，用它會讓整條序列標錯月）。
+     *
      * @param  list<array<string, mixed>>  $rows
      * @return list<array{month: string, revenue: float, yoy: ?float}>
      */
@@ -147,13 +150,13 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
         $byMonth = [];
 
         foreach ($rows as $row) {
-            $month = (string) ($row['date'] ?? '');
             $revenue = $row['revenue'] ?? null;
 
-            if ($month === '' || ! is_numeric($revenue)) {
+            if (! isset($row['revenue_year'], $row['revenue_month']) || ! is_numeric($revenue)) {
                 continue;
             }
 
+            $month = sprintf('%04d-%02d-01', (int) $row['revenue_year'], (int) $row['revenue_month']);
             $byMonth[$month] = (float) $revenue;
         }
 

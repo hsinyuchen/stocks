@@ -112,8 +112,11 @@ class FinMindFinancialsTest extends TestCase
         $this->assertSame(60.0, $q->accountsPayableRelatedParties);
     }
 
-    public function test_monthly_revenue_series_is_included(): void
+    public function test_monthly_revenue_series_keys_by_revenue_period_not_lagging_date(): void
     {
+        // FinMind TaiwanStockMonthRevenue 的 date 落後所屬營收月一個月，
+        // 真正的所屬月份要看 revenue_year/revenue_month。這裡的 date 刻意與
+        // revenue_month 對不上，若序列誤用 date，月份與其對應營收都會標錯。
         $this->fakeFinMind([
             'TaiwanStockBalanceSheet' => [['date' => '2026-06-30', 'type' => 'Inventories', 'value' => 600]],
             'TaiwanStockMonthRevenue' => [
@@ -124,7 +127,13 @@ class FinMindFinancialsTest extends TestCase
 
         $data = $this->provider()->financials('3019.TW', 30);
 
-        $this->assertNotSame([], $data->monthlyRevenue);
+        $this->assertSame(
+            [
+                ['month' => '2026-04-01', 'revenue' => 100.0, 'yoy' => null],
+                ['month' => '2026-05-01', 'revenue' => 120.0, 'yoy' => null],
+            ],
+            $data->monthlyRevenue
+        );
     }
 
     public function test_missing_dataset_leaves_those_fields_null(): void
