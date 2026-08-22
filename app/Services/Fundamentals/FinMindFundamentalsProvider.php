@@ -2,20 +2,24 @@
 
 namespace App\Services\Fundamentals;
 
+use App\Contracts\CompanyFinancialsProvider;
 use App\Contracts\FundamentalsProvider;
 use App\Data\FundamentalsData;
+use App\Data\OrderInventoryData;
+use App\Data\QuarterlyFinancials;
 use App\Support\FinMindGate;
 use App\Support\FinMindTokenResolver;
 use App\Support\MarketResolver;
 use Illuminate\Support\Facades\Http;
 
-class FinMindFundamentalsProvider implements FundamentalsProvider
+class FinMindFundamentalsProvider implements CompanyFinancialsProvider, FundamentalsProvider
 {
     private const ENDPOINT = 'https://api.finmindtrade.com/api/v4/data';
 
     public function __construct(
         private readonly FinMindTokenResolver $tokens,
         private readonly int $timeoutSeconds = 20,
+        private readonly ?TaiwanIndustryResolver $industry = null,
     ) {}
 
     public function fetch(string $symbol): FundamentalsData
@@ -40,6 +44,134 @@ class FinMindFundamentalsProvider implements FundamentalsProvider
             revenueYoy: $this->revenueYoy($mr),
             dataAsOf: $this->latestDate($per),
         );
+    }
+
+    public function financials(string $symbol, int $months): OrderInventoryData
+    {
+        $dataId = MarketResolver::taiwanCode($symbol);
+        $start = now()->subMonths(max(1, $months))->toDateString();
+
+        $bs = $this->rows('TaiwanStockBalanceSheet', $dataId, $start);
+        $fs = $this->rows('TaiwanStockFinancialStatements', $dataId, $start);
+        $cf = $this->rows('TaiwanStockCashFlowsStatement', $dataId, $start);
+        $mr = $this->rows('TaiwanStockMonthRevenue', $dataId, $start);
+
+        $fields = (array) config('order_inventory.finmind_fields', []);
+        $byDate = [];
+
+        // 三個 dataset 的列形狀相同（date / type / value），依季末日歸戶。
+        foreach ([$bs, $fs, $cf] as $rows) {
+            foreach ($rows as $row) {
+                $date = (string) ($row['date'] ?? '');
+                $type = (string) ($row['type'] ?? '');
+                $value = $row['value'] ?? null;
+
+                if ($date === '' || $type === '' || ! is_numeric($value)) {
+                    continue;
+                }
+
+                $field = array_search($type, $fields, true);
+
+                if ($field !== false) {
+                    $byDate[$date][$field] = (float) $value;
+                }
+            }
+        }
+
+        if ($byDate === []) {
+            return OrderInventoryData::empty();
+        }
+
+        ksort($byDate);
+        $max = max(1, (int) config('order_inventory.max_quarters', 12));
+        $byDate = array_slice($byDate, -$max, null, true);
+
+        $quarters = [];
+
+        foreach ($byDate as $date => $values) {
+            $quarters[] = $this->toQuarter((string) $date, $values);
+        }
+
+        return new OrderInventoryData(
+            quarters: $quarters,
+            monthlyRevenue: $this->monthlyRevenueSeries($mr),
+            market: 'tw',
+            industry: $this->industry?->resolve($symbol),
+            // 台股財報附註未公開於資料源，存貨組成恆不可得。這是與美股的
+            // 關鍵差異：那邊是實測數字，這邊只能靠代理訊號推論。
+            inventoryCompositionAvailable: false,
+            dataAsOf: array_key_last($byDate),
+        );
+    }
+
+    /**
+     * @param  array<string, float>  $values
+     */
+    private function toQuarter(string $date, array $values): QuarterlyFinancials
+    {
+        $num = static fn (string $key): ?float => isset($values[$key]) ? (float) $values[$key] : null;
+        $capex = $num('capex');
+
+        return new QuarterlyFinancials(
+            period: $this->periodFromDate($date),
+            endDate: $date,
+            revenue: $num('revenue'),
+            costOfGoodsSold: $num('cost_of_goods_sold'),
+            grossProfit: $num('gross_profit'),
+            netIncome: $num('net_income'),
+            inventories: $num('inventories'),
+            accountsReceivable: $num('accounts_receivable'),
+            accountsPayable: $num('accounts_payable'),
+            accountsPayableRelatedParties: $num('accounts_payable_related_parties'),
+            contractLiabilities: $num('contract_liabilities'),
+            operatingCashFlow: $num('operating_cash_flow'),
+            // 現金流的資本支出為流出、原值為負；框架以正值論述其規模。
+            capex: $capex === null ? null : abs($capex),
+        );
+    }
+
+    /** '2026-06-30' → '2026Q2' */
+    private function periodFromDate(string $date): string
+    {
+        $month = (int) substr($date, 5, 2);
+
+        return substr($date, 0, 4).'Q'.max(1, (int) ceil($month / 3));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array{month: string, revenue: float, yoy: ?float}>
+     */
+    private function monthlyRevenueSeries(array $rows): array
+    {
+        $byMonth = [];
+
+        foreach ($rows as $row) {
+            $month = (string) ($row['date'] ?? '');
+            $revenue = $row['revenue'] ?? null;
+
+            if ($month === '' || ! is_numeric($revenue)) {
+                continue;
+            }
+
+            $byMonth[$month] = (float) $revenue;
+        }
+
+        ksort($byMonth);
+        $out = [];
+        $values = array_values($byMonth);
+        $months = array_keys($byMonth);
+
+        foreach ($months as $i => $month) {
+            // 年增率需同月去年值，序列不足 13 筆時該筆為 null，不猜。
+            $yoy = $i >= 12 && $values[$i - 12] > 0
+                ? ($values[$i] - $values[$i - 12]) / $values[$i - 12]
+                : null;
+
+            $out[] = ['month' => $month, 'revenue' => $values[$i], 'yoy' => $yoy];
+        }
+
+        return $out;
     }
 
     /**
