@@ -101,6 +101,7 @@ class OrderInventoryMetricsCalculator
             latestRevenueMonth: $latestMonth,
             revenueGrowthDegraded: $degraded,
             contractLiabilitiesFromZero: $this->contractLiabilitiesFromZero($latest, $qoqBase),
+            operatingCashFlowNegative: $latest->operatingCashFlow !== null && $latest->operatingCashFlow < 0.0,
         );
     }
 

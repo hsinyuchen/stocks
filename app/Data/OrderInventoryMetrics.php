@@ -55,5 +55,10 @@ final readonly class OrderInventoryMetrics
         // 會讓已寫好的位置式呼叫靜默錯位。
         public bool $revenueGrowthDegraded = false,
         public bool $contractLiabilitiesFromZero = false,
+        /**
+         * OCF 為負。單看 ocfToNetIncome 會漏判——淨利同為負時比率變正，
+         * 看起來健康，實際上是現金流與獲利同時惡化。
+         */
+        public bool $operatingCashFlowNegative = false,
     ) {}
 }
