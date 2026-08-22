@@ -136,6 +136,40 @@ class FinMindFinancialsTest extends TestCase
         );
     }
 
+    public function test_monthly_revenue_yoy_matches_the_same_month_last_year_across_gaps(): void
+    {
+        // 序列缺月時，位置式配對（i-12）會讓之後每一筆都拿錯基期，而錯的數字會
+        // 被寫進 JSON 欄位持久化，下游無從察覺。這裡刻意缺 2025-07。
+        $rows = [];
+
+        foreach (range(1, 12) as $month) {
+            if ($month === 7) {
+                continue;
+            }
+
+            $rows[] = ['revenue' => 100 * $month, 'revenue_year' => 2025, 'revenue_month' => $month];
+        }
+
+        foreach (range(1, 8) as $month) {
+            $rows[] = ['revenue' => 200 * $month, 'revenue_year' => 2026, 'revenue_month' => $month];
+        }
+
+        $this->fakeFinMind([
+            'TaiwanStockBalanceSheet' => [['date' => '2026-06-30', 'type' => 'Inventories', 'value' => 600]],
+            'TaiwanStockMonthRevenue' => $rows,
+        ]);
+
+        $series = $this->provider()->financials('3019.TW', 30)->monthlyRevenue;
+        $yoy = array_column($series, 'yoy', 'month');
+
+        // 2025-06 = 600 → (1200-600)/600。位置式配對會拿到 2025-05 = 500。
+        $this->assertSame(1.0, $yoy['2026-06-01']);
+        // 去年同月不存在 → null，不拿相鄰月硬湊。
+        $this->assertNull($yoy['2026-07-01'], '去年同月缺漏時不得以鄰月充數');
+        // 缺月之後仍以去年同月為基期：2025-08 = 800 → (1600-800)/800。
+        $this->assertSame(1.0, $yoy['2026-08-01']);
+    }
+
     public function test_missing_dataset_leaves_those_fields_null(): void
     {
         // 現金流抓不到時，其餘季度資料仍應可用。

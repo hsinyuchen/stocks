@@ -10,6 +10,7 @@ use App\Data\QuarterlyFinancials;
 use App\Support\FinMindGate;
 use App\Support\FinMindTokenResolver;
 use App\Support\MarketResolver;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 
 class FinMindFundamentalsProvider implements CompanyFinancialsProvider, FundamentalsProvider
@@ -183,16 +184,15 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
 
         ksort($byMonth);
         $out = [];
-        $values = array_values($byMonth);
-        $months = array_keys($byMonth);
 
-        foreach ($months as $i => $month) {
-            // 年增率需同月去年值，序列不足 13 筆時該筆為 null，不猜。
-            $yoy = $i >= 12 && $values[$i - 12] > 0
-                ? ($values[$i] - $values[$i - 12]) / $values[$i - 12]
-                : null;
+        foreach ($byMonth as $month => $revenue) {
+            // 以月份鍵直接查去年同月，不用位置（i-12）：序列允許缺月，位置式配對
+            // 一旦缺一個月，之後每一筆都會拿 11 或 13 個月前的值當基期，而錯的
+            // 數字會被持久化進 JSON 欄位、下游無從察覺。與 revenueYoy() 同策略。
+            $base = $byMonth[CarbonImmutable::parse($month)->subYear()->format('Y-m-01')] ?? null;
+            $yoy = $base !== null && $base > 0 ? ($revenue - $base) / $base : null;
 
-            $out[] = ['month' => $month, 'revenue' => $values[$i], 'yoy' => $yoy];
+            $out[] = ['month' => (string) $month, 'revenue' => $revenue, 'yoy' => $yoy];
         }
 
         return $out;
