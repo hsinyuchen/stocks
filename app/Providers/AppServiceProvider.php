@@ -28,6 +28,10 @@ use App\Services\Fake\FakeNewsProvider;
 use App\Services\Fake\FakeSymbolNewsProvider;
 use App\Services\Fake\FakeYieldCurveProvider;
 use App\Services\Fundamentals\FinMindFundamentalsProvider;
+use App\Services\Fundamentals\RoutingCompanyFinancialsProvider;
+use App\Services\Fundamentals\SecEdgarFinancialsProvider;
+use App\Services\Fundamentals\SecTickerCikResolver;
+use App\Services\Fundamentals\TaiwanIndustryResolver;
 use App\Services\Futures\FinMindFuturesDataProvider;
 use App\Services\Margin\FinMindMarginDataProvider;
 use App\Services\Market\CachedMarketDataProvider;
@@ -104,10 +108,20 @@ class AppServiceProvider extends ServiceProvider
                 : new FinMindFundamentalsProvider($app->make(FinMindTokenResolver::class));
         });
 
-        // 營運資金財報序列：目前無條件綁定 fake，因為 routing 實作尚未在本任務加入；
-        // 後續任務補上後，此處會換成依 market_data.driver 判斷的版本。
+        // 營運資金財報序列：沿用 market_data.driver 開關（測試 fake，正式走 Routing）。
         $this->app->bind(CompanyFinancialsProvider::class, function ($app): CompanyFinancialsProvider {
-            return $app->make(FakeCompanyFinancialsProvider::class);
+            if (config('services.market_data.driver') === 'fake') {
+                return $app->make(FakeCompanyFinancialsProvider::class);
+            }
+
+            return new RoutingCompanyFinancialsProvider(
+                taiwan: new FinMindFundamentalsProvider(
+                    $app->make(FinMindTokenResolver::class),
+                    20,
+                    new TaiwanIndustryResolver($app->make(FinMindTokenResolver::class)),
+                ),
+                unitedStates: new SecEdgarFinancialsProvider(new SecTickerCikResolver),
+            );
         });
 
         // 美債殖利率曲線：沿用 market_data.driver 開關（測試 fake，正式走 Yahoo）。
