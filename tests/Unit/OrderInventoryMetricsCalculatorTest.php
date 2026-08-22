@@ -420,6 +420,30 @@ class OrderInventoryMetricsCalculatorTest extends TestCase
 
         $this->assertNull($m->revenueGrowthStreak, '一筆都評不出來時是 null，不是 0');
         $this->assertSame('none', $m->revenueGrowthBasis);
+        // latestRevenueMonth 是「資料時間點」，不受 streak 不可評估連坐——
+        // 否則「台股有月營收但無基期」與「台股完全沒抓到月營收」會分不出來。
+        $this->assertSame('2026-06-01', $m->latestRevenueMonth);
+    }
+
+    #[Test]
+    public function it_skips_a_month_string_with_an_invalid_calendar_date_without_throwing(): void
+    {
+        // 正規式只驗形狀，'2026-13-01' 這種值合規但日曆上不存在；
+        // CarbonImmutable::parse() 對此會拋例外，該筆必須被跳過而不是讓整個計算中斷。
+        $data = new OrderInventoryData(
+            quarters: [$this->quarter('2026Q2')],
+            monthlyRevenue: [
+                ['month' => '2026-04-01', 'revenue' => 100.0, 'yoy' => 0.05],
+                ['month' => '2026-13-01', 'revenue' => 999.0, 'yoy' => 0.99],
+                ['month' => '2026-05-01', 'revenue' => 110.0, 'yoy' => 0.08],
+            ],
+            market: 'tw',
+        );
+
+        $m = (new OrderInventoryMetricsCalculator)->calculate($data);
+
+        $this->assertSame(2, $m->revenueGrowthStreak, '非法日期那筆被跳過，不拉高連續數');
+        $this->assertSame('2026-05-01', $m->latestRevenueMonth);
     }
 
     #[Test]
@@ -492,6 +516,20 @@ class OrderInventoryMetricsCalculatorTest extends TestCase
     }
 
     #[Test]
+    public function it_flags_degraded_when_the_basis_is_none_too(): void
+    {
+        // basis 為 'none'（季序列也算不出 streak、或完全無資料）時台股同樣是
+        // 「未能使用月基準」，不該因為不是 'quarterly' 就漏掉——否則報告會
+        // 顯示 degraded=false，卻看不出台股其實一項月營收都沒抓到。
+        $m = (new OrderInventoryMetricsCalculator)->calculate(
+            new OrderInventoryData(quarters: [$this->quarter('2026Q2')], market: 'tw'),
+        );
+
+        $this->assertSame('none', $m->revenueGrowthBasis);
+        $this->assertTrue($m->revenueGrowthDegraded, 'basis=none 時台股仍是未能使用月基準');
+    }
+
+    #[Test]
     public function taiwan_without_monthly_revenue_is_flagged_as_degraded(): void
     {
         // 台股月營收抓失敗（gate 擋下／token 未設／額度耗盡）時退回季基準。
@@ -514,6 +552,27 @@ class OrderInventoryMetricsCalculatorTest extends TestCase
         );
 
         $this->assertFalse($us->revenueGrowthDegraded, '同一份資料在美股是正常路徑');
+    }
+
+    #[Test]
+    public function a_flat_quarter_does_not_extend_the_streak(): void
+    {
+        // 季路徑的持平鏡像：YoY 恰為 0 時最新一季必須停在 0——不能把 <= 誤植成 <
+        // 而把持平算成成長，也不能因此漏掉「停」這個動作、多把更早一季也數進去。
+        // 2025Q4 對 2024Q4 是明顯成長（0.25），若持平那關沒攔住就會被多算一季。
+        $quarters = [
+            $this->quarter('2024Q4', ['revenue' => 800.0]),
+            $this->quarter('2025Q1', ['revenue' => 1000.0]),
+            $this->quarter('2025Q4', ['revenue' => 1000.0]),
+            $this->quarter('2026Q1', ['revenue' => 1000.0]),
+        ];
+
+        $m = (new OrderInventoryMetricsCalculator)->calculate(
+            new OrderInventoryData(quarters: $quarters, market: 'us'),
+        );
+
+        $this->assertSame(0, $m->revenueGrowthStreak, '持平不是成長，且不可往回多算 2025Q4 那季');
+        $this->assertSame('quarterly', $m->revenueGrowthBasis);
     }
 
     #[Test]
@@ -554,6 +613,40 @@ class OrderInventoryMetricsCalculatorTest extends TestCase
 
         $this->assertFalse($fromPositive->contractLiabilitiesFromZero);
         $this->assertEqualsWithDelta(1.5, $fromPositive->contractLiabilitiesQoq, 0.0001);
+    }
+
+    #[Test]
+    public function it_does_not_treat_an_undisclosed_base_contract_liabilities_as_zero(): void
+    {
+        // 基期 contractLiabilities 未揭露（null）與「確實是 0」語意不同。
+        // 美股申報者從未 tag ContractWithCustomerLiabilityCurrent 時基期是 null，
+        // 某季突然開始揭露不代表「預收款從無到有」，只是揭露方式改變——
+        // Global Constraint 規定 null 永遠代表取不到，不可讀成 0。
+        $m = (new OrderInventoryMetricsCalculator)->calculate(new OrderInventoryData(
+            quarters: [
+                $this->quarter('2026Q1'), // contractLiabilities 未覆寫，預設 null（未揭露）
+                $this->quarter('2026Q2', ['contractLiabilities' => 500.0]),
+            ],
+            market: 'us',
+        ));
+
+        $this->assertFalse($m->contractLiabilitiesFromZero, '基期未揭露不能當成基期為 0');
+    }
+
+    #[Test]
+    public function contract_liabilities_from_zero_is_false_when_the_qoq_base_quarter_is_missing(): void
+    {
+        // 缺 2026Q1：QoQ 基期無從得知，不能宣稱「預收款從無到有」——
+        // 即使序列裡更早一季（2025Q4）恰好是 0，也不可拿它頂替真正的基期。
+        $m = (new OrderInventoryMetricsCalculator)->calculate(new OrderInventoryData(
+            quarters: [
+                $this->quarter('2025Q4', ['contractLiabilities' => 0.0]),
+                $this->quarter('2026Q2', ['contractLiabilities' => 500.0]),
+            ],
+            market: 'tw',
+        ));
+
+        $this->assertFalse($m->contractLiabilitiesFromZero, '缺季時基期無從得知，不算從無到有');
     }
 
     #[Test]

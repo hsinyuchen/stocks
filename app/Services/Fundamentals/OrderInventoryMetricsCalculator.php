@@ -27,9 +27,11 @@ class OrderInventoryMetricsCalculator
         [$streak, $basis, $latestMonth] = $this->revenueGrowthStreak($data);
 
         // 台股本該用月營收。月營收抓不到（FinMind gate 擋下、token 未設、額度耗盡
-        // 都會得到空陣列）時退回季基準，有數字勝於棄權；但退回必須可辨識，否則
-        // 報告只印 'quarterly'，看不出「台股少了它該有的月營收」。
-        $degraded = $data->market === 'tw' && $basis === 'quarterly';
+        // 都會得到空陣列）時退回季基準或整項不可得，兩種都要算降級——用
+        // !== 'monthly' 而非 === 'quarterly'，否則「退回季基準也算不出 streak」
+        // 「完全無資料」「月營收欄位格式壞掉」這幾種 basis=none 的情況會被漏掉，
+        // 與 DTO 文件對這個旗標的定義（台股未能使用月基準）不一致。
+        $degraded = $data->market === 'tw' && $basis !== 'monthly';
 
         $latest = $data->latestQuarter();
 
@@ -170,11 +172,14 @@ class OrderInventoryMetricsCalculator
     }
 
     /**
-     * 合約負債由 0（或未揭露）轉為正值。比率在基期為 0 時數學上無定義，
+     * 合約負債由 0 轉為正值。比率在基期為 0 時數學上無定義，
      * contractLiabilitiesQoq 因此維持 null——不編一個數字出來；但「預收款從無到有」
      * 是最強的接單訊號之一，用旗標讓下游條件仍能成立。
      *
      * 基期那一季必須真的存在：缺季時基期無從得知，不能宣稱是「從無到有」。
+     * 基期 contractLiabilities 為 null（未揭露）時同樣不能宣稱從無到有——
+     * Global Constraint 規定 null 永遠代表取不到，不可與「確實是 0」混用；
+     * 把未揭露讀成 0 會讓「揭露方式改變」被誤判成「預收款從無到有」。
      */
     private function contractLiabilitiesFromZero(QuarterlyFinancials $latest, ?QuarterlyFinancials $qoqBase): bool
     {
@@ -182,7 +187,7 @@ class OrderInventoryMetricsCalculator
             return false;
         }
 
-        return $qoqBase->contractLiabilities === null || $qoqBase->contractLiabilities <= 0.0;
+        return $qoqBase->contractLiabilities !== null && $qoqBase->contractLiabilities <= 0.0;
     }
 
     /**
@@ -253,7 +258,14 @@ class OrderInventoryMetricsCalculator
         foreach ($rows as $row) {
             $month = $row['month'] ?? null;
 
-            if (! is_string($month) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $month)) {
+            if (! is_string($month) || ! preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $month, $m)) {
+                continue;
+            }
+
+            // regex 只驗形狀不驗日曆有效性：'2026-13-01' 會讓 Carbon::parse() 拋例外，
+            // '0000-00-00' 會被靜默解成別的日期。checkdate() 先擋掉兩者，壞值直接
+            // 跳過這筆，不拖累其餘資料。
+            if (! checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
                 continue;
             }
 
@@ -276,8 +288,11 @@ class OrderInventoryMetricsCalculator
             if (! is_numeric($yoy)) {
                 // 新上市、或抓取視窗內沒有去年同月時，基期缺席，yoy 本來就是 null。
                 // 最新一月都評不出來時整項不可得，讓下游棄權而非判成「未成長」。
+                // latestRevenueMonth 是「資料時間點」而非 streak 結果，不受 streak
+                // 不可評估連坐——否則「台股有月營收但無基期」與「台股完全沒抓到
+                // 月營收」在下游會分不出來。
                 return $streak === 0
-                    ? [null, 'none', null]
+                    ? [null, 'none', $latestMonth]
                     : [$streak, 'monthly', $latestMonth];
             }
 

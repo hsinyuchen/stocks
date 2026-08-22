@@ -14,8 +14,10 @@ final readonly class OrderInventoryMetrics
 {
     /**
      * @param  string  $revenueGrowthBasis  'monthly'（台股月營收）｜'quarterly'（美股季營收）｜'none'
-     * @param  bool  $revenueGrowthDegraded  台股本該用月營收卻退回季基準（月營收沒抓到）
-     * @param  bool  $contractLiabilitiesFromZero  合約負債由 0／未揭露轉為正值，比率無定義但事件成立
+     * @param  bool  $revenueGrowthDegraded  台股本該用月營收卻未能使用月基準（月營收沒抓到，
+     *                                       含退回季基準與整項不可評估兩種情況）
+     * @param  bool  $contractLiabilitiesFromZero  合約負債由 0（基期確實為 0，非未揭露）轉為正值，
+     *                                             比率無定義但事件成立
      */
     public function __construct(
         public ?string $latestPeriod = null,
