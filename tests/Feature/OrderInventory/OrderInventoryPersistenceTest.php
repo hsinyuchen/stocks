@@ -196,4 +196,42 @@ class OrderInventoryPersistenceTest extends TestCase
         $row = Fundamental::query()->where('instrument_id', $instrument->id)->first();
         $this->assertEquals($stored->monthlyRevenue, $row->order_inventory['monthly_revenue']);
     }
+
+    public function test_negative_cache_cleanup_does_not_delete_rows_carrying_a_series(): void
+    {
+        // handleFailure() 會刪掉「所有估值欄位皆 null」的列來清負快取。帶著
+        // order_inventory 的列符合這個條件，但它是觀測值、不是重試節流的殘留，
+        // 任何情況下都不能被當成負快取清掉。美股列每一列都長這樣。
+        Carbon::setTestNow(Carbon::parse('2026-07-15 20:00', 'Asia/Taipei'));
+        $instrument = Instrument::factory()->create(['symbol' => '2330.TW', 'market' => 'TW']);
+
+        $stored = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(period: '2026Q2', endDate: '2026-06-30', inventories: 600.0)],
+            market: 'tw',
+            dataAsOf: '2026-06-30',
+        );
+
+        $kept = Fundamental::query()->create([
+            'instrument_id' => $instrument->id,
+            'data_as_of' => '2026-06-30',
+            'fetched_at' => now()->subHours(5),   // 超過 failure_ttl → 視為過期，觸發重抓
+            'order_inventory' => $stored->toArray(),
+        ]);
+
+        // 估值抓取失敗（全 null DTO）→ 走 handleFailure() 的負快取清理分支。
+        $this->app->instance(FundamentalsProvider::class, new class implements FundamentalsProvider
+        {
+            public function fetch(string $symbol): FundamentalsData
+            {
+                return new FundamentalsData;
+            }
+        });
+
+        $this->assertNull(app(FundamentalsService::class)->forInstrument($instrument), '契約不變：失敗仍回 null');
+
+        $survivor = Fundamental::query()->find($kept->id);
+
+        $this->assertNotNull($survivor, '帶序列的列不得被負快取清理刪掉');
+        $this->assertEquals($stored->toArray(), $survivor->order_inventory);
+    }
 }
