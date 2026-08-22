@@ -34,21 +34,22 @@ class OrderInventoryIndustryPolicy
         $industry = $data->industry;
 
         if ($industry === null || $industry === '') {
-            return $this->result('unknown', true, (string) config('order_inventory.industry.unknown_note'));
+            return $this->result('unknown', true, $this->unknownNote());
         }
 
+        // 順序刻意：not_applicable 必須先於 adjust 與 suited 比對。三桶名稱
+        // 理論上可能互相包含（例如某桶「金融」是另一桶「金融科技」的子字串），
+        // 這時排除規則要贏，否則名稱較寬的桶會先命中，把該不適用的標的判成適用。
+        // 目前 29 個正式設定值彼此不包含，順序在今天不可觀測，
+        // 見 tests/Unit/OrderInventoryIndustryPolicyTest.php 中自造重疊桶名的測試。
         foreach (['not_applicable', 'adjust', 'suited'] as $bucket) {
             if ($this->matches($industry, (array) config("order_inventory.industry.{$bucket}", []))) {
-                return $this->result(
-                    $bucket,
-                    $bucket !== 'not_applicable',
-                    $bucket === 'adjust' ? (string) config('order_inventory.industry.adjust_note') : null,
-                );
+                return $this->result($bucket, $bucket !== 'not_applicable', $this->noteFor($bucket));
             }
         }
 
         // 57 類裡沒對到任何一桶：不硬塞，照未知處理。
-        return $this->result('unknown', true, (string) config('order_inventory.industry.unknown_note'));
+        return $this->result('unknown', true, $this->unknownNote());
     }
 
     /**
@@ -60,18 +61,23 @@ class OrderInventoryIndustryPolicy
         $revenue = $latest?->revenue;
 
         // 沒有營收就算不出佔比。此時不能斷言不適用——那是資料問題，不是產業性質。
+        // revenue === 0.0 也要擋在這裡：0 是合法的財報數字（見 QuarterlyFinancials
+        // docblock），但 PHP 8 對 0.0 做除法會拋 DivisionByZeroError，不是回 INF。
         if ($revenue === null || $revenue <= 0.0) {
-            return $this->result('unknown', true, (string) config('order_inventory.industry.unknown_note'));
+            return $this->result('unknown', true, $this->unknownNote());
         }
 
-        $inventories = $latest?->inventories;
+        $inventories = $latest->inventories;
         $floor = (float) config('order_inventory.industry.us_min_inventory_to_revenue', 0.05);
 
         if ($inventories === null || $inventories / $revenue < $floor) {
             return $this->result(
                 'not_applicable',
                 false,
-                '此標的未揭露存貨或存貨相對營收微不足道，不具進銷存循環，本框架不適用。',
+                (string) config(
+                    'order_inventory.industry.us_not_applicable_note',
+                    '此標的未揭露存貨或存貨相對營收微不足道，不具進銷存循環，本框架不適用。',
+                ),
             );
         }
 
@@ -79,8 +85,11 @@ class OrderInventoryIndustryPolicy
     }
 
     /**
-     * 產業名稱以「包含」比對而非完全相等：FinMind 的 industry_category 存在
-     * 「金融保險業」「金融保險」等寫法差異，設定檔列主要寫法即可涵蓋。
+     * 產業名稱以「包含」比對而非完全相等：$industry 是 FinMind 回傳的 haystack，
+     * config 值是 needle，比對方向因此只涵蓋「FinMind 字串比設定值長」的變體——
+     * 設定 '金融保險'，FinMind 回 '金融保險' 或 '金融保險業' 都會命中；但若設定寫
+     * 成較長的 '金融保險業'，FinMind 回較短的 '金融保險' 就不會命中。所以設定檔
+     * 要盡量寫最短的核心詞（見 config/order_inventory.php 的 industry 區塊註解）。
      *
      * @param  list<string>  $needles
      */
@@ -93,6 +102,34 @@ class OrderInventoryIndustryPolicy
         }
 
         return false;
+    }
+
+    private function unknownNote(): string
+    {
+        return (string) config(
+            'order_inventory.industry.unknown_note',
+            '產業別未知，無法判斷本框架是否適用於此標的，評級僅供參考。',
+        );
+    }
+
+    /**
+     * suited 無 note（不需要提醒）；adjust／not_applicable 的 note 各自來自
+     * config，確保「哪個桶有 note」與 note 內容都由設定檔單一來源決定，
+     * 不會有分支各寫一套字串造成兩市場不對稱。
+     */
+    private function noteFor(string $bucket): ?string
+    {
+        return match ($bucket) {
+            'adjust' => (string) config(
+                'order_inventory.industry.adjust_note',
+                '此產業需調整判讀：通路商存貨增加偏負面、原物料循環股需拆價量、專案工程看合約負債。',
+            ),
+            'not_applicable' => (string) config(
+                'order_inventory.industry.not_applicable_note',
+                '此產業（金融保險、證券、銀行、航運、觀光餐旅等服務業）不具備一般進銷存循環，本框架不適用。',
+            ),
+            default => null,
+        };
     }
 
     /**
