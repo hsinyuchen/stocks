@@ -29,12 +29,7 @@ class FundamentalsService
             return null;
         }
 
-        // 改為保留歷史後，同一檔會有多列；新鮮度一律看最新那筆。
-        $row = Fundamental::query()
-            ->where('instrument_id', $instrument->id)
-            ->orderByDesc('data_as_of')
-            ->orderByDesc('id')
-            ->first();
+        $row = $this->latestRow($instrument);
 
         if ($row !== null && ! $this->isStale($row)) {
             return $this->toData($row);
@@ -81,6 +76,157 @@ class FundamentalsService
         $this->persist($instrument, $data);
 
         return $data;
+    }
+
+    /**
+     * 訂單／庫存判斷用的財報序列，兩個市場都走這個入口。
+     *
+     * 與 forInstrument() 分家而不是擴充它：已查證 5 個消費端都以
+     * forInstrument() 回 null 當作「這個市場沒有基本面」的旗標，若它開始為美股
+     * 回傳估值全 null 的 DTO，前端面板會渲染一整排 null、兩支 LLM prompt 會多出
+     * 整塊 null 的 fundamentals、Screener 的 NEEDS_FUNDAMENTALS 規則會從「跳過該檔」
+     * 變成「拿全 null 去比較」。序列的消費端與估值的消費端不同，入口就該分開。
+     */
+    public function orderInventoryFor(Instrument $instrument): ?OrderInventoryData
+    {
+        return MarketResolver::isTaiwan($instrument->symbol)
+            ? $this->taiwanOrderInventory($instrument)
+            : $this->unitedStatesOrderInventory($instrument);
+    }
+
+    /**
+     * 台股：序列本來就由 forInstrument() 連同估值一次抓、寫進同一列。
+     *
+     * 這裡只做「讀既有列」，過期時委派回 forInstrument()，不自己開第二條抓取
+     * 路徑——兩條路徑等於兩套 TTL，會各自漂移，且 FinMind 免費層的額度會被
+     * 同一份資料抓兩次白白吃掉。
+     */
+    private function taiwanOrderInventory(Instrument $instrument): ?OrderInventoryData
+    {
+        $row = $this->latestRow($instrument);
+
+        if ($row !== null && is_array($row->order_inventory) && ! $this->isStale($row)) {
+            return OrderInventoryData::fromArray($row->order_inventory);
+        }
+
+        return $this->forInstrument($instrument)?->orderInventory;
+    }
+
+    /**
+     * 美股：自己的一條讀取／新鮮度／抓取／落地路徑（估值欄位一概不寫）。
+     *
+     * best-effort：例外一律吞掉並走失敗路徑，不往外拋擋頁面。
+     */
+    private function unitedStatesOrderInventory(Instrument $instrument): ?OrderInventoryData
+    {
+        $row = $this->latestRow($instrument);
+        $previous = is_array($row?->order_inventory)
+            ? OrderInventoryData::fromArray($row->order_inventory)
+            : null;
+
+        if ($row !== null && ! $this->isUnitedStatesStale($row)) {
+            return $previous;
+        }
+
+        try {
+            $fresh = $this->financials->financials(
+                $instrument->symbol,
+                (int) config('order_inventory.history_months', 30),
+            );
+        } catch (\Throwable $exception) {
+            Log::warning('order inventory: us fetch failed', [
+                'symbol' => $instrument->symbol,
+                'error' => $exception->getMessage(),
+            ]);
+
+            $fresh = OrderInventoryData::empty();
+        }
+
+        // 失敗與部分失敗一律沿用舊值，與估值那條路的 last-known-good 同一條規則。
+        $merged = $this->carryForwardOrderInventory($fresh, $row);
+
+        if (! $fresh->hasAny()) {
+            if ($row !== null) {
+                // 既有列：保留原本的序列、data_as_of 與 fetched_at，只刷新 failed_at
+                // 節流重試。另開一列會讓放棄的抓取在序列裡留下一筆空資料。
+                $row->forceFill(['failed_at' => now()])->save();
+
+                return $merged;
+            }
+
+            // 沒有既有列：寫一列純節流用的負快取。它不帶序列，故仍可被清理。
+            $this->persistOrderInventory($instrument, null, null, now());
+
+            return null;
+        }
+
+        $this->persistOrderInventory($instrument, $merged, $fresh->dataAsOf, null);
+
+        return $merged;
+    }
+
+    /**
+     * 美股新鮮度。
+     *
+     * 不能沿用 isStale()：美股列的估值欄位天生全 null，hasMetric() 一律 false，
+     * isStale() 會把每一列都當成「負快取列」用 failure_ttl 節流，導致對 SEC
+     * 過度重抓。改用 order_inventory.us_ttl_hours（季度財報，日級即可）。
+     */
+    private function isUnitedStatesStale(Fundamental $row): bool
+    {
+        $ttl = (int) config('order_inventory.us_ttl_hours', 24);
+
+        if (is_array($row->order_inventory)
+            && $row->fetched_at !== null
+            && $row->fetched_at->greaterThan(CarbonImmutable::now()->subHours($ttl))) {
+            return false;
+        }
+
+        // 失敗節流沿用估值那套 failure_ttl：SEC 故障或被限流時不該每次開頁重打。
+        return $row->failed_at === null
+            || $row->failed_at->lessThan(CarbonImmutable::now()->subHours($this->failureTtl()));
+    }
+
+    /**
+     * 只寫序列相關欄位，估值欄位一律不碰（美股沒有估值來源，寫 null 會把台股的
+     * 保護邏輯搞混）。
+     *
+     * data_as_of 同欄不同語意：台股是 PER 日期（每日），美股是最新季末日（每季）。
+     * 兩個市場的列不會落在同一個 instrument 上，所以不衝突；但任何跨市場直接
+     * 比較 data_as_of 的程式碼都是錯的。
+     */
+    private function persistOrderInventory(
+        Instrument $instrument,
+        ?OrderInventoryData $data,
+        ?string $dataAsOf,
+        ?\DateTimeInterface $failedAt,
+    ): void {
+        // 必須傳 Carbon 而非 'Y-m-d' 字串：date cast 寫入時會展開成
+        // 'Y-m-d H:i:s'，用字串查詢比不中既有列，會撞上唯一鍵而拋例外。
+        $key = CarbonImmutable::parse($dataAsOf ?? now()->toDateString())->startOfDay();
+
+        Fundamental::query()->updateOrCreate(
+            [
+                'instrument_id' => $instrument->id,
+                'data_as_of' => $key,
+            ],
+            [
+                'data_as_of' => $key,
+                'fetched_at' => now(),
+                'failed_at' => $failedAt,
+                'order_inventory' => $data?->toArray(),
+            ],
+        );
+    }
+
+    /** 改為保留歷史後同一檔會有多列，新鮮度一律看最新那筆。 */
+    private function latestRow(Instrument $instrument): ?Fundamental
+    {
+        return Fundamental::query()
+            ->where('instrument_id', $instrument->id)
+            ->orderByDesc('data_as_of')
+            ->orderByDesc('id')
+            ->first();
     }
 
     /**
@@ -184,7 +330,14 @@ class FundamentalsService
 
         // 負快取列只是重試節流，不是歷史觀測值。改為保留歷史後，若不先清掉
         // 舊的全 null 列，抓不到的標的每天都會多一列空資料，污染分位統計。
-        $stale = Fundamental::query()->where('instrument_id', $instrument->id);
+        //
+        // 帶著 order_inventory 的列必須排除：它是觀測值，不是重試節流的殘留。
+        // 「估值欄位全 null」這個條件本身分不出兩者——美股列每一列都符合，
+        // 目前只是靠「handleFailure() 只在台股路徑被呼叫、且以 instrument_id
+        // 限縮」這個呼叫端的巧合在保護，條件本身必須自己站得住。
+        $stale = Fundamental::query()
+            ->where('instrument_id', $instrument->id)
+            ->whereNull('order_inventory');
 
         foreach (Fundamental::METRIC_COLUMNS as $col) {
             $stale->whereNull($col);

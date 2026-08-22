@@ -26,6 +26,16 @@ return [
     'max_quarters' => 12,
 
     /*
+     * 美股序列快取 TTL（小時）。
+     *
+     * 美股列不能沿用台股那套新鮮度：台股問「今天的盤後估值公佈了沒」，而美股
+     * 列的估值欄位天生全 null，會被 FundamentalsService::isStale() 當成「負快取
+     * 列」用短短的 failure_ttl 節流，對 SEC 過度重抓。SEC 財報是季度更新，
+     * 一天內重抓不可能拿到新東西，日級 TTL 已足夠且對 SEC 友善。
+     */
+    'us_ttl_hours' => (int) env('ORDER_INVENTORY_US_TTL_HOURS', 24),
+
+    /*
      * SEC EDGAR 設定。
      *
      * SEC 要求 User-Agent 必須可識別並帶聯絡方式，否則會被封鎖；
