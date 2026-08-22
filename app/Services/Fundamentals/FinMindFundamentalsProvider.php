@@ -16,19 +16,40 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
 {
     private const ENDPOINT = 'https://api.finmindtrade.com/api/v4/data';
 
+    /**
+     * 同一次請求內的 rows() 結果快取："dataset|dataId|startDate" => 列。
+     *
+     * @var array<string, list<array<string, mixed>>>
+     */
+    private array $memo = [];
+
+    private ?string $memoDataId = null;
+
     public function __construct(
         private readonly FinMindTokenResolver $tokens,
         private readonly int $timeoutSeconds = 20,
         private readonly ?TaiwanIndustryResolver $industry = null,
     ) {}
 
+    /** 共用 dataset 的回溯起始日。估值與序列必須用同一個值，memo 才命中。 */
+    private function historyStart(?int $months = null): string
+    {
+        $months ??= (int) config('order_inventory.history_months', 30);
+
+        return now()->subMonths(max(1, $months))->toDateString();
+    }
+
     public function fetch(string $symbol): FundamentalsData
     {
         $dataId = MarketResolver::taiwanCode($symbol);   // 2330.TW → 2330
+        // 三個共用 dataset 的起始日必須與 financials() 一致，否則 memo key 不同、
+        // 同一份資料會被抓兩次。視窗放寬不影響估值：ttmEps()/roe() 取最新四季，
+        // latestRevenue()/revenueYoy() 依年月配對，多回幾列結果不變。
+        $start = $this->historyStart();
         $per = $this->rows('TaiwanStockPER', $dataId, now()->subDays(30)->toDateString());
-        $fs = $this->rows('TaiwanStockFinancialStatements', $dataId, now()->subMonths(18)->toDateString());
-        $bs = $this->rows('TaiwanStockBalanceSheet', $dataId, now()->subMonths(18)->toDateString());
-        $mr = $this->rows('TaiwanStockMonthRevenue', $dataId, now()->subMonths(18)->toDateString());
+        $fs = $this->rows('TaiwanStockFinancialStatements', $dataId, $start);
+        $bs = $this->rows('TaiwanStockBalanceSheet', $dataId, $start);
+        $mr = $this->rows('TaiwanStockMonthRevenue', $dataId, $start);
 
         [$eps, $epsQuarter] = $this->ttmEps($fs);
 
@@ -49,7 +70,7 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
     public function financials(string $symbol, int $months): OrderInventoryData
     {
         $dataId = MarketResolver::taiwanCode($symbol);
-        $start = now()->subMonths(max(1, $months))->toDateString();
+        $start = $this->historyStart($months);
 
         $bs = $this->rows('TaiwanStockBalanceSheet', $dataId, $start);
         $fs = $this->rows('TaiwanStockFinancialStatements', $dataId, $start);
@@ -184,8 +205,24 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
     {
         // 免費層額度冷卻中：跳過。本方法一次分析被呼叫多次（PER/財報/資產/營收），
         // 冷卻一旦開啟，後續幾個 dataset 都會直接略過，不再逐一撞額度。
+        // 短路必須在 memo 之前，且回的 [] 不寫入 memo——否則額度冷卻在同一次請求
+        // 中途結束時，後續呼叫仍會拿到快取的空陣列。
         if (FinMindGate::isTripped()) {
             return [];
+        }
+
+        // 本實例同時服務估值與序列，兩邊有三個 dataset 重複。以實例陣列記憶，
+        // 換標的（$dataId 變動）時整個清空：常駐 queue worker 會用同一個
+        // singleton 跑過整個股池，不清會無限成長，也會跨日拿到陳舊資料。
+        if ($this->memoDataId !== $dataId) {
+            $this->memo = [];
+            $this->memoDataId = $dataId;
+        }
+
+        $key = "$dataset|$dataId|$startDate";
+
+        if (array_key_exists($key, $this->memo)) {
+            return $this->memo[$key];
         }
 
         $response = Http::timeout($this->timeoutSeconds)->get(self::ENDPOINT, array_filter([
@@ -201,7 +238,7 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
 
         $data = $response->json('data');
 
-        return is_array($data) ? $data : [];
+        return $this->memo[$key] = is_array($data) ? $data : [];
     }
 
     /** PER 資料集：最新一列（依 date 排序）取指定欄。 */

@@ -55,8 +55,9 @@ class FundamentalsService
             return $this->handleFailure($instrument, $row);
         }
 
-        // 序列與估值共用同一次「是否過期」判斷與同一列快取，避免兩套 TTL
-        // 各自漂移，也避免為了型別潔癖多打一次 FinMind——資產負債表本來就在抓。
+        // 序列與估值共用同一次「是否過期」判斷與同一列快取，避免兩套 TTL 各自漂移。
+        // 台股兩者是同一個 FinMind provider 實例（容器 singleton）、共用同一份 rows
+        // memo 與同一個回溯起始日，故重複的三個 dataset 整體只打一次 FinMind。
         $orderInventory = $this->financials->financials(
             $instrument->symbol,
             (int) config('order_inventory.history_months', 30),
