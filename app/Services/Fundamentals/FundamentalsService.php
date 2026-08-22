@@ -73,13 +73,49 @@ class FundamentalsService
             revenueMonth: $data->revenueMonth,
             revenueYoy: $data->revenueYoy,
             dataAsOf: $data->dataAsOf,
-            orderInventory: $orderInventory->hasAny() ? $orderInventory : null,
+            orderInventory: $this->carryForwardOrderInventory($orderInventory, $row),
         );
 
         // 成功抓取：寫入指標、刷新 fetched_at、清除 failed_at（persist 預設 failedAt=null）。
         $this->persist($instrument, $data);
 
         return $data;
+    }
+
+    /**
+     * 序列取不到時沿用既有值，不寫 null 覆蓋。
+     *
+     * 抓不到不等於沒有：序列與估值共用同一次抓取，但 FinMind 免費層額度常在估值
+     * 抓完之後才撞上（PER 已到手 → hasAnyMetric() 為 true → 不走 handleFailure），
+     * 此時 financials() 的每個 dataset 都被 FinMindGate 短路回空。persist() 的鍵是
+     * (instrument_id, data_as_of)，而 data_as_of 是 PER 日期、公佈前一整天不變，
+     * 覆蓋會就地毀掉已落地的觀測值且無從復原。估值欄位有 handleFailure() 的
+     * last-known-good 保護，這個 JSON 欄位沒有，故在此補上對稱的保護。
+     */
+    private function carryForwardOrderInventory(OrderInventoryData $fresh, ?Fundamental $row): ?OrderInventoryData
+    {
+        $previous = is_array($row?->order_inventory)
+            ? OrderInventoryData::fromArray($row->order_inventory)
+            : null;
+
+        if (! $fresh->hasAny()) {
+            return $previous;
+        }
+
+        // 只有月營收 dataset 失敗（季度序列仍有值）：其餘欄位用新的，月營收沿用舊的，
+        // 否則整條月營收序列會被 [] 蓋掉，而它是階段 2 判斷 YoY 連續性的唯一來源。
+        if ($fresh->monthlyRevenue === [] && $previous !== null && $previous->monthlyRevenue !== []) {
+            return new OrderInventoryData(
+                quarters: $fresh->quarters,
+                monthlyRevenue: $previous->monthlyRevenue,
+                market: $fresh->market,
+                industry: $fresh->industry,
+                inventoryCompositionAvailable: $fresh->inventoryCompositionAvailable,
+                dataAsOf: $fresh->dataAsOf,
+            );
+        }
+
+        return $fresh;
     }
 
     /**
