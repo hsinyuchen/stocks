@@ -14,6 +14,8 @@ final readonly class OrderInventoryMetrics
 {
     /**
      * @param  string  $revenueGrowthBasis  'monthly'（台股月營收）｜'quarterly'（美股季營收）｜'none'
+     * @param  bool  $revenueGrowthDegraded  台股本該用月營收卻退回季基準（月營收沒抓到）
+     * @param  bool  $contractLiabilitiesFromZero  合約負債由 0／未揭露轉為正值，比率無定義但事件成立
      */
     public function __construct(
         public ?string $latestPeriod = null,
@@ -47,5 +49,9 @@ final readonly class OrderInventoryMetrics
         public ?float $relatedPartyPayableShare = null,
         public ?float $relatedPartyPayableShareQoqPp = null,
         public ?string $latestRevenueMonth = null,
+        // 新欄位一律加在末端：呼叫端多以位置以外的方式建構，但重排既有參數
+        // 會讓已寫好的位置式呼叫靜默錯位。
+        public bool $revenueGrowthDegraded = false,
+        public bool $contractLiabilitiesFromZero = false,
     ) {}
 }
