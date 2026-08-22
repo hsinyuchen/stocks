@@ -18,6 +18,10 @@ use Throwable;
  *
  * 一檔可能有多個產業列（實測 3019 同時為「光電業」與「電子工業」）。框架的
  * 產業適用性要用較具體的分類，因此上位分類只在沒有更細分類時才採用。
+ *
+ * BROAD_CATEGORIES 中「電子工業」的多分類共存是實測結果；「其他」未實際
+ * 觀察到與細分類並存，僅是假設同樣的邏輯成立——它是撿剩的統包分類，理應
+ * 不該蓋過任何更具體的分類。
  */
 class TaiwanIndustryResolver
 {
@@ -57,14 +61,20 @@ class TaiwanIndustryResolver
 
         $map = [];
 
-        if (! FinMindGate::isTripped()) {
+        if (FinMindGate::isTripped()) {
+            Log::warning('finmind: industry map fetch skipped, circuit breaker tripped');
+        } else {
             try {
                 $response = Http::timeout(40)->get(self::ENDPOINT, array_filter([
                     'dataset' => 'TaiwanStockInfo',
                     'token' => $this->tokens->resolve() ?: null,
                 ]));
 
-                if (! FinMindGate::limited($response) && $response->successful()) {
+                if (FinMindGate::limited($response)) {
+                    Log::warning('finmind: industry map fetch rate limited');
+                } elseif (! $response->successful()) {
+                    Log::warning('finmind: industry map fetch rejected', ['status' => $response->status()]);
+                } else {
                     foreach ((array) $response->json('data', []) as $row) {
                         $id = (string) ($row['stock_id'] ?? '');
                         $category = (string) ($row['industry_category'] ?? '');

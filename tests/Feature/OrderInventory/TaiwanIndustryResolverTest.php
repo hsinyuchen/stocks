@@ -48,6 +48,18 @@ class TaiwanIndustryResolverTest extends TestCase
         $this->assertSame('光電業', $this->resolver()->resolve('3019.TW'));
     }
 
+    public function test_prefers_the_more_specific_category_regardless_of_row_order(): void
+    {
+        // 上一個測試餵「電子工業→光電業」；FinMind 實際回傳順序不保證，這裡
+        // 反過來餵「光電業→電子工業」，確認上位分類不會覆蓋已記錄的細分類。
+        $this->fakeInfo([
+            ['stock_id' => '3019', 'industry_category' => '光電業'],
+            ['stock_id' => '3019', 'industry_category' => '電子工業'],
+        ]);
+
+        $this->assertSame('光電業', $this->resolver()->resolve('3019.TW'));
+    }
+
     public function test_unknown_symbol_returns_null(): void
     {
         $this->fakeInfo([['stock_id' => '2330', 'industry_category' => '半導體業']]);
