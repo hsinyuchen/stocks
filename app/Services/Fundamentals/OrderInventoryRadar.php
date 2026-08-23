@@ -312,13 +312,17 @@ class OrderInventoryRadar
         // 成本一下滑天數就會上升，而應付帳款可以一動不動——照天數判會對使用者
         // 講出「應付帳款同步增加」這種與事實相反的話。
         //
-        // 月營收無從評估（basis 為 none）時整條不給。「提前備料」是偏多的結論，
-        // 證據不全就不給，與評級「不確定時不給較高評級」同一立場。
+        // 文案講的是「月營收持續成長」，所以這裡必須是 === 'monthly'，不能只排除 'none'。
+        // revenueGrowthStreak() 在月營收缺資料（monthlyRevenue === []）時會靜默 fallback
+        // 到季營收 YoY 連正數，basis 會落在 'quarterly' 而不是 'none'——用 !== 'none' 判斷
+        // 會讓一天月營收都沒用到就冒出「月營收持續成長」，把使用者從未提供的資料點講成事實。
+        // 美股 basis 恆為 'quarterly'（SEC 無月營收），用 === 'monthly' 也順帶避免美股誤觸這條
+        // 台股專屬文案。
         if ($previousQuarter !== null
             && $latest->accountsPayable !== null
             && $previousQuarter->accountsPayable !== null
             && $latest->accountsPayable > $previousQuarter->accountsPayable
-            && $m->revenueGrowthBasis !== 'none'
+            && $m->revenueGrowthBasis === 'monthly'
             && $m->revenueGrowthStreak !== null
             && $m->revenueGrowthStreak >= 1) {
             $readings[] = (string) config('order_inventory.narrative.proxy_stocking_up');

@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Data\OrderInventoryData;
 use App\Data\QuarterlyFinancials;
 use App\Enums\OrderInventoryRating;
+use App\Services\Fundamentals\OrderInventoryMetricsCalculator;
 use App\Services\Fundamentals\OrderInventoryRadar;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -341,6 +342,37 @@ class OrderInventoryCounterEvidenceTest extends TestCase
         ));
 
         $this->assertStringNotContainsString('提前備料', implode("\n", $assessment->proxySignals));
+    }
+
+    #[Test]
+    public function taiwan_proxy_matrix_withholds_stocking_up_when_basis_falls_back_to_quarterly(): void
+    {
+        // 月營收抓不到（monthlyRevenue === []）時 revenueGrowthStreak() 會靜默 fallback
+        // 到季營收 YoY——5 季序列讓 2026Q2 相對 2025Q2 算出正成長，basis 落在
+        // 'quarterly' 而非 'none'。上一輪唯一那條「月營收無從評估」的測試只用 2 個季度，
+        // quarterAt(-4) 直接缺季而落到 basis === 'none'，沒有覆蓋這個中間態：
+        // 條件若誤寫成 !== 'none'，這裡才會抓到。
+        $quarters = [
+            new QuarterlyFinancials(period: '2025Q2', revenue: 1000.0, costOfGoodsSold: 700.0, inventories: 350.0, accountsPayable: 280.0),
+            new QuarterlyFinancials(period: '2025Q3', revenue: 1000.0, costOfGoodsSold: 700.0, inventories: 350.0, accountsPayable: 280.0),
+            new QuarterlyFinancials(period: '2025Q4', revenue: 1000.0, costOfGoodsSold: 700.0, inventories: 350.0, accountsPayable: 280.0),
+            new QuarterlyFinancials(period: '2026Q1', revenue: 1000.0, costOfGoodsSold: 700.0, inventories: 350.0, accountsPayable: 280.0),
+            new QuarterlyFinancials(period: '2026Q2', endDate: now()->toDateString(), revenue: 1100.0, costOfGoodsSold: 700.0, inventories: 500.0, accountsPayable: 400.0),
+        ];
+
+        $data = new OrderInventoryData(quarters: $quarters, monthlyRevenue: [], market: 'tw', industry: '半導體業');
+
+        $metrics = (new OrderInventoryMetricsCalculator)->calculate($data);
+        $this->assertSame('quarterly', $metrics->revenueGrowthBasis, '前提：basis 必須真的落在 quarterly，而不是 none');
+        $this->assertSame(1, $metrics->revenueGrowthStreak);
+
+        $assessment = (new OrderInventoryRadar)->assess($data);
+
+        $this->assertStringNotContainsString(
+            '提前備料',
+            implode("\n", $assessment->proxySignals),
+            'basis 是季度 fallback，不是真的月營收成長，不得講「月營收持續成長」',
+        );
     }
 
     #[Test]
