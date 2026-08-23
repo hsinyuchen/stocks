@@ -201,6 +201,11 @@ class OrderInventoryRadar
         $industry = $this->industry->evaluate($data);
         $freshness = $this->freshness($metrics, $now);
 
+        // 「這一季的存貨組成讀得到嗎」只有一個判準：actualCompositionSignals()
+        // 實際輸出了東西。算一次餵給兩個消費端（代理矩陣的回落、A 級查證清單），
+        // 各判一次遲早會分岔。
+        $compositionSignals = $this->actualCompositionSignals($data, $metrics);
+
         $base = fn (OrderInventoryRating $rating, array $extra = []): OrderInventoryAssessment => new OrderInventoryAssessment(...array_merge([
             'rating' => $rating,
             'metrics' => $metrics,
@@ -234,7 +239,7 @@ class OrderInventoryRadar
                 (array) config('order_inventory.thresholds', []),
             ),
             'counterEvidence' => $this->counterEvidence($metrics, $conditions, $peerRevenueGrowthMedian),
-            'proxySignals' => $this->inventoryCompositionSignals($data, $metrics),
+            'proxySignals' => $this->inventoryCompositionSignals($data, $metrics, $compositionSignals),
         ]);
     }
 
@@ -282,24 +287,34 @@ class OrderInventoryRadar
      * 數字，直接讀。把兩者寫成一樣，會讓使用者把推論當實測——設計文件把這列為
      * 本功能的第二號風險。
      *
+     * @param  list<string>  $compositionSignals  已算好的實測組成訊號，空陣列代表這一季讀不到
      * @return list<string>
      */
     private function inventoryCompositionSignals(
         OrderInventoryData $data,
         OrderInventoryMetrics $m,
+        array $compositionSignals,
     ): array {
-        $latest = $data->latestQuarter();
-
-        if ($latest === null) {
-            return [];
-        }
-
-        if ($data->inventoryCompositionAvailable) {
-            return $this->actualCompositionSignals($data, $m, $latest);
+        // 有實測值就用實測值；讀不到才回落代理矩陣。
+        //
+        // **不可改回 `if ($data->inventoryCompositionAvailable) return ...;`**：
+        // 那個旗標在階段 1 的語意是「12 季視窗內任一季有組成」，不是「這一季有」。
+        // 美股的組成標籤常只出現在年報 frame，季報 frame 缺席是常態，最新季與 QoQ
+        // 基期只要缺一邊，旗標仍是 true 而實測值算不出來——早退等於在最典型的情境
+        // 把塞貨／去化不良這類負面訊號整個吞掉，同時讓 proxy_prefix_us
+        // （「本次未取得存貨組成揭露」）這條專為此情境寫的文案永遠不可達。
+        if ($compositionSignals !== []) {
+            return $compositionSignals;
         }
 
         // 存貨沒有增加時，這個矩陣沒有可談的東西——硬給方向是編造。
         if ($m->inventoriesQoq === null || $m->inventoriesQoq <= 0.0) {
+            return [];
+        }
+
+        $latest = $data->latestQuarter();
+
+        if ($latest === null) {
             return [];
         }
 
@@ -318,13 +333,13 @@ class OrderInventoryRadar
         // 會讓一天月營收都沒用到就冒出「月營收持續成長」，把使用者從未提供的資料點講成事實。
         // 美股 basis 恆為 'quarterly'（SEC 無月營收），用 === 'monthly' 也順帶避免美股誤觸這條
         // 台股專屬文案。
+        //
+        // 「**後續**」與「**持續**」兩個字各自需要資料支撐，見 revenueMomentumAfterQuarter()。
         if ($previousQuarter !== null
             && $latest->accountsPayable !== null
             && $previousQuarter->accountsPayable !== null
             && $latest->accountsPayable > $previousQuarter->accountsPayable
-            && $m->revenueGrowthBasis === 'monthly'
-            && $m->revenueGrowthStreak !== null
-            && $m->revenueGrowthStreak >= 1) {
+            && $this->revenueMomentumAfterQuarter($m)) {
             $readings[] = (string) config('order_inventory.narrative.proxy_stocking_up');
         }
 
@@ -344,6 +359,60 @@ class OrderInventoryRadar
         // 句號在組裝時統一補，config 的文案本身不帶句號——可讀性不該依賴
         // 每個人新增文案時都記得加標點。
         return [$this->proxyPrefix($data).implode('。', $readings).'。'];
+    }
+
+    /**
+     * 代理矩陣第一列第三腿：「**後續**月營收**持續**成長」。
+     *
+     * 兩個副詞各自要有依據，否則就是對使用者宣稱沒驗證過的事：
+     *
+     * - 「後續」：streak 只從 latestRevenueMonth 往回走，不看季報期別。月營收停在
+     *   季末之前時（台股月報與季報的入庫時點本來就會錯開），講的其實是季**內**
+     *   甚至季**前**的月份。因此要求月份嚴格晚於最新季末。
+     * - 「持續」：沿用 C1 的 revenue_streak_months，不另設一把較鬆的尺。同一份
+     *   報告裡「營收動能成立」與「月營收持續成長」若用不同門檻，會出現 C1 不成立
+     *   卻照樣宣稱持續成長的自相矛盾。
+     */
+    private function revenueMomentumAfterQuarter(OrderInventoryMetrics $m): bool
+    {
+        if ($m->revenueGrowthBasis !== 'monthly' || $m->revenueGrowthStreak === null) {
+            return false;
+        }
+
+        $threshold = (int) ((array) config('order_inventory.thresholds', []))['revenue_streak_months'];
+
+        if ($m->revenueGrowthStreak < $threshold) {
+            return false;
+        }
+
+        $month = $this->parseDate($m->latestRevenueMonth);
+        $quarterEnd = $this->parseDate($m->latestEndDate);
+
+        // 期別本身缺席或格式壞掉時無從比對，寧可不講這句。
+        return $month !== null && $quarterEnd !== null && $month->greaterThan($quarterEnd);
+    }
+
+    /**
+     * 只解析日曆上真正存在的 YYYY-MM-DD。
+     *
+     * 上游（FinMindFundamentalsProvider、SecEdgarFinancialsProvider）對日期只做
+     * (string) 轉型、無格式驗證，值又會經 DB 的 JSON 欄位往返，壞值進得來：
+     * 'N/A' 會讓 Carbon::parse() 拋例外炸掉整個 job，'0000-00-00' 會被**靜默**
+     * 解成合法日期，'' 則解成 now()。與
+     * OrderInventoryMetricsCalculator::monthlyRevenueGrowthStreak() 同策略：
+     * 形狀與日曆有效性都通過才解析，否則視為沒有這個日期。
+     */
+    private function parseDate(?string $value): ?CarbonImmutable
+    {
+        if ($value === null || ! preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m)) {
+            return null;
+        }
+
+        if (! checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+            return null;
+        }
+
+        return CarbonImmutable::parse($value);
     }
 
     /**
@@ -381,11 +450,11 @@ class OrderInventoryRadar
     private function actualCompositionSignals(
         OrderInventoryData $data,
         OrderInventoryMetrics $m,
-        QuarterlyFinancials $latest,
     ): array {
+        $latest = $data->latestQuarter();
         $previousQuarter = $this->previousQuarter($data, $m);
 
-        if ($previousQuarter === null) {
+        if ($latest === null || $previousQuarter === null) {
             return [];
         }
 

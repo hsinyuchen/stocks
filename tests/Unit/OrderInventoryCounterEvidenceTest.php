@@ -7,6 +7,7 @@ use App\Data\QuarterlyFinancials;
 use App\Enums\OrderInventoryRating;
 use App\Services\Fundamentals\OrderInventoryMetricsCalculator;
 use App\Services\Fundamentals\OrderInventoryRadar;
+use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -37,7 +38,7 @@ class OrderInventoryCounterEvidenceTest extends TestCase
                 new QuarterlyFinancials(...array_merge($defaults, ['period' => '2026Q1'], $base)),
                 new QuarterlyFinancials(...array_merge(
                     $defaults,
-                    ['period' => '2026Q2', 'endDate' => now()->toDateString()],
+                    ['period' => '2026Q2', 'endDate' => self::quarterEndDate()],
                     $latest,
                 )),
             ],
@@ -71,16 +72,37 @@ class OrderInventoryCounterEvidenceTest extends TestCase
     }
 
     /**
+     * 最新季末。刻意落在三個月前的月底，讓 growingMonthlyRevenue() 有真正
+     * **晚於季末**的月份可用——代理矩陣第一列講的是「後續月營收」，用季末
+     * 當天當基準的話，季內甚至季前的月份也會被算成「後續」。
+     */
+    private static function quarterEndDate(): string
+    {
+        return CarbonImmutable::now()->startOfMonth()->subMonths(3)->endOfMonth()->format('Y-m-d');
+    }
+
+    /**
      * 月營收 YoY 連續為正。台股代理矩陣第一列的第三腿看的就是它。
+     *
+     * 月份全部晚於 quarterEndDate()，數量取到 revenue_streak_months 門檻——
+     * 兩者缺一，第一列都不該觸發。
      *
      * @return list<array{month: string, revenue: float, yoy: ?float}>
      */
     private static function growingMonthlyRevenue(): array
     {
-        return [
-            ['month' => '2026-05-01', 'revenue' => 100.0, 'yoy' => 0.08],
-            ['month' => '2026-06-01', 'revenue' => 110.0, 'yoy' => 0.12],
-        ];
+        $first = CarbonImmutable::now()->startOfMonth()->subMonths(2);
+        $rows = [];
+
+        foreach ([0.08, 0.10, 0.12] as $i => $yoy) {
+            $rows[] = [
+                'month' => $first->addMonths($i)->format('Y-m-d'),
+                'revenue' => 100.0 + $i * 10,
+                'yoy' => $yoy,
+            ];
+        }
+
+        return $rows;
     }
 
     #[Test]
@@ -372,6 +394,79 @@ class OrderInventoryCounterEvidenceTest extends TestCase
             '提前備料',
             implode("\n", $assessment->proxySignals),
             'basis 是季度 fallback，不是真的月營收成長，不得講「月營收持續成長」',
+        );
+    }
+
+    #[Test]
+    public function taiwan_proxy_matrix_withholds_stocking_up_when_monthly_revenue_predates_the_quarter_end(): void
+    {
+        // 三腿的第三腿是「**後續**月營收」。streak 從最新月份往回走，完全不與
+        // 季末比對時，月營收停在季末之前也照樣輸出——講的是季內甚至季前的月份。
+        $months = [];
+
+        foreach ([0.08, 0.10, 0.12] as $i => $yoy) {
+            $months[] = [
+                'month' => CarbonImmutable::parse(self::quarterEndDate())
+                    ->startOfMonth()->subMonths(2 - $i)->format('Y-m-d'),
+                'revenue' => 100.0 + $i * 10,
+                'yoy' => $yoy,
+            ];
+        }
+
+        $assessment = (new OrderInventoryRadar)->assess($this->data(
+            latest: ['inventories' => 500.0, 'accountsPayable' => 400.0],
+            base: ['inventories' => 350.0, 'accountsPayable' => 280.0],
+            options: ['monthlyRevenue' => $months],
+        ));
+
+        $this->assertStringNotContainsString(
+            '提前備料',
+            implode("\n", $assessment->proxySignals),
+            '月營收月份不晚於季末時，「後續」二字沒有資料支撐',
+        );
+    }
+
+    #[Test]
+    public function taiwan_proxy_matrix_withholds_stocking_up_below_the_revenue_streak_threshold(): void
+    {
+        // 「持續成長」用的是 C1 那把尺（thresholds.revenue_streak_months），
+        // 不是「一個月就算」。門檻從 config 取，不寫死月數。
+        $threshold = (int) config('order_inventory.thresholds.revenue_streak_months');
+        $months = array_slice(self::growingMonthlyRevenue(), -($threshold - 1));
+
+        $this->assertCount($threshold - 1, $months, '前提：這組 fixture 必須剛好差一個月未達門檻');
+
+        $assessment = (new OrderInventoryRadar)->assess($this->data(
+            latest: ['inventories' => 500.0, 'accountsPayable' => 400.0],
+            base: ['inventories' => 350.0, 'accountsPayable' => 280.0],
+            options: ['monthlyRevenue' => $months],
+        ));
+
+        $this->assertStringNotContainsString(
+            '提前備料',
+            implode("\n", $assessment->proxySignals),
+            '未達 C1 的連續月數門檻就不算「持續成長」',
+        );
+    }
+
+    #[Test]
+    public function the_proxy_matrix_still_runs_when_this_quarter_has_no_composition_disclosure(): void
+    {
+        // inventoryCompositionAvailable 是階段 1 算的「12 季視窗內任一季有組成」，
+        // 不是「這一季有」。美股組成標籤常只出現在年報 frame，季報缺席是常態——
+        // 旗標仍為 true 而實測值無從輸出時早退，會把塞貨／去化不良這種**負面**
+        // 訊號整個吞掉，而 proxy_prefix_us 這條文案正是為這個情境寫的。
+        $assessment = (new OrderInventoryRadar)->assess($this->data(
+            latest: ['inventories' => 500.0, 'revenue' => 800.0, 'accountsReceivable' => 700.0],
+            base: ['inventories' => 350.0, 'revenue' => 1000.0, 'accountsReceivable' => 500.0],
+            options: ['market' => 'us', 'industry' => null, 'composition' => true],
+        ));
+
+        $this->assertSame(
+            ['本次未取得存貨組成揭露，以下為代理訊號推論：'
+                .'存貨增加但營收下滑且收款天數拉長，較像塞貨或去化不良。'],
+            $assessment->proxySignals,
+            '旗標為 true 但當季無組成可讀時，必須回落代理矩陣而非輸出空陣列',
         );
     }
 
