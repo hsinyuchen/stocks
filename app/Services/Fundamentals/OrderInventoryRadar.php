@@ -5,6 +5,7 @@ namespace App\Services\Fundamentals;
 use App\Data\OrderInventoryAssessment;
 use App\Data\OrderInventoryData;
 use App\Data\OrderInventoryMetrics;
+use App\Data\QuarterlyFinancials;
 use App\Enums\OrderInventoryRating;
 use Carbon\CarbonImmutable;
 
@@ -207,6 +208,7 @@ class OrderInventoryRadar
             'industryNote' => $industry['note'],
             'freshness' => $freshness,
             'missingForA' => $this->missingForA(),
+            'fixedCaveats' => (array) config('order_inventory.narrative.fixed_caveats', []),
             'previousRating' => $previousRating,
             'ratingChange' => $this->ratingChange($rating, $previousRating),
         ], $extra));
@@ -231,7 +233,141 @@ class OrderInventoryRadar
                 $metrics->grossMarginQoqPp,
                 (array) config('order_inventory.thresholds', []),
             ),
+            'counterEvidence' => $this->counterEvidence($metrics, $conditions, $peerRevenueGrowthMedian),
+            'proxySignals' => $this->inventoryCompositionSignals($data, $metrics),
         ]);
+    }
+
+    /**
+     * 依實際數據觸發的反證。框架第 8 節要求每次評級至少列一項可能推翻結論的證據——
+     * 只講支持結論的訊號，等於把分析變成事後合理化。
+     *
+     * @param  array<string, ?bool>  $conditions
+     * @return list<string>
+     */
+    private function counterEvidence(
+        OrderInventoryMetrics $m,
+        array $conditions,
+        ?float $peerRevenueGrowthMedian,
+    ): array {
+        $evidence = [];
+
+        if ($m->relatedPartyPayableShareQoqPp !== null && $m->relatedPartyPayableShareQoqPp > 0.0) {
+            $evidence[] = 'related_party_payables_rising';
+        }
+
+        // 同業與自身同步走弱：這是產業現象，不是公司特定的備料訊號。
+        if ($peerRevenueGrowthMedian !== null && $peerRevenueGrowthMedian <= 0.0
+            && $m->revenueYoy !== null && $m->revenueYoy <= 0.0) {
+            $evidence[] = 'peer_wide_deterioration';
+        }
+
+        if ($m->inventoriesQoq !== null && $m->inventoriesQoq > 0.0
+            && $m->revenueQoq !== null && $m->revenueQoq <= 0.0) {
+            $evidence[] = 'inventory_up_revenue_flat';
+        }
+
+        if (($conditions['C9'] ?? null) === true && $m->revenueYoy !== null && $m->revenueYoy <= 0.0) {
+            $evidence[] = 'capex_up_revenue_flat';
+        }
+
+        return $evidence;
+    }
+
+    /**
+     * 存貨組成訊號。**兩市場的確定性層級不同，措辭必須分開。**
+     *
+     * 台股的財報附註未公開於資料源，只能從「存貨／應付／營收／DSO／合約負債」的
+     * 組合推方向，因此固定冠上不確定性前綴；美股有實際的原料／在製品／製成品
+     * 數字，直接讀。把兩者寫成一樣，會讓使用者把推論當實測——設計文件把這列為
+     * 本功能的第二號風險。
+     *
+     * @return list<string>
+     */
+    private function inventoryCompositionSignals(
+        OrderInventoryData $data,
+        OrderInventoryMetrics $m,
+    ): array {
+        $latest = $data->latestQuarter();
+
+        if ($data->inventoryCompositionAvailable && $latest !== null) {
+            return $this->actualCompositionSignals($data, $latest);
+        }
+
+        // 存貨沒有增加時，這個矩陣沒有可談的東西——硬給方向是編造。
+        if ($m->inventoriesQoq === null || $m->inventoriesQoq <= 0.0) {
+            return [];
+        }
+
+        $readings = [];
+
+        if ($m->dpoChangeDays !== null && $m->dpoChangeDays > 0.0) {
+            $readings[] = '存貨與應付帳款同步增加，較像提前備料。';
+        }
+
+        if ($m->revenueQoq !== null && $m->revenueQoq < 0.0
+            && $m->dsoChangeDays !== null && $m->dsoChangeDays > 0.0) {
+            $readings[] = '存貨增加但營收下滑且收款天數拉長，較像塞貨或去化不良。';
+        }
+
+        if ($m->contractLiabilitiesQoq !== null && $m->contractLiabilitiesQoq > 0.0) {
+            $readings[] = '存貨與合約負債同步增加，有未來履約能見度。';
+        }
+
+        if ($readings === []) {
+            return [];
+        }
+
+        return [(string) config('order_inventory.narrative.proxy_prefix').implode('', $readings)];
+    }
+
+    /**
+     * 美股：直接讀財報揭露的存貨組成。原料與在製品增加而製成品未堆高，
+     * 是框架 A 級條件之一的實測依據（但仍缺訂單公告，故評級仍封頂 B+）。
+     *
+     * @return list<string>
+     */
+    private function actualCompositionSignals(
+        OrderInventoryData $data,
+        QuarterlyFinancials $latest,
+    ): array {
+        $base = null;
+
+        foreach ($data->quarters as $q) {
+            if ($q->period !== $latest->period) {
+                $base = $q;
+            }
+        }
+
+        if ($base === null) {
+            return [];
+        }
+
+        $lines = [];
+
+        foreach ([
+            ['原料', $latest->inventoryRawMaterials, $base->inventoryRawMaterials],
+            ['在製品', $latest->inventoryWorkInProcess, $base->inventoryWorkInProcess],
+            ['製成品', $latest->inventoryFinishedGoods, $base->inventoryFinishedGoods],
+        ] as [$label, $current, $previous]) {
+            if ($current === null || $previous === null) {
+                continue;
+            }
+
+            $lines[] = sprintf(
+                '%s%s（%s → %s）',
+                $label,
+                match (true) {
+                    $current > $previous => '增加',
+                    $current < $previous => '減少',
+                    default => '持平',
+                },
+                number_format($previous),
+                number_format($current),
+            );
+        }
+
+        return $lines === [] ? [] : ['存貨組成（財報揭露實測值）：'.implode('、', $lines)];
     }
 
     /**
