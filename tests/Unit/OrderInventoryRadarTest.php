@@ -702,7 +702,32 @@ class OrderInventoryRadarTest extends TestCase
                 $assessment->rating->value,
                 "{$bad}：壞日期不得靜默把標的判成資料過舊",
             );
+            // 修正 4：freshness 三個欄位靜默降級之外，還要有一條使用者看得到的
+            // 提示講清楚「這份判斷沒有時效依據」，不能只靠沒人讀的旗標。
+            $this->assertContains(
+                (string) config('order_inventory.narrative.quarter_end_date_unparseable'),
+                $assessment->fixedCaveats,
+                "{$bad}：日期解析失敗要主動講，不能靜默",
+            );
         }
+    }
+
+    #[Test]
+    public function the_unparseable_date_caveat_is_absent_when_there_is_no_quarter_at_all(): void
+    {
+        // 修正 4 的區分：period 也是 null（根本沒有季報）不是「日期壞掉」，
+        // 那條路徑早就在串聯 0 判成 insufficient；不該把「沒有季報」誤講成
+        // 「季末日期格式無法判讀」，兩者原因不同。
+        $assessment = $this->radar()->assess(
+            new OrderInventoryData(quarters: [], market: 'tw', industry: '半導體業'),
+        );
+
+        $this->assertSame('insufficient', $assessment->rating->value);
+        $this->assertNotContains(
+            (string) config('order_inventory.narrative.quarter_end_date_unparseable'),
+            $assessment->fixedCaveats,
+            '沒有季報不是日期壞掉，不該追加這條提示',
+        );
     }
 
     #[Test]
@@ -821,6 +846,47 @@ class OrderInventoryRadarTest extends TestCase
         $this->assertCount(4, $assessment->missingForA);
         $this->assertStringContainsString('財報附註', $joined);
         $this->assertStringContainsString('SEC 8-K', $joined, '來源仍要依市場分流');
+    }
+
+    #[Test]
+    public function the_a_grade_checklist_is_not_satisfied_by_the_proxy_matrix_firing(): void
+    {
+        // 修正 1：missingForA() 的第二個參數必須是「實測組成訊號」
+        // （actualCompositionSignals() 的輸出），不能換成「最終 proxySignals」——
+        // 兩者只有在代理矩陣完全靜默時才等價。這裡的 fixture 讓代理矩陣真的開火
+        // （contractLiabilitiesFromZero 觸發 proxy_visibility），但完全沒有原料／
+        // 在製品／製成品資料，實測組成讀不到。若誤用最終 proxySignals 判準，會把
+        // 「有代理推論」誤讀成「有實測值」，錯誤地把財報附註那一項從查證清單刪掉——
+        // 使用者會被系統告知「存貨組成不是缺口」，但看到的其實只是代理推論。
+        $data = new OrderInventoryData(
+            quarters: [
+                new QuarterlyFinancials(
+                    period: '2026Q1',
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 300.0,
+                    contractLiabilities: 0.0,
+                ),
+                new QuarterlyFinancials(
+                    period: '2026Q2',
+                    endDate: now()->toDateString(),
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 400.0,
+                    contractLiabilities: 100.0,
+                ),
+            ],
+            market: 'tw',
+            industry: '半導體業',
+            inventoryCompositionAvailable: true,
+        );
+
+        $assessment = $this->radar()->assess($data);
+        $joined = implode("\n", $assessment->missingForA);
+
+        $this->assertNotEmpty($assessment->proxySignals, '前提：代理矩陣確實開火（合約負債從無到有）');
+        $this->assertCount(4, $assessment->missingForA, '實測組成讀不到，財報附註那一項仍是缺口');
+        $this->assertStringContainsString('財報附註', $joined);
     }
 
     /**

@@ -244,12 +244,18 @@ class OrderInventoryRadar
     }
 
     /**
-     * 固定提示，外加依資料狀況追加的說明。
+     * 提示清單：config 的固定條目，外加依資料狀況追加的說明；長度不固定，
+     * 一律全部渲染。
      *
-     * 台股月營收沒抓到時，revenueGrowthStreak() 會靜默退回季基準，C1 於是改用
-     * 美股的季門檻去判一檔台股。OrderInventoryMetrics 有輸出 revenueGrowthDegraded
-     * 這個旗標，但旗標要消費端記得去讀才有用——把它講進使用者看得到的提示，
-     * 比寄望每個消費端都想起來可靠。
+     * 兩條追加規則同一個哲學：旗標沒人讀就等於沒發生，直接把降級寫進使用者
+     * 看得到的提示，不寄望每個消費端都記得去讀 OrderInventoryMetrics 的旗標。
+     *
+     * - 台股月營收沒抓到時，revenueGrowthStreak() 會靜默退回季基準，C1 於是
+     *   改用美股的季門檻去判一檔台股（見 revenueGrowthDegraded）。
+     * - 季末日期解析失敗時，freshness() 會把 as_of／lagging／too_old 靜默降級成
+     *   null／false／false，評級照常走完但沒有任何欄位講「這份判斷沒有時效
+     *   依據」。只在「有季報但日期壞掉」時追加——latestPeriod === null（根本
+     *   沒有季報）走的是串聯 0 的另一半，那裡已經是 insufficient，不重複判斷。
      *
      * @return list<string>
      */
@@ -259,6 +265,10 @@ class OrderInventoryRadar
 
         if ($m->revenueGrowthDegraded) {
             $caveats[] = (string) config('order_inventory.narrative.revenue_basis_degraded');
+        }
+
+        if ($m->latestPeriod !== null && $m->latestEndDate !== null && $this->parseDate($m->latestEndDate) === null) {
+            $caveats[] = (string) config('order_inventory.narrative.quarter_end_date_unparseable');
         }
 
         return $caveats;
@@ -401,6 +411,15 @@ class OrderInventoryRadar
      * - 「持續」：沿用 C1 的 revenue_streak_months，不另設一把較鬆的尺。同一份
      *   報告裡「營收動能成立」與「月營收持續成長」若用不同門檻，會出現 C1 不成立
      *   卻照樣宣稱持續成長的自相矛盾。
+     *
+     * `$m->revenueGrowthBasis !== 'monthly'` 這條腿目前已被下面的日期守衛完全
+     * 涵蓋：OrderInventoryMetricsCalculator::revenueGrowthStreak() 保證
+     * basis === 'quarterly' 時 latestRevenueMonth 恆為 null（三個 return 全部
+     * 如此，見該方法與 OrderInventoryMetricsCalculatorTest::
+     * the_quarterly_basis_never_reports_a_revenue_month），$month 必為 null，
+     * 日期守衛必定先擋下。也就是說 basis 檢查在目前的計算層保證下是不可達的
+     * 死條件，保留純屬防禦性——OrderInventoryMetrics 是公開 DTO，未來新
+     * basis 或計算層改法都可能讓這條腿重新變得可達。
      */
     private function revenueMomentumAfterQuarter(OrderInventoryMetrics $m): bool
     {
@@ -474,6 +493,16 @@ class OrderInventoryRadar
      * 美股：直接讀財報揭露的存貨組成。原料與在製品增加而製成品未堆高，
      * 是框架 A 級條件之一的實測依據（但仍缺訂單公告，故評級仍封頂 B+）。
      *
+     * 這個方法本身只看三個組成欄位有無值，不判斷 market 或
+     * inventoryCompositionAvailable——呼叫端（inventoryCompositionSignals()）
+     * 早期版本曾經用 inventoryCompositionAvailable 旗標先閘門一次才呼叫這裡，
+     * 修正 2（見 01b6cf2）拿掉了那層閘門，判準改成完全看這裡實際算不算得出來。
+     * 拿掉閘門後「台股是代理推論、美股才有實測值」這條約束不再由 Radar 的判斷
+     * 邏輯保證，而是改由上游 provider 保證：FinMindFundamentalsProvider 對
+     * 台股寫死 inventoryCompositionAvailable: false 且從不填
+     * inventoryRawMaterials／inventoryWorkInProcess／inventoryFinishedGoods
+     * 三個欄位，這裡自然算不出任何一列。
+     *
      * @return list<string>
      */
     private function actualCompositionSignals(
@@ -501,7 +530,7 @@ class OrderInventoryRadar
             }
 
             $lines[] = sprintf(
-                '%s%s（%s → %s）',
+                (string) config('order_inventory.narrative.composition_line_format'),
                 (string) $labels[$key],
                 (string) $directions[match (true) {
                     $current > $previous => 'up',

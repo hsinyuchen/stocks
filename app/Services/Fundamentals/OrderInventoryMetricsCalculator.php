@@ -203,6 +203,14 @@ class OrderInventoryMetricsCalculator
      * 最新一期的 YoY 無從評估（沒有去年同期基期）時整項回 null，不是 0——
      * 0 的意思是「評估過，未成長」，兩者對下游的判斷完全不同。
      *
+     * **不變量**：沒有月營收時（:217 之後）的每一個 return（:224、:240、:251）
+     * 一律把回傳陣列第三個元素（latestRevenueMonth）回成 null，包含兩個
+     * basis==='quarterly' 的出口（:240、:251）。basis === 'quarterly' 因此
+     * ⟹ latestRevenueMonth === null，這是 OrderInventoryRadar::
+     * revenueMomentumAfterQuarter() 的日期守衛能擋下「季度基準卻宣稱月營收
+     * 持續成長」的根本原因——見該方法 docblock。改動這幾個 return 前先讀
+     * OrderInventoryMetricsCalculatorTest::the_quarterly_basis_never_reports_a_revenue_month。
+     *
      * @return array{0: ?int, 1: string, 2: ?string}
      */
     private function revenueGrowthStreak(OrderInventoryData $data): array

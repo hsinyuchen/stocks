@@ -576,6 +576,45 @@ class OrderInventoryMetricsCalculatorTest extends TestCase
     }
 
     #[Test]
+    public function the_quarterly_basis_never_reports_a_revenue_month(): void
+    {
+        // 修正 2：這是「basis === 'quarterly' ⟹ latestRevenueMonth === null」
+        // 這個不變量真正的所在地。OrderInventoryRadar::revenueMomentumAfterQuarter()
+        // 的日期守衛正是靠這件事才擋得住「季度基準卻宣稱月營收持續成長」的
+        // 自相矛盾——Radar 層的回歸測試現在測不到這條腿，因為生產上
+        // basis==='quarterly' 必然伴隨 latestRevenueMonth===null，守衛必定先
+        // 擋下，那條腿在整個測試套件裡已不具鑑別力。真正該守的是這裡。
+        //
+        // 季度分支有兩個 return 落點都要覆蓋：YoY 基期缺席時提前返回
+        // （$earlyReturn，見 revenueGrowthStreak() 的 change === null 分支），
+        // 以及成長停止後跑到迴圈外的收尾 return（$loopExit）。
+
+        $earlyReturn = (new OrderInventoryMetricsCalculator)->calculate(new OrderInventoryData(
+            quarters: [
+                // 缺 2025Q1：2026Q1 的 YoY 基期無從得知，streak 已有 1 時觸發提前 return。
+                $this->quarter('2025Q2', ['revenue' => 900.0]),
+                $this->quarter('2026Q1', ['revenue' => 990.0]),
+                $this->quarter('2026Q2', ['revenue' => 1000.0]),
+            ],
+            market: 'us',
+        ));
+        $this->assertSame('quarterly', $earlyReturn->revenueGrowthBasis);
+        $this->assertSame(1, $earlyReturn->revenueGrowthStreak);
+        $this->assertNull($earlyReturn->latestRevenueMonth, 'YoY 基期缺席的提前 return 也必須把月份回成 null');
+
+        $loopExit = (new OrderInventoryMetricsCalculator)->calculate(new OrderInventoryData(
+            quarters: [
+                $this->quarter('2025Q1', ['revenue' => 1000.0]),
+                $this->quarter('2026Q1', ['revenue' => 1000.0]),
+            ],
+            market: 'us',
+        ));
+        $this->assertSame('quarterly', $loopExit->revenueGrowthBasis);
+        $this->assertSame(0, $loopExit->revenueGrowthStreak, '持平不成長，streak 停在 0');
+        $this->assertNull($loopExit->latestRevenueMonth, '迴圈跑完退出的收尾 return 也必須把月份回成 null');
+    }
+
+    #[Test]
     public function it_reports_the_basis_as_none_when_neither_series_supports_a_streak(): void
     {
         $m = (new OrderInventoryMetricsCalculator)->calculate(

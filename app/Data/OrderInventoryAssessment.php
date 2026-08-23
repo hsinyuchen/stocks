@@ -18,8 +18,8 @@ final readonly class OrderInventoryAssessment
      * @param  array{as_of: ?string, period: ?string, revenue_month: ?string, lagging: bool, too_old: bool}  $freshness
      * @param  list<string>  $missingForA  升到 A 還缺什麼（人工查證清單）
      * @param  list<string>  $counterEvidence  依數據觸發的反證
-     * @param  list<string>  $fixedCaveats  固定提示，需人工判斷
-     * @param  list<string>  $proxySignals  台股存貨組成的代理推論
+     * @param  list<string>  $fixedCaveats  提示清單：config 的固定條目，外加依資料狀況追加的說明；長度不固定，一律全部渲染
+     * @param  list<string>  $proxySignals  存貨組成訊號：這一季讀得到實測值（目前只有美股）就用實測值，讀不到才回落代理推論（台股恆走這條，美股也可能因缺季而走這條）
      * @param  string  $ratingChange  'first'｜'unchanged'｜'upgraded'｜'downgraded'
      */
     public function __construct(

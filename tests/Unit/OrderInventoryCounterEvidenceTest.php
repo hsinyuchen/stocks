@@ -416,6 +416,15 @@ class OrderInventoryCounterEvidenceTest extends TestCase
         // 'quarterly' 而非 'none'。上一輪唯一那條「月營收無從評估」的測試只用 2 個季度，
         // quarterAt(-4) 直接缺季而落到 basis === 'none'，沒有覆蓋這個中間態：
         // 條件若誤寫成 !== 'none'，這裡才會抓到。
+        //
+        // 這裡守的其實是計算層的 basis 標記，不是 Radar 的 `!== 'monthly'` 判斷：
+        // OrderInventoryMetricsCalculator::revenueGrowthStreak() 保證
+        // basis === 'quarterly' ⟹ latestRevenueMonth === null，Radar 的日期守衛
+        // 必定先擋下（見 revenueMomentumAfterQuarter() docblock），所以拿掉
+        // Radar 那條 basis 檢查本身不會讓這裡轉紅——那個不變量的回歸測試在
+        // OrderInventoryMetricsCalculatorTest::the_quarterly_basis_never_reports_a_revenue_month。
+        // 這裡驗證的是「basis 真的落在 quarterly 時，代理矩陣不會誤講月營收成長」
+        // 這個端到端行為，兩條測試分工，不是同一件事的重複。
         $quarters = [
             new QuarterlyFinancials(period: '2025Q2', revenue: 1000.0, costOfGoodsSold: 700.0, inventories: 350.0, accountsPayable: 280.0),
             new QuarterlyFinancials(period: '2025Q3', revenue: 1000.0, costOfGoodsSold: 700.0, inventories: 350.0, accountsPayable: 280.0),

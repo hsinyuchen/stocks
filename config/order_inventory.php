@@ -246,6 +246,13 @@ return [
         'actual_composition_prefix' => '存貨組成（財報揭露實測值，%s → %s）：',
 
         /*
+         * 存貨組成單一科目的呈現格式。四個 %s 依序是「科目標籤」「方向詞」
+         * 「基期數字」「最新數字」。全形括號與箭頭是呈現決定而非邏輯，
+         * 理由同 proxy_separator／proxy_terminator，一併放 config。
+         */
+        'composition_line_format' => '%s%s（%s → %s）',
+
+        /*
          * 存貨組成的科目標籤與方向詞。鍵對應 QuarterlyFinancials 的三個組成欄位
          * 與「本期 vs 基期」的三種比較結果。
          */
@@ -293,6 +300,15 @@ return [
          * 看得到的提示比較可靠。
          */
         'revenue_basis_degraded' => '本次未取得月營收，營收動能改以季營收年增判定，連續期數的門檻與月營收基準不同（需人工判斷）',
+
+        /*
+         * 季末日期壞值時追加的提示。與 revenue_basis_degraded 同一個哲學：
+         * 評級照常走完、freshness 的 as_of／lagging／too_old 靜默降級成
+         * null／false／false，旗標沒人讀就等於沒發生，直接寫進使用者看得到
+         * 的提示。只在「有季報但日期解析失敗」時追加，「根本沒有季報」
+         * （latestPeriod === null）走的是串聯 0 的另一半，不重複判斷。
+         */
+        'quarter_end_date_unparseable' => '本次季末日期格式無法判讀，無法判定財報時效與是否落後（需人工判斷）',
 
         'fixed_caveats' => [
             '物料價格波動可能讓存貨金額變動與實際數量脫鉤（需人工判斷）',
