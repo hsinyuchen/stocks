@@ -750,15 +750,52 @@ class OrderInventoryRadarTest extends TestCase
     public function it_always_lists_what_is_missing_for_an_a_grade(): void
     {
         $assessment = $this->radar()->assess($this->ratableData());
+        $joined = implode("\n", $assessment->missingForA);
 
         // 修正 6：assertNotEmpty 被 assertCount(4) 完全涵蓋是冗餘的；
         // 只數個數也守不住內容——四項只要維持四項，內容改成什麼都不會轉紅。
-        $this->assertCount(4, $assessment->missingForA, '四項可執行的人工查證清單');
+        $this->assertCount(4, $assessment->missingForA, '台股四項：制度上另缺存貨組成');
         $this->assertStringContainsString(
             '存貨組成',
             $assessment->missingForA[0],
             '這份清單的內容本身要被驗證，不只是數量',
         );
+        $this->assertStringContainsString('公開資訊觀測站', $joined, '台股的訂單公告來源是 MOPS');
+        $this->assertStringNotContainsString('SEC', $joined, 'SEC 是美股制度，對台股是錯的指引');
+    }
+
+    #[Test]
+    public function the_a_grade_checklist_drops_inventory_composition_when_the_quarter_discloses_it(): void
+    {
+        // 這份清單原本是台股形狀的固定四項，套在美股上自相矛盾：系統剛把存貨組成
+        // 的實測數字印給使用者，下一行卻叫使用者自己去財報附註查同一件事。
+        $assessment = $this->radar()->assess($this->usDataWithComposition());
+        $joined = implode("\n", $assessment->missingForA);
+
+        $this->assertNotEmpty($assessment->proxySignals, '前提：這一季的實測組成真的讀得到');
+        $this->assertCount(3, $assessment->missingForA, '實測值已輸出，存貨組成那一項不再是缺口');
+        $this->assertStringNotContainsString('財報附註', $joined);
+        $this->assertStringNotContainsString(
+            '公開資訊觀測站',
+            $joined,
+            '公開資訊觀測站是台股 MOPS，對美股標的是錯的指引',
+        );
+        $this->assertStringContainsString('SEC 8-K', $joined, '美股的訂單公告來源是 8-K 與公司 IR 網站');
+    }
+
+    #[Test]
+    public function the_a_grade_checklist_keeps_inventory_composition_when_this_quarter_lacks_it(): void
+    {
+        // 「可讀」的判準必須與 actualCompositionSignals() 實際輸出的條件一致，
+        // 不是 inventoryCompositionAvailable 旗標——這裡旗標為 true，但 QoQ 基期
+        // 缺季（2026Q1 沒有 frame）讓實測值算不出來，那一項就仍然是缺口。
+        $assessment = $this->radar()->assess($this->usDataWithComposition(basePeriod: '2025Q4'));
+        $joined = implode("\n", $assessment->missingForA);
+
+        $this->assertSame([], $assessment->proxySignals, '前提：這一季的實測組成讀不到');
+        $this->assertCount(4, $assessment->missingForA);
+        $this->assertStringContainsString('財報附註', $joined);
+        $this->assertStringContainsString('SEC 8-K', $joined, '來源仍要依市場分流');
     }
 
     /**
@@ -792,6 +829,39 @@ class OrderInventoryRadarTest extends TestCase
             )],
             market: 'tw',
             industry: '半導體業',
+        );
+    }
+
+    /**
+     * 美股序列，兩季都揭露存貨組成。basePeriod 傳非相鄰季（如 '2025Q4'）即可製造
+     * 「旗標為 true 但這一季的實測值算不出來」的情境。
+     */
+    private function usDataWithComposition(string $basePeriod = '2026Q1'): OrderInventoryData
+    {
+        return new OrderInventoryData(
+            quarters: [
+                new QuarterlyFinancials(
+                    period: $basePeriod,
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 350.0,
+                    inventoryRawMaterials: 100.0,
+                    inventoryWorkInProcess: 150.0,
+                    inventoryFinishedGoods: 100.0,
+                ),
+                new QuarterlyFinancials(
+                    period: '2026Q2',
+                    endDate: now()->toDateString(),
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 500.0,
+                    inventoryRawMaterials: 200.0,
+                    inventoryWorkInProcess: 200.0,
+                    inventoryFinishedGoods: 100.0,
+                ),
+            ],
+            market: 'us',
+            inventoryCompositionAvailable: true,
         );
     }
 

@@ -212,7 +212,7 @@ class OrderInventoryRadar
             'industryBucket' => $industry['bucket'],
             'industryNote' => $industry['note'],
             'freshness' => $freshness,
-            'missingForA' => $this->missingForA(),
+            'missingForA' => $this->missingForA($data, $compositionSignals !== []),
             'fixedCaveats' => (array) config('order_inventory.narrative.fixed_caveats', []),
             'previousRating' => $previousRating,
             'ratingChange' => $this->ratingChange($rating, $previousRating),
@@ -357,8 +357,12 @@ class OrderInventoryRadar
         }
 
         // 句號在組裝時統一補，config 的文案本身不帶句號——可讀性不該依賴
-        // 每個人新增文案時都記得加標點。
-        return [$this->proxyPrefix($data).implode('。', $readings).'。'];
+        // 每個人新增文案時都記得加標點。分隔符本身也是呈現決定，一併放 config。
+        return [
+            $this->proxyPrefix($data)
+                .implode((string) config('order_inventory.narrative.proxy_separator'), $readings)
+                .(string) config('order_inventory.narrative.proxy_terminator'),
+        ];
     }
 
     /**
@@ -458,25 +462,27 @@ class OrderInventoryRadar
             return [];
         }
 
+        $labels = (array) config('order_inventory.narrative.composition_labels', []);
+        $directions = (array) config('order_inventory.narrative.composition_directions', []);
         $lines = [];
 
         foreach ([
-            ['原料', $latest->inventoryRawMaterials, $previousQuarter->inventoryRawMaterials],
-            ['在製品', $latest->inventoryWorkInProcess, $previousQuarter->inventoryWorkInProcess],
-            ['製成品', $latest->inventoryFinishedGoods, $previousQuarter->inventoryFinishedGoods],
-        ] as [$label, $current, $previous]) {
+            ['raw_materials', $latest->inventoryRawMaterials, $previousQuarter->inventoryRawMaterials],
+            ['work_in_process', $latest->inventoryWorkInProcess, $previousQuarter->inventoryWorkInProcess],
+            ['finished_goods', $latest->inventoryFinishedGoods, $previousQuarter->inventoryFinishedGoods],
+        ] as [$key, $current, $previous]) {
             if ($current === null || $previous === null) {
                 continue;
             }
 
             $lines[] = sprintf(
                 '%s%s（%s → %s）',
-                $label,
-                match (true) {
-                    $current > $previous => '增加',
-                    $current < $previous => '減少',
-                    default => '持平',
-                },
+                (string) $labels[$key],
+                (string) $directions[match (true) {
+                    $current > $previous => 'up',
+                    $current < $previous => 'down',
+                    default => 'flat',
+                }],
                 number_format($previous),
                 number_format($current),
             );
@@ -490,7 +496,7 @@ class OrderInventoryRadar
             (string) config('order_inventory.narrative.actual_composition_prefix'),
             $previousQuarter->period,
             $latest->period,
-        ).implode('、', $lines)];
+        ).implode((string) config('order_inventory.narrative.composition_separator'), $lines)];
     }
 
     /**
@@ -597,15 +603,34 @@ class OrderInventoryRadar
      * 升到 A 還缺什麼。框架的 A 級要求六個條件，系統拿不到其中兩類，
      * 因此固定輸出這份**可執行的人工查證清單**，而不是含糊說「資料不足」。
      *
+     * 清單不是台股形狀的固定四項：
+     *
+     * - 存貨組成只有台股制度上拿不到（財報附註未公開於資料源）。美股該季讀得到
+     *   實測值時，系統剛把數字印給使用者，再叫使用者去財報附註查同一件事是自相
+     *   矛盾。設計文件的「美股例外」講的就是這件事。判準用實測訊號是否真的算得
+     *   出來（見 assess() 的 $compositionSignals），**不是**
+     *   inventoryCompositionAvailable 旗標——那個旗標問的是別的問題。
+     * - 訂單公告的查證來源依市場分流：公開資訊觀測站是台股 MOPS，對美股標的
+     *   要指向 SEC 8-K 與公司 IR 網站。
+     *
+     * @param  bool  $compositionReadable  這一季的存貨組成實測值讀得到
      * @return list<string>
      */
-    private function missingForA(): array
+    private function missingForA(OrderInventoryData $data, bool $compositionReadable): array
     {
-        return [
-            '查財報附註的存貨組成（原料／在製品／製成品的消長方向）',
-            '查公開資訊觀測站的訂單公告與重大訊息',
-            '查最近一次法說會簡報的展望與產能規劃',
-            '找上下游供應鏈與同業財報交叉驗證',
-        ];
+        $n = (array) config('order_inventory.narrative.missing_for_a', []);
+        $items = [];
+
+        if (! $compositionReadable) {
+            $items[] = (string) $n['inventory_composition'];
+        }
+
+        $items[] = (string) ($data->market === 'us'
+            ? $n['order_announcements_us']
+            : $n['order_announcements_tw']);
+        $items[] = (string) $n['earnings_call'];
+        $items[] = (string) $n['supply_chain'];
+
+        return $items;
     }
 }

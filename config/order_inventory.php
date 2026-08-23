@@ -245,6 +245,45 @@ return [
          */
         'actual_composition_prefix' => '存貨組成（財報揭露實測值，%s → %s）：',
 
+        /*
+         * 存貨組成的科目標籤與方向詞。鍵對應 QuarterlyFinancials 的三個組成欄位
+         * 與「本期 vs 基期」的三種比較結果。
+         */
+        'composition_labels' => [
+            'raw_materials' => '原料',
+            'work_in_process' => '在製品',
+            'finished_goods' => '製成品',
+        ],
+        'composition_directions' => [
+            'up' => '增加',
+            'down' => '減少',
+            'flat' => '持平',
+        ],
+
+        /*
+         * 分隔符。呈現決定而非邏輯，同樣屬於「面向使用者的字串」——
+         * separator 接在條目之間，terminator 補在整段最後。
+         */
+        'composition_separator' => '、',
+        'proxy_separator' => '。',
+        'proxy_terminator' => '。',
+
+        /*
+         * 升到 A 還缺什麼。框架的 A 級要求六個條件，系統拿不到其中兩類。
+         *
+         * inventory_composition 只對台股固定成立：台股的財報附註未公開於資料源，
+         * 美股則有實際的原料／在製品／製成品數字，該季讀得到時這一項不是缺口。
+         * 訂單公告的查證來源依市場分流——公開資訊觀測站是台股 MOPS，
+         * 對美股標的講 MOPS 是錯的指引。
+         */
+        'missing_for_a' => [
+            'inventory_composition' => '查財報附註的存貨組成（原料／在製品／製成品的消長方向）',
+            'order_announcements_tw' => '查公開資訊觀測站的訂單公告與重大訊息',
+            'order_announcements_us' => '查 SEC 8-K 與公司 IR 網站的訂單公告與重大訊息',
+            'earnings_call' => '查最近一次法說會簡報的展望與產能規劃',
+            'supply_chain' => '找上下游供應鏈與同業財報交叉驗證',
+        ],
+
         'fixed_caveats' => [
             '物料價格波動可能讓存貨金額變動與實際數量脫鉤（需人工判斷）',
             '匯率變動可能影響以外幣計價的存貨與應收應付（需人工判斷）',
