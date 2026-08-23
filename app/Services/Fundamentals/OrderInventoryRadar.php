@@ -348,7 +348,11 @@ class OrderInventoryRadar
             $readings[] = (string) config('order_inventory.narrative.proxy_channel_stuffing');
         }
 
-        if ($m->contractLiabilitiesQoq !== null && $m->contractLiabilitiesQoq > 0.0) {
+        // contractLiabilitiesFromZero 不可漏：基期為 0 時比率數學上無定義，
+        // contractLiabilitiesQoq 維持 null，只看比率會讓這一列在它最強的
+        // case（預收款從無到有）靜默棄權。與 C6 的 contractLiabilitiesUp() 同處理。
+        if (($m->contractLiabilitiesQoq !== null && $m->contractLiabilitiesQoq > 0.0)
+            || $m->contractLiabilitiesFromZero) {
             $readings[] = (string) config('order_inventory.narrative.proxy_visibility');
         }
 

@@ -489,6 +489,29 @@ class OrderInventoryCounterEvidenceTest extends TestCase
     }
 
     #[Test]
+    public function the_visibility_reading_also_fires_when_contract_liabilities_go_from_zero(): void
+    {
+        // 合約負債基期為 0 時比率無定義，contractLiabilitiesQoq 維持 null——
+        // 只看比率會讓矩陣第三列在它**最強**的 case（預收款從無到有）靜默棄權。
+        // C6 已經消費 contractLiabilitiesFromZero，這裡與 C6 的處理一致。
+        $assessment = (new OrderInventoryRadar)->assess($this->data(
+            latest: ['inventories' => 400.0, 'contractLiabilities' => 500.0],
+            base: ['inventories' => 300.0, 'contractLiabilities' => 0.0],
+        ));
+
+        $this->assertTrue($assessment->conditions['C6'], '前提：C6 已經認得「從無到有」');
+        $this->assertNull(
+            $assessment->metrics->contractLiabilitiesQoq,
+            '前提：基期為 0 時比率仍必須是 null，不編一個數字出來',
+        );
+        $this->assertSame(
+            ['存貨組成未知（財報附註未公開於資料源），以下為代理訊號推論：'
+                .'存貨與合約負債同步增加，有未來履約能見度。'],
+            $assessment->proxySignals,
+        );
+    }
+
+    #[Test]
     public function no_proxy_signals_when_inventory_did_not_rise(): void
     {
         // fixture 刻意讓兩條 reading 的條件全部成立（應付 280 → 400、月營收連正、
