@@ -213,7 +213,7 @@ class OrderInventoryRadar
             'industryNote' => $industry['note'],
             'freshness' => $freshness,
             'missingForA' => $this->missingForA($data, $compositionSignals !== []),
-            'fixedCaveats' => (array) config('order_inventory.narrative.fixed_caveats', []),
+            'fixedCaveats' => $this->fixedCaveats($metrics),
             'previousRating' => $previousRating,
             'ratingChange' => $this->ratingChange($rating, $previousRating),
         ], $extra));
@@ -241,6 +241,27 @@ class OrderInventoryRadar
             'counterEvidence' => $this->counterEvidence($metrics, $conditions, $peerRevenueGrowthMedian),
             'proxySignals' => $this->inventoryCompositionSignals($data, $metrics, $compositionSignals),
         ]);
+    }
+
+    /**
+     * 固定提示，外加依資料狀況追加的說明。
+     *
+     * 台股月營收沒抓到時，revenueGrowthStreak() 會靜默退回季基準，C1 於是改用
+     * 美股的季門檻去判一檔台股。OrderInventoryMetrics 有輸出 revenueGrowthDegraded
+     * 這個旗標，但旗標要消費端記得去讀才有用——把它講進使用者看得到的提示，
+     * 比寄望每個消費端都想起來可靠。
+     *
+     * @return list<string>
+     */
+    private function fixedCaveats(OrderInventoryMetrics $m): array
+    {
+        $caveats = array_values((array) config('order_inventory.narrative.fixed_caveats', []));
+
+        if ($m->revenueGrowthDegraded) {
+            $caveats[] = (string) config('order_inventory.narrative.revenue_basis_degraded');
+        }
+
+        return $caveats;
     }
 
     /**

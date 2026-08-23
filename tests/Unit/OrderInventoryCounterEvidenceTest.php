@@ -105,16 +105,34 @@ class OrderInventoryCounterEvidenceTest extends TestCase
         return $rows;
     }
 
+    /**
+     * config 裡那五條固定提示全部出現。用「逐條比對」而非只數個數，
+     * 因為 fixedCaveats 現在還會依資料狀況追加項目。
+     *
+     * @param  list<string>  $caveats
+     */
+    private function assertCarriesEveryFixedCaveat(array $caveats): void
+    {
+        foreach ((array) config('order_inventory.narrative.fixed_caveats') as $expected) {
+            $this->assertContains($expected, $caveats);
+        }
+
+        foreach ($caveats as $caveat) {
+            $this->assertStringContainsString('需人工判斷', $caveat);
+        }
+    }
+
     #[Test]
     public function the_fixed_caveats_are_always_present(): void
     {
-        $assessment = (new OrderInventoryRadar)->assess($this->data([]));
+        // 美股 fixture：月營收基準不適用美股，不會追加降級提示，
+        // 因此這裡是「只有固定五條」的乾淨基準。
+        $assessment = (new OrderInventoryRadar)->assess(
+            $this->data([], [], ['market' => 'us', 'industry' => null]),
+        );
 
         $this->assertCount(5, $assessment->fixedCaveats);
-
-        foreach ($assessment->fixedCaveats as $caveat) {
-            $this->assertStringContainsString('需人工判斷', $caveat);
-        }
+        $this->assertCarriesEveryFixedCaveat($assessment->fixedCaveats);
     }
 
     #[Test]
@@ -125,11 +143,7 @@ class OrderInventoryCounterEvidenceTest extends TestCase
         );
 
         $this->assertSame(OrderInventoryRating::Insufficient, $assessment->rating);
-        $this->assertCount(
-            5,
-            $assessment->fixedCaveats,
-            '固定提示不隨評級分支消失：拒絕評級時使用者更需要知道這些限制',
-        );
+        $this->assertCarriesEveryFixedCaveat($assessment->fixedCaveats);
     }
 
     #[Test]
@@ -140,7 +154,35 @@ class OrderInventoryCounterEvidenceTest extends TestCase
         );
 
         $this->assertSame(OrderInventoryRating::NotApplicable, $assessment->rating);
-        $this->assertCount(5, $assessment->fixedCaveats);
+        $this->assertCarriesEveryFixedCaveat($assessment->fixedCaveats);
+    }
+
+    #[Test]
+    public function a_taiwan_stock_without_monthly_revenue_is_told_which_basis_was_used(): void
+    {
+        // 台股月營收沒抓到時 basis 靜默退回 quarterly，C1 就改用美股的 2 季門檻
+        // 去判一檔台股，而輸出裡沒有任何一項提醒消費端「尺換了」。
+        // metrics->revenueGrowthDegraded 在整個 app/ 零消費，指望階段 3 記得去讀
+        // 不可靠——直接寫進使用者看得到的提示。
+        $assessment = (new OrderInventoryRadar)->assess($this->data([]));
+
+        $this->assertTrue($assessment->metrics->revenueGrowthDegraded, '前提：這組 fixture 確實降級');
+        $this->assertContains(
+            config('order_inventory.narrative.revenue_basis_degraded'),
+            $assessment->fixedCaveats,
+        );
+        $this->assertCarriesEveryFixedCaveat($assessment->fixedCaveats);
+    }
+
+    #[Test]
+    public function the_basis_caveat_is_absent_when_monthly_revenue_was_actually_used(): void
+    {
+        $assessment = (new OrderInventoryRadar)->assess(
+            $this->data([], [], ['monthlyRevenue' => self::growingMonthlyRevenue()]),
+        );
+
+        $this->assertFalse($assessment->metrics->revenueGrowthDegraded, '前提：這組 fixture 沒有降級');
+        $this->assertCount(5, $assessment->fixedCaveats, '沒降級就不該多出這一條');
     }
 
     #[Test]
