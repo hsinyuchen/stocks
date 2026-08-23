@@ -9,9 +9,13 @@ namespace App\Data;
  * 沒有 frame。缺季以該季不存在於 quarters 表示，呼叫端須容忍，**不得以鄰季
  * 補值**：補值會讓 QoQ 變動失真，而變動量正是本框架的判斷依據。
  *
- * inventoryCompositionAvailable 區分兩個市場的確定性層級：美股有實際的原料／
- * 在製品／製成品數字，台股只能用代理訊號推論。呈現時必須據此分別措辭，
- * 不可讓使用者以為兩者等價。
+ * inventoryCompositionAvailable 語意是「這檔標的的資料源整體上有沒有組成揭露
+ * （12 季視窗內任一季）」——不是「這一季有」。美股的組成標籤常只出現在年報
+ * frame，季報 frame 缺席是常態，最新季或 QoQ 基期只要缺一邊，這個旗標仍是
+ * true 而該季的實測值算不出來。**禁止用它判斷某一季是否可讀**，那要看
+ * OrderInventoryRadar::actualCompositionSignals() 的實際輸出（是否為空陣列）。
+ * 這個欄位目前在 app/ 內零消費，留著不是風險，誤讀成「這一季有」才是——見
+ * OrderInventoryRadar::missingForA() 的 $compositionReadable 參數文件。
  */
 final readonly class OrderInventoryData
 {
