@@ -589,12 +589,15 @@ class OrderInventoryRadar
     private function freshness(OrderInventoryMetrics $metrics, CarbonImmutable $now): array
     {
         $f = (array) config('order_inventory.freshness', []);
-        $age = $metrics->latestEndDate === null
-            ? null
-            : CarbonImmutable::parse($metrics->latestEndDate)->diffInDays($now);
+
+        // 壞日期一律視為「無時效資訊」：不拋例外（Radar 宣稱純計算，拋了會炸掉
+        // 整個 job），也不靜默判成過舊（'0000-00-00' 解得出來卻會讓評級變
+        // insufficient，使用者只會看到「資料過舊」而不知道真正的原因是格式壞掉）。
+        $endDate = $this->parseDate($metrics->latestEndDate);
+        $age = $endDate?->diffInDays($now);
 
         return [
-            'as_of' => $metrics->latestEndDate,
+            'as_of' => $endDate === null ? null : $metrics->latestEndDate,
             'period' => $metrics->latestPeriod,
             'revenue_month' => $metrics->latestRevenueMonth,
             'lagging' => $age !== null && $age > (int) $f['lagging_quarter_age_days'],

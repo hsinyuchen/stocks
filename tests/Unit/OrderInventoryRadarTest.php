@@ -681,6 +681,31 @@ class OrderInventoryRadarTest extends TestCase
     }
 
     #[Test]
+    public function a_malformed_quarter_end_date_carries_no_freshness_information(): void
+    {
+        // 上游（FinMindFundamentalsProvider、SecEdgarFinancialsProvider）對 endDate
+        // 只做 (string) 轉型、無格式驗證，值又會經 DB 的 JSON 欄位往返，壞值進得來。
+        // 三種壞值原本三種行為：'N/A' 拋 InvalidFormatException 炸掉 job
+        // （Radar 宣稱純計算，不該拋）、'0000-00-00' 被**靜默**判成資料過舊而讓
+        // 評級變 insufficient、'' 解成 now() 而看起來像最新資料。
+        foreach (['N/A', '0000-00-00', '2026-02-30', ''] as $bad) {
+            $assessment = $this->radar()->assess(
+                $this->dataWithEndDate($bad),
+                now: CarbonImmutable::parse('2026-08-22'),
+            );
+
+            $this->assertNull($assessment->freshness['as_of'], "{$bad}：沒有可信的季末日期就不宣稱有");
+            $this->assertFalse($assessment->freshness['lagging'], "{$bad}：無從判斷落後與否");
+            $this->assertFalse($assessment->freshness['too_old'], "{$bad}：無從判斷是否過舊");
+            $this->assertNotSame(
+                'insufficient',
+                $assessment->rating->value,
+                "{$bad}：壞日期不得靜默把標的判成資料過舊",
+            );
+        }
+    }
+
+    #[Test]
     public function negative_signals_report_dio_and_dso_rising_and_the_display_dates_are_real(): void
     {
         // 修正 5：negativeSignals 整段改成 [] 不會有任何測試轉紅——它是「為什麼
