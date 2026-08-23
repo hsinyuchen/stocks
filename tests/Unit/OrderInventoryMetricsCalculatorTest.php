@@ -694,4 +694,33 @@ class OrderInventoryMetricsCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(0.31, $m->grossMargin, 0.0001);
         $this->assertEqualsWithDelta(1.0, $m->grossMarginQoqPp, 0.0001, '百分點，不是比率');
     }
+
+    #[Test]
+    public function it_flags_operating_cash_flow_negative_only_when_it_is_actually_negative(): void
+    {
+        // 這個旗標在 OrderInventoryRadarTest 裡只被當成「直接塞進 DTO」的輸入
+        // 測 Radar 的分支，calculator 本身的填值（:104）一次都沒被覆蓋過——
+        // 曾實測 `< 0.0` 改 `> 0.0`、寫死 true、寫死 false 三種變異全部存活。
+        $negative = (new OrderInventoryMetricsCalculator)->calculate(new OrderInventoryData(
+            quarters: [$this->quarter('2026Q1', ['operatingCashFlow' => -50.0])],
+            market: 'tw',
+        ));
+        $this->assertTrue($negative->operatingCashFlowNegative, 'OCF 為負時旗標應為 true');
+
+        $positive = (new OrderInventoryMetricsCalculator)->calculate(new OrderInventoryData(
+            quarters: [$this->quarter('2026Q1', ['operatingCashFlow' => 180.0])],
+            market: 'tw',
+        ));
+        $this->assertFalse($positive->operatingCashFlowNegative, 'OCF 為正時旗標應為 false');
+
+        $undisclosed = (new OrderInventoryMetricsCalculator)->calculate(new OrderInventoryData(
+            quarters: [$this->quarter('2026Q1', ['operatingCashFlow' => null])],
+            market: 'tw',
+        ));
+        $this->assertFalse($undisclosed->operatingCashFlowNegative, 'OCF 未揭露時旗標仍是 false（與非負同形）');
+        // 這個安全性是 OrderInventoryMetrics::$operatingCashFlowNegative 的 docblock
+        // 明訂的前提：旗標同形不會誤傷 C8，是因為此時 ocfToNetIncome 也必須是
+        // null，讓 C8 靠這個欄位而非旗標本身正確回 null（不可評估）。
+        $this->assertNull($undisclosed->ocfToNetIncome, 'OCF 未揭露時比率也必須是 null，C8 才不會被旗標誤傷');
+    }
 }

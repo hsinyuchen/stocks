@@ -58,6 +58,12 @@ final readonly class OrderInventoryMetrics
         /**
          * OCF 為負。單看 ocfToNetIncome 會漏判——淨利同為負時比率變正，
          * 看起來健康，實際上是現金流與獲利同時惡化。
+         *
+         * 型別是 bool 而非 ?bool：「OCF 未揭露」與「OCF 非負」在此旗標上同形，
+         * 兩者皆為 false。這只在旗標僅供正向觸發（true 才代表惡化）時安全——
+         * OCF 為 null 時 calculator 保證此旗標 false 且 ocfToNetIncome 同為 null，
+         * 下游 C8 因此仍能靠 ocfToNetIncome 為 null 正確回 null，不會被此旗標
+         * 誤讀成「OCF ≥ 0」。
          */
         public bool $operatingCashFlowNegative = false,
     ) {}
