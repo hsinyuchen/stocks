@@ -19,7 +19,7 @@ class OrderInventoryMetricsCalculator
     /** 一季固定折算天數。 */
     private const DAYS_PER_QUARTER = 91;
 
-    /** 少於這個季數就不談「近 8 季平均」。 */
+    /** 有值的季度少於這個數就不談趨勢平均。 */
     private const MIN_TRAILING_SAMPLES = 4;
 
     public function calculate(OrderInventoryData $data): OrderInventoryMetrics
@@ -309,8 +309,12 @@ class OrderInventoryMetricsCalculator
     }
 
     /**
-     * CAPEX/營收 的近 8 季平均，**不含最新一季**——最新一季是被比較的對象，
-     * 把它算進平均會稀釋掉它自己的偏離。
+     * CAPEX/營收 的趨勢平均，取**最近 8 個算得出比率的季度**，**不含最新一季**
+     * ——最新一季是被比較的對象，把它算進平均會稀釋掉它自己的偏離。
+     *
+     * 「最近 8 個有值的季度」不等於「近 8 季」：CAPEX 或營收缺值的季度會被跳過
+     * 而非補值（補值會讓比較失真），序列稀疏時取樣區間因此可能往回跨好幾年。
+     * 回傳的樣本數一併輸出成 trailingSamples，讓消費端自己判斷這個平均可不可信。
      *
      * @return array{0: ?float, 1: int}
      */
