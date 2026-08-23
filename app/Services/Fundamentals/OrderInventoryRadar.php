@@ -266,20 +266,28 @@ class OrderInventoryRadar
     }
 
     /**
-     * 缺關鍵科目：營收或營業成本缺，或存貨缺且產業桶不是「不適用」。
+     * 缺關鍵科目：營收或營業成本缺，或存貨缺——但產業桶已判「不適用」時一律不算。
      *
-     * 最後那個條件讓美股的銀行與純軟體走「產業不適用」而非「資料不足」——
-     * 它們不報存貨是性質使然，說成資料缺漏會誤導使用者去追一份不存在的資料。
+     * 逃生口涵蓋全部關鍵科目而不只 inventories：產業已經判定框架不適用（銀行、
+     * 純軟體…），此時不論缺的是存貨還是營收／營業成本，都是產業性質使然而非
+     * 資料缺漏，說成「資料不足」會誤導使用者去追一份根本不存在的資料。
+     * 例：美股純軟體公司連 COGS 都取不到，若只放行 inventories，仍會被誤報
+     * 「資料不足」。裁決見 .superpowers/sdd/task-4-fix-brief.md 修正 1
+     * ——不影響時效判定：not_applicable 產業 + 資料過舊仍走串聯 0 的 too_old 半支。
      */
     private function keyLineItemsMissing(OrderInventoryData $data, string $industryBucket): bool
     {
+        if ($industryBucket === 'not_applicable') {
+            return false;
+        }
+
         $latest = $data->latestQuarter();
 
         if ($latest === null || $latest->revenue === null || $latest->costOfGoodsSold === null) {
             return true;
         }
 
-        return $latest->inventories === null && $industryBucket !== 'not_applicable';
+        return $latest->inventories === null;
     }
 
     /**

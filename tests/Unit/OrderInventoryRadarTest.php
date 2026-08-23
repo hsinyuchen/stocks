@@ -357,6 +357,15 @@ class OrderInventoryRadarTest extends TestCase
             'receivable_ratio_up' => 0.15,
             'ocf_to_net_income_floor' => 0.8,
         ], config('order_inventory.thresholds'), '框架第 3 節「初步通用版」門檻值，改動前先讀設計文件的「門檻來源」一節');
+
+        // 修正 4：freshness 的兩個門檻是本任務的第一個消費端，但 Task 3 建立的
+        // 這個快照測試只釘了 thresholds，228 改 300、137 改 95 都全綠。
+        // 兩者是同一份框架文件的同一類數字、同一個 config 檔，併入同一個
+        // 快照測試比拆兩個更能提醒「改門檻要順手改測試」。
+        $this->assertSame([
+            'max_quarter_age_days' => 228,
+            'lagging_quarter_age_days' => 137,
+        ], config('order_inventory.freshness'), '框架第 2 條原則的時效門檻，改動前先讀設計文件的「門檻來源」一節');
     }
 
     #[Test]
@@ -574,6 +583,146 @@ class OrderInventoryRadarTest extends TestCase
     }
 
     #[Test]
+    public function a_us_company_missing_every_key_line_item_is_still_not_applicable(): void
+    {
+        // 修正 1：舊版逃生口只涵蓋 inventories，COGS 也缺的美股純軟體公司
+        // 仍會被誤報「資料不足」——但產業桶已判定 not_applicable，正確訊息
+        // 應該是「不適用」，不該叫使用者去追一份不存在的資料。
+        $data = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2026Q2',
+                endDate: now()->toDateString(),
+                revenue: 1000.0,
+                costOfGoodsSold: null,
+                inventories: null,
+            )],
+            market: 'us',
+        );
+
+        $assessment = $this->radar()->assess($data);
+
+        $this->assertSame(
+            'not_applicable',
+            $assessment->rating->value,
+            'COGS 與存貨同時缺，但產業桶已判不適用，不該報成資料不足',
+        );
+    }
+
+    #[Test]
+    public function cascade_zero_wins_over_cascade_one_when_both_would_fire(): void
+    {
+        // 修正 2：串聯 0（資料過舊）與串聯 1（產業不適用）的交集情境過去無
+        // fixture 覆蓋——把兩個 if 對調，38 個測試全綠。用「不適用產業 +
+        // 資料過舊」逼出正確優先序：資料過舊必須贏，回 insufficient 而非
+        // not_applicable。
+        $data = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2025Q1',
+                endDate: '2025-01-01',
+                revenue: 1000.0,
+                costOfGoodsSold: 700.0,
+                inventories: 350.0,
+            )],
+            market: 'tw',
+            industry: '金融保險業',
+        );
+
+        $assessment = $this->radar()->assess($data, now: CarbonImmutable::parse('2026-08-22'));
+
+        $this->assertSame('insufficient', $assessment->rating->value);
+        $this->assertCount(
+            4,
+            $assessment->missingForA,
+            '不論走哪條拒絕評級路徑，固定輸出的人工查證清單都要一致',
+        );
+    }
+
+    #[Test]
+    public function freshness_too_old_boundary_is_exclusive(): void
+    {
+        // 修正 3：把 too_old 判定的 > 改成 >= 兩次測試全綠，因為既有 fixture
+        // （418 天 vs 門檻 228）離門檻太遠。這裡貼邊：恰等於門檻不算過舊，
+        // 超過一天才算。門檻從 config 讀，不寫死天數。
+        $maxAge = (int) config('order_inventory.freshness.max_quarter_age_days');
+        $endDate = '2026-01-01';
+
+        $atThreshold = $this->radar()->assess(
+            $this->dataWithEndDate($endDate),
+            now: CarbonImmutable::parse($endDate)->addDays($maxAge),
+        );
+        $this->assertFalse($atThreshold->freshness['too_old'], '天數恰等於門檻不算過舊');
+
+        $overThreshold = $this->radar()->assess(
+            $this->dataWithEndDate($endDate),
+            now: CarbonImmutable::parse($endDate)->addDays($maxAge + 1),
+        );
+        $this->assertTrue($overThreshold->freshness['too_old'], '超過門檻一天即算過舊');
+    }
+
+    #[Test]
+    public function freshness_lagging_boundary_is_exclusive(): void
+    {
+        // 修正 3：lagging 門檻同樣需要貼邊 fixture，理由同上（既有 fixture
+        // 144 天 vs 門檻 137，離門檻太遠）。
+        $laggingAge = (int) config('order_inventory.freshness.lagging_quarter_age_days');
+        $endDate = '2026-01-01';
+
+        $atThreshold = $this->radar()->assess(
+            $this->dataWithEndDate($endDate),
+            now: CarbonImmutable::parse($endDate)->addDays($laggingAge),
+        );
+        $this->assertFalse($atThreshold->freshness['lagging'], '天數恰等於門檻不算落後');
+
+        $overThreshold = $this->radar()->assess(
+            $this->dataWithEndDate($endDate),
+            now: CarbonImmutable::parse($endDate)->addDays($laggingAge + 1),
+        );
+        $this->assertTrue($overThreshold->freshness['lagging'], '超過門檻一天即算落後');
+    }
+
+    #[Test]
+    public function negative_signals_report_dio_and_dso_rising_and_the_display_dates_are_real(): void
+    {
+        // 修正 5：negativeSignals 整段改成 [] 不會有任何測試轉紅——它是「為什麼
+        // 判 C」的使用者可見理由。同時把 as_of / period / revenue_month 三個
+        // 顯示鍵硬編成 null 也全綠，這裡一併補上真值斷言。
+        $data = new OrderInventoryData(
+            quarters: [
+                new QuarterlyFinancials(
+                    period: '2026Q1',
+                    endDate: '2026-03-31',
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 200.0,
+                    accountsReceivable: 150.0,
+                ),
+                new QuarterlyFinancials(
+                    period: '2026Q2',
+                    endDate: '2026-06-30',
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 400.0,
+                    accountsReceivable: 300.0,
+                ),
+            ],
+            monthlyRevenue: [
+                ['month' => '2026-07-01', 'revenue' => 100.0, 'yoy' => 0.1],
+            ],
+            market: 'tw',
+            industry: '半導體業',
+        );
+
+        $assessment = $this->radar()->assess($data, now: CarbonImmutable::parse('2026-07-01'));
+
+        $this->assertContains('dio_rising', $assessment->negativeSignals, 'DIO 由 26 天升至 52 天，超過兩個穩定區間');
+        $this->assertContains('dso_rising', $assessment->negativeSignals, 'DSO 由 13.65 天升至 27.3 天，超過兩個上升門檻');
+
+        $this->assertSame('2026-06-30', $assessment->freshness['as_of']);
+        $this->assertSame('2026Q2', $assessment->freshness['period']);
+        $this->assertSame('2026-07-01', $assessment->freshness['revenue_month']);
+    }
+
+    #[Test]
     public function it_reports_the_rating_change_against_the_previous_rating(): void
     {
         $data = $this->ratableData();
@@ -602,8 +751,14 @@ class OrderInventoryRadarTest extends TestCase
     {
         $assessment = $this->radar()->assess($this->ratableData());
 
-        $this->assertNotEmpty($assessment->missingForA);
+        // 修正 6：assertNotEmpty 被 assertCount(4) 完全涵蓋是冗餘的；
+        // 只數個數也守不住內容——四項只要維持四項，內容改成什麼都不會轉紅。
         $this->assertCount(4, $assessment->missingForA, '四項可執行的人工查證清單');
+        $this->assertStringContainsString(
+            '存貨組成',
+            $assessment->missingForA[0],
+            '這份清單的內容本身要被驗證，不只是數量',
+        );
     }
 
     /**
@@ -633,6 +788,22 @@ class OrderInventoryRadarTest extends TestCase
                 revenue: 1000.0,
                 costOfGoodsSold: 700.0,
                 grossProfit: 300.0,
+                inventories: 350.0,
+            )],
+            market: 'tw',
+            industry: '半導體業',
+        );
+    }
+
+    /** 產業適用、科目齊全，只有 endDate 可變——供 freshness 貼邊測試專用。 */
+    private function dataWithEndDate(string $endDate): OrderInventoryData
+    {
+        return new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2026Q2',
+                endDate: $endDate,
+                revenue: 1000.0,
+                costOfGoodsSold: 700.0,
                 inventories: 350.0,
             )],
             market: 'tw',
