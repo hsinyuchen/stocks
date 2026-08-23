@@ -2,8 +2,11 @@
 
 namespace Tests\Unit;
 
+use App\Data\OrderInventoryData;
 use App\Data\OrderInventoryMetrics;
+use App\Data\QuarterlyFinancials;
 use App\Services\Fundamentals\OrderInventoryRadar;
+use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -354,5 +357,286 @@ class OrderInventoryRadarTest extends TestCase
             'receivable_ratio_up' => 0.15,
             'ocf_to_net_income_floor' => 0.8,
         ], config('order_inventory.thresholds'), '框架第 3 節「初步通用版」門檻值，改動前先讀設計文件的「門檻來源」一節');
+    }
+
+    #[Test]
+    public function the_engine_can_never_award_an_a_grade(): void
+    {
+        $r = $this->radar();
+        $seen = [];
+
+        // 窮舉十個條件的全部 1024 種真假組合 × 兩種毛利率情境。
+        for ($mask = 0; $mask < 1024; $mask++) {
+            $conditions = [];
+
+            for ($i = 0; $i < 10; $i++) {
+                $conditions['C'.($i + 1)] = (bool) ($mask & (1 << $i));
+            }
+
+            foreach ([-2.0, 0.0] as $grossMarginQoqPp) {
+                $seen[$r->rate($conditions, $grossMarginQoqPp)->value] = true;
+            }
+        }
+
+        $this->assertArrayNotHasKey('A', $seen, '規則引擎永遠不得給出 A 級');
+        $this->assertSame(
+            ['B+', 'B', 'C'],
+            array_values(array_intersect(['B+', 'B', 'C'], array_keys($seen))),
+            '窮舉後只應出現 B+／B／C 三種',
+        );
+        $this->assertCount(3, $seen, '出現了預期外的評級');
+    }
+
+    #[Test]
+    public function rule_two_needs_two_negatives_alongside_a_failed_c1(): void
+    {
+        $r = $this->radar();
+
+        $twoNegatives = $this->allNull(['C1' => false, 'C3' => false, 'C7' => true]);
+        $this->assertSame('C', $r->rate($twoNegatives, null)->value);
+
+        $oneNegative = $this->allNull(['C1' => false, 'C7' => true]);
+        $this->assertSame('B', $r->rate($oneNegative, null)->value, '只有一項負面不足以判 C');
+    }
+
+    #[Test]
+    public function a_deteriorating_gross_margin_counts_as_one_negative(): void
+    {
+        $r = $this->radar();
+        $conditions = $this->allNull(['C1' => false, 'C7' => true]);
+
+        $this->assertSame('C', $r->rate($conditions, -1.5)->value);
+        $this->assertSame('B', $r->rate($conditions, -0.8)->value, '−0.8pp 未達 −1pp 門檻');
+    }
+
+    #[Test]
+    public function rule_two_does_not_fire_when_c1_is_merely_unevaluable(): void
+    {
+        $r = $this->radar();
+        $conditions = $this->allNull(['C1' => null, 'C3' => false, 'C7' => true, 'C8' => true]);
+
+        $this->assertNotSame(
+            'C',
+            $r->rate($conditions, null)->value,
+            'C1 算不出來不等於不成立——否則缺資料的標的會被系統性推向 C 級',
+        );
+    }
+
+    #[Test]
+    public function rule_three_awards_b_plus_on_the_full_combination(): void
+    {
+        $r = $this->radar();
+
+        $conditions = $this->allNull([
+            'C1' => true, 'C2' => true, 'C7' => false, 'C8' => false, 'C4' => true,
+        ]);
+
+        $this->assertSame('B+', $r->rate($conditions, null)->value);
+    }
+
+    #[Test]
+    public function rule_three_accepts_any_one_of_c4_c5_c6(): void
+    {
+        $r = $this->radar();
+
+        foreach (['C4', 'C5', 'C6'] as $key) {
+            $conditions = $this->allNull([
+                'C1' => true, 'C2' => true, 'C7' => false, 'C8' => false, $key => true,
+            ]);
+
+            $this->assertSame('B+', $r->rate($conditions, null)->value, "{$key} 單獨成立即可");
+        }
+    }
+
+    #[Test]
+    public function rule_three_refuses_b_plus_when_a_required_condition_is_unevaluable(): void
+    {
+        $r = $this->radar();
+
+        $conditions = $this->allNull([
+            'C1' => true, 'C2' => null, 'C7' => false, 'C8' => false, 'C4' => true,
+        ]);
+
+        $this->assertSame(
+            'B',
+            $r->rate($conditions, null)->value,
+            '不確定時不給較高評級',
+        );
+    }
+
+    #[Test]
+    public function it_refuses_to_rate_when_a_key_line_item_is_missing(): void
+    {
+        $data = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2026Q2',
+                endDate: now()->toDateString(),
+                revenue: null,
+                inventories: 350.0,
+            )],
+            market: 'tw',
+            industry: '半導體業',
+        );
+
+        $assessment = $this->radar()->assess($data);
+
+        $this->assertSame('insufficient', $assessment->rating->value);
+    }
+
+    #[Test]
+    public function it_refuses_to_rate_when_the_latest_quarter_is_too_old(): void
+    {
+        $data = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2025Q2',
+                endDate: '2025-06-30',
+                revenue: 1000.0,
+                costOfGoodsSold: 700.0,
+                inventories: 350.0,
+            )],
+            market: 'tw',
+            industry: '半導體業',
+        );
+
+        $assessment = $this->radar()->assess(
+            $data,
+            now: CarbonImmutable::parse('2026-08-22'),
+        );
+
+        $this->assertSame('insufficient', $assessment->rating->value);
+        $this->assertTrue($assessment->freshness['too_old']);
+    }
+
+    #[Test]
+    public function it_reports_lagging_data_without_refusing_to_rate(): void
+    {
+        $data = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2026Q1',
+                endDate: '2026-03-31',
+                revenue: 1000.0,
+                costOfGoodsSold: 700.0,
+                inventories: 350.0,
+            )],
+            market: 'tw',
+            industry: '半導體業',
+        );
+
+        $assessment = $this->radar()->assess($data, now: CarbonImmutable::parse('2026-08-22'));
+
+        $this->assertNotSame('insufficient', $assessment->rating->value);
+        $this->assertTrue($assessment->freshness['lagging']);
+        $this->assertFalse($assessment->freshness['too_old']);
+    }
+
+    #[Test]
+    public function a_not_applicable_industry_short_circuits_before_the_rating_rules(): void
+    {
+        $data = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2026Q2',
+                endDate: now()->toDateString(),
+                revenue: 1000.0,
+                costOfGoodsSold: 700.0,
+                inventories: 350.0,
+            )],
+            market: 'tw',
+            industry: '金融保險業',
+        );
+
+        $assessment = $this->radar()->assess($data);
+
+        $this->assertSame('not_applicable', $assessment->rating->value);
+        $this->assertSame('not_applicable', $assessment->industryBucket);
+    }
+
+    #[Test]
+    public function a_us_company_without_inventory_is_not_applicable_rather_than_insufficient(): void
+    {
+        $data = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2026Q2',
+                endDate: now()->toDateString(),
+                revenue: 1000.0,
+                costOfGoodsSold: 700.0,
+                inventories: null,
+            )],
+            market: 'us',
+        );
+
+        $assessment = $this->radar()->assess($data);
+
+        $this->assertSame(
+            'not_applicable',
+            $assessment->rating->value,
+            '銀行與純軟體不報存貨是性質使然，不是資料缺漏',
+        );
+    }
+
+    #[Test]
+    public function it_reports_the_rating_change_against_the_previous_rating(): void
+    {
+        $data = $this->ratableData();
+        $r = $this->radar();
+
+        $this->assertSame('first', $r->assess($data)->ratingChange);
+        $this->assertSame('unchanged', $r->assess($data, previousRating: 'B')->ratingChange);
+        $this->assertSame('upgraded', $r->assess($data, previousRating: 'C')->ratingChange);
+        $this->assertSame('downgraded', $r->assess($data, previousRating: 'B+')->ratingChange);
+    }
+
+    #[Test]
+    public function a_previous_rating_that_is_not_on_the_scale_is_treated_as_first(): void
+    {
+        $assessment = $this->radar()->assess($this->ratableData(), previousRating: 'insufficient');
+
+        $this->assertSame(
+            'first',
+            $assessment->ratingChange,
+            '「資料不足」不在 C < B < B+ 這條刻度上，不能拿來比高低',
+        );
+    }
+
+    #[Test]
+    public function it_always_lists_what_is_missing_for_an_a_grade(): void
+    {
+        $assessment = $this->radar()->assess($this->ratableData());
+
+        $this->assertNotEmpty($assessment->missingForA);
+        $this->assertCount(4, $assessment->missingForA, '四項可執行的人工查證清單');
+    }
+
+    /**
+     * 除了指定的鍵，其餘條件一律 null——確保測試只在驗證它想驗證的那條規則。
+     *
+     * @param  array<string, ?bool>  $overrides
+     * @return array<string, ?bool>
+     */
+    private function allNull(array $overrides = []): array
+    {
+        $conditions = [];
+
+        for ($i = 1; $i <= 10; $i++) {
+            $conditions['C'.$i] = null;
+        }
+
+        return array_merge($conditions, $overrides);
+    }
+
+    private function ratableData(): OrderInventoryData
+    {
+        // 落在規則 4（其餘）→ B 級，供評級變動測試使用。
+        return new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2026Q2',
+                endDate: now()->toDateString(),
+                revenue: 1000.0,
+                costOfGoodsSold: 700.0,
+                grossProfit: 300.0,
+                inventories: 350.0,
+            )],
+            market: 'tw',
+            industry: '半導體業',
+        );
     }
 }

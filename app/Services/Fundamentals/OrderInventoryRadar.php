@@ -2,7 +2,11 @@
 
 namespace App\Services\Fundamentals;
 
+use App\Data\OrderInventoryAssessment;
+use App\Data\OrderInventoryData;
 use App\Data\OrderInventoryMetrics;
+use App\Enums\OrderInventoryRating;
+use Carbon\CarbonImmutable;
 
 /**
  * 訂單／庫存／進貨備料判斷。純計算：不碰資料庫、網路、快取、LLM。
@@ -16,6 +20,11 @@ use App\Data\OrderInventoryMetrics;
  */
 class OrderInventoryRadar
 {
+    public function __construct(
+        private readonly OrderInventoryMetricsCalculator $calculator = new OrderInventoryMetricsCalculator,
+        private readonly OrderInventoryIndustryPolicy $industry = new OrderInventoryIndustryPolicy,
+    ) {}
+
     /**
      * @return array<string, ?bool> 鍵為 C1…C10
      */
@@ -148,5 +157,188 @@ class OrderInventoryRadar
         }
 
         return $evaluable ? false : null;
+    }
+
+    /**
+     * 評級串聯（first-match）。public 是為了讓性質測試能窮舉全部條件組合——
+     * 「A 級永不自動給予」必須被證明，而不是靠讀程式碼相信。
+     *
+     * @param  array<string, ?bool>  $conditions
+     */
+    public function rate(array $conditions, ?float $grossMarginQoqPp): OrderInventoryRating
+    {
+        $t = (array) config('order_inventory.thresholds', []);
+
+        // 規則 2 只在 C1 **明確為 false** 時觸發。null 代表算不出來，
+        // 拿它當「不成立」會讓所有缺資料的標的被系統性推向 C 級。
+        if (($conditions['C1'] ?? null) === false
+            && count($this->negativeSignals($conditions, $grossMarginQoqPp, $t)) >= 2) {
+            return OrderInventoryRating::C;
+        }
+
+        $required = ($conditions['C1'] ?? null) === true
+            && ($conditions['C2'] ?? null) === true
+            && ($conditions['C7'] ?? null) === false
+            && ($conditions['C8'] ?? null) === false;
+
+        $anySupport = ($conditions['C4'] ?? null) === true
+            || ($conditions['C5'] ?? null) === true
+            || ($conditions['C6'] ?? null) === true;
+
+        // 不確定時不給較高評級：required 的任一項為 null 都落到 B。
+        return $required && $anySupport ? OrderInventoryRating::BPlus : OrderInventoryRating::B;
+    }
+
+    public function assess(
+        OrderInventoryData $data,
+        ?float $peerRevenueGrowthMedian = null,
+        ?string $previousRating = null,
+        ?CarbonImmutable $now = null,
+    ): OrderInventoryAssessment {
+        $now ??= CarbonImmutable::now();
+        $metrics = $this->calculator->calculate($data);
+        $industry = $this->industry->evaluate($data);
+        $freshness = $this->freshness($metrics, $now);
+
+        $base = fn (OrderInventoryRating $rating, array $extra = []): OrderInventoryAssessment => new OrderInventoryAssessment(...array_merge([
+            'rating' => $rating,
+            'metrics' => $metrics,
+            'industryBucket' => $industry['bucket'],
+            'industryNote' => $industry['note'],
+            'freshness' => $freshness,
+            'missingForA' => $this->missingForA(),
+            'previousRating' => $previousRating,
+            'ratingChange' => $this->ratingChange($rating, $previousRating),
+        ], $extra));
+
+        // 串聯 0：缺關鍵科目或資料過舊。
+        if ($this->keyLineItemsMissing($data, $industry['bucket']) || $freshness['too_old']) {
+            return $base(OrderInventoryRating::Insufficient);
+        }
+
+        // 串聯 1：產業不適用。
+        if (! $industry['applicable']) {
+            return $base(OrderInventoryRating::NotApplicable);
+        }
+
+        $conditions = $this->conditions($metrics, $peerRevenueGrowthMedian);
+        $rating = $this->rate($conditions, $metrics->grossMarginQoqPp);
+
+        return $base($rating, [
+            'conditions' => $conditions,
+            'negativeSignals' => $this->negativeSignals(
+                $conditions,
+                $metrics->grossMarginQoqPp,
+                (array) config('order_inventory.thresholds', []),
+            ),
+        ]);
+    }
+
+    /**
+     * 規則 2 的負面項。
+     *
+     * @param  array<string, ?bool>  $conditions
+     * @param  array<string, mixed>  $t
+     * @return list<string>
+     */
+    private function negativeSignals(array $conditions, ?float $grossMarginQoqPp, array $t): array
+    {
+        $signals = [];
+
+        if (($conditions['C3'] ?? null) === false) {
+            $signals[] = 'dio_rising';
+        }
+
+        if (($conditions['C7'] ?? null) === true) {
+            $signals[] = 'dso_rising';
+        }
+
+        if (($conditions['C8'] ?? null) === true) {
+            $signals[] = 'weak_operating_cash_flow';
+        }
+
+        if ($grossMarginQoqPp !== null
+            && $grossMarginQoqPp < (float) $t['gross_margin_deteriorating_pp']) {
+            $signals[] = 'gross_margin_deteriorating';
+        }
+
+        return $signals;
+    }
+
+    /**
+     * 缺關鍵科目：營收或營業成本缺，或存貨缺且產業桶不是「不適用」。
+     *
+     * 最後那個條件讓美股的銀行與純軟體走「產業不適用」而非「資料不足」——
+     * 它們不報存貨是性質使然，說成資料缺漏會誤導使用者去追一份不存在的資料。
+     */
+    private function keyLineItemsMissing(OrderInventoryData $data, string $industryBucket): bool
+    {
+        $latest = $data->latestQuarter();
+
+        if ($latest === null || $latest->revenue === null || $latest->costOfGoodsSold === null) {
+            return true;
+        }
+
+        return $latest->inventories === null && $industryBucket !== 'not_applicable';
+    }
+
+    /**
+     * 資料時效。框架第 2 條原則：財報落後實際訂單 1–2 季，本框架偏驗證工具而非
+     * 領先指標。沒有這塊輸出，使用者會把落後兩季的資料當即時訊號。
+     *
+     * @return array{as_of: ?string, period: ?string, revenue_month: ?string, lagging: bool, too_old: bool}
+     */
+    private function freshness(OrderInventoryMetrics $metrics, CarbonImmutable $now): array
+    {
+        $f = (array) config('order_inventory.freshness', []);
+        $age = $metrics->latestEndDate === null
+            ? null
+            : CarbonImmutable::parse($metrics->latestEndDate)->diffInDays($now);
+
+        return [
+            'as_of' => $metrics->latestEndDate,
+            'period' => $metrics->latestPeriod,
+            'revenue_month' => $metrics->latestRevenueMonth,
+            'lagging' => $age !== null && $age > (int) $f['lagging_quarter_age_days'],
+            'too_old' => $age !== null && $age > (int) $f['max_quarter_age_days'],
+        ];
+    }
+
+    /**
+     * 評級變動。insufficient 與 not_applicable 不在 C < B < B+ 的刻度上，
+     * 拿它們比高低沒有意義，一律視為首次評級。
+     */
+    private function ratingChange(OrderInventoryRating $rating, ?string $previousRating): string
+    {
+        $previous = $previousRating === null
+            ? null
+            : OrderInventoryRating::tryFrom($previousRating)?->scaleValue();
+        $current = $rating->scaleValue();
+
+        if ($previous === null || $current === null) {
+            return 'first';
+        }
+
+        return match (true) {
+            $current > $previous => 'upgraded',
+            $current < $previous => 'downgraded',
+            default => 'unchanged',
+        };
+    }
+
+    /**
+     * 升到 A 還缺什麼。框架的 A 級要求六個條件，系統拿不到其中兩類，
+     * 因此固定輸出這份**可執行的人工查證清單**，而不是含糊說「資料不足」。
+     *
+     * @return list<string>
+     */
+    private function missingForA(): array
+    {
+        return [
+            '查財報附註的存貨組成（原料／在製品／製成品的消長方向）',
+            '查公開資訊觀測站的訂單公告與重大訊息',
+            '查最近一次法說會簡報的展望與產能規劃',
+            '找上下游供應鏈與同業財報交叉驗證',
+        ];
     }
 }
