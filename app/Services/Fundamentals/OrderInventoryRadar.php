@@ -290,8 +290,12 @@ class OrderInventoryRadar
     ): array {
         $latest = $data->latestQuarter();
 
-        if ($data->inventoryCompositionAvailable && $latest !== null) {
-            return $this->actualCompositionSignals($data, $latest);
+        if ($latest === null) {
+            return [];
+        }
+
+        if ($data->inventoryCompositionAvailable) {
+            return $this->actualCompositionSignals($data, $m, $latest);
         }
 
         // 存貨沒有增加時，這個矩陣沒有可談的東西——硬給方向是編造。
@@ -299,26 +303,69 @@ class OrderInventoryRadar
             return [];
         }
 
+        $previousQuarter = $this->previousQuarter($data, $m);
         $readings = [];
 
-        if ($m->dpoChangeDays !== null && $m->dpoChangeDays > 0.0) {
-            $readings[] = '存貨與應付帳款同步增加，較像提前備料。';
+        // 矩陣第一列是**三腿**：存貨↑ + 應付↑ + 後續月營收↑ → 較像提前備料。
+        //
+        // 「應付↑」比的是應付帳款餘額本身，不是 DPO 天數：DPO 的分母是營業成本，
+        // 成本一下滑天數就會上升，而應付帳款可以一動不動——照天數判會對使用者
+        // 講出「應付帳款同步增加」這種與事實相反的話。
+        //
+        // 月營收無從評估（basis 為 none）時整條不給。「提前備料」是偏多的結論，
+        // 證據不全就不給，與評級「不確定時不給較高評級」同一立場。
+        if ($previousQuarter !== null
+            && $latest->accountsPayable !== null
+            && $previousQuarter->accountsPayable !== null
+            && $latest->accountsPayable > $previousQuarter->accountsPayable
+            && $m->revenueGrowthBasis !== 'none'
+            && $m->revenueGrowthStreak !== null
+            && $m->revenueGrowthStreak >= 1) {
+            $readings[] = (string) config('order_inventory.narrative.proxy_stocking_up');
         }
 
         if ($m->revenueQoq !== null && $m->revenueQoq < 0.0
             && $m->dsoChangeDays !== null && $m->dsoChangeDays > 0.0) {
-            $readings[] = '存貨增加但營收下滑且收款天數拉長，較像塞貨或去化不良。';
+            $readings[] = (string) config('order_inventory.narrative.proxy_channel_stuffing');
         }
 
         if ($m->contractLiabilitiesQoq !== null && $m->contractLiabilitiesQoq > 0.0) {
-            $readings[] = '存貨與合約負債同步增加，有未來履約能見度。';
+            $readings[] = (string) config('order_inventory.narrative.proxy_visibility');
         }
 
         if ($readings === []) {
             return [];
         }
 
-        return [(string) config('order_inventory.narrative.proxy_prefix').implode('', $readings)];
+        // 句號在組裝時統一補，config 的文案本身不帶句號——可讀性不該依賴
+        // 每個人新增文案時都記得加標點。
+        return [$this->proxyPrefix($data).implode('。', $readings).'。'];
+    }
+
+    /**
+     * 代理推論的前綴。台美的「拿不到存貨組成」成因不同：台股是財報附註未公開於
+     * 資料源，美股是本次沒取到 SEC tag。共用一條文案會把原因講錯。
+     */
+    private function proxyPrefix(OrderInventoryData $data): string
+    {
+        return (string) config(
+            $data->market === 'us'
+                ? 'order_inventory.narrative.proxy_prefix_us'
+                : 'order_inventory.narrative.proxy_prefix',
+        );
+    }
+
+    /**
+     * 期別相鄰的前一季，取自指標層算好的 qoqBasePeriod。
+     *
+     * **不可改成「陣列倒數第二筆」**：序列允許缺季（SEC XBRL 缺 frame 是常態），
+     * 倒數第二筆可能相隔兩季。指標層為此在缺季時拒絕計算 QoQ，呈現層若自己往回數，
+     * 就會出現指標為 null、文字卻拿跨兩季的數字當「上一季」講的矛盾。共用同一個
+     * 基期也保證兩層說法一致。
+     */
+    private function previousQuarter(OrderInventoryData $data, OrderInventoryMetrics $m): ?QuarterlyFinancials
+    {
+        return $m->qoqBasePeriod === null ? null : $data->quarter($m->qoqBasePeriod);
     }
 
     /**
@@ -329,26 +376,21 @@ class OrderInventoryRadar
      */
     private function actualCompositionSignals(
         OrderInventoryData $data,
+        OrderInventoryMetrics $m,
         QuarterlyFinancials $latest,
     ): array {
-        $base = null;
+        $previousQuarter = $this->previousQuarter($data, $m);
 
-        foreach ($data->quarters as $q) {
-            if ($q->period !== $latest->period) {
-                $base = $q;
-            }
-        }
-
-        if ($base === null) {
+        if ($previousQuarter === null) {
             return [];
         }
 
         $lines = [];
 
         foreach ([
-            ['原料', $latest->inventoryRawMaterials, $base->inventoryRawMaterials],
-            ['在製品', $latest->inventoryWorkInProcess, $base->inventoryWorkInProcess],
-            ['製成品', $latest->inventoryFinishedGoods, $base->inventoryFinishedGoods],
+            ['原料', $latest->inventoryRawMaterials, $previousQuarter->inventoryRawMaterials],
+            ['在製品', $latest->inventoryWorkInProcess, $previousQuarter->inventoryWorkInProcess],
+            ['製成品', $latest->inventoryFinishedGoods, $previousQuarter->inventoryFinishedGoods],
         ] as [$label, $current, $previous]) {
             if ($current === null || $previous === null) {
                 continue;
@@ -367,7 +409,15 @@ class OrderInventoryRadar
             );
         }
 
-        return $lines === [] ? [] : ['存貨組成（財報揭露實測值）：'.implode('、', $lines)];
+        if ($lines === []) {
+            return [];
+        }
+
+        return [sprintf(
+            (string) config('order_inventory.narrative.actual_composition_prefix'),
+            $previousQuarter->period,
+            $latest->period,
+        ).implode('、', $lines)];
     }
 
     /**
