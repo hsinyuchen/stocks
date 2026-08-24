@@ -6,6 +6,7 @@ use App\Contracts\CompanyFinancialsProvider;
 use App\Contracts\LlmProvider;
 use App\Data\LlmResponseData;
 use App\Data\OrderInventoryData;
+use App\Data\QuarterlyFinancials;
 use App\Models\Instrument;
 use App\Services\Analysis\WatchlistAnalysisService;
 use App\Services\Fake\FakeCompanyFinancialsProvider;
@@ -23,6 +24,12 @@ use Tests\TestCase;
  * 且用 assertInsideSection() 確認定界（哪些句子落在 BEGIN_ORDER_INVENTORY／
  * END_ORDER_INVENTORY 之間），不只是裸字串 contains——否則接線被拿掉、內容
  * 被搬到 prompt 尾巴也照樣全綠（Task 4 審查踩過的坑）。
+ *
+ * 光是「該出現的字串有出現」不夠：把 OrderInventoryGuide::block()（brief 明令
+ * 禁止的完整區塊）整個附在每檔評級行後面，只要那行摘要還在，裸 contains
+ * 斷言照樣全綠。因此本檔額外用 assertOrderInventorySectionShape() 對整個
+ * BEGIN_ORDER_INVENTORY 區段做逐行形狀＋行數斷言，把「只有摘要、沒有別的」
+ * 這件事也釘住（Task 6 審查修正 1）。
  */
 class OrderInventoryWatchlistTest extends TestCase
 {
@@ -39,8 +46,14 @@ class OrderInventoryWatchlistTest extends TestCase
      */
     private const RATED_LINE = '- 2330.TW：評級 B+（營收連續成長達門檻期數）。';
 
+    /** 同一份 fixture 的英文版：config('order_inventory.narrative.conditions_en.C1')。 */
+    private const RATED_LINE_EN = '- 2330.TW: Rating B+ (revenue grew for the required number of consecutive periods).';
+
     /** 引用紀律的關鍵句：只能引用整句、不得改寫（與 OrderInventoryPromptTest 同一句）。 */
     private const DISCIPLINE_LINE = '2. 存貨組成方向只能引用區塊內的整句，不得改寫或重新敘述。';
+
+    /** 同一句的英文版（與 OrderInventoryPromptTest::EN_DISCIPLINE_LINE 同一句）。 */
+    private const DISCIPLINE_LINE_EN = '2. Inventory composition direction may only be quoted as whole sentences from that block; never rephrase or restate it in your own words.';
 
     protected function setUp(): void
     {
@@ -99,6 +112,37 @@ class OrderInventoryWatchlistTest extends TestCase
     }
 
     /**
+     * 全站關閉存貨欄位：只給營收／營業成本，inventories 留 null，觸發
+     * `OrderInventoryRadar::keyLineItemsMissing()` → 評級 insufficient，
+     * 原因鍵 'key_line_items_missing'（too_old 為 false，日期凍結在季末後 55 天，
+     * 遠低於 max_quarter_age_days）。用來驗證 insufficient 理由不會雙句號
+     * （Task 6 審查修正的 Minor 1）。
+     */
+    private function bindMissingInventoryFinancials(): void
+    {
+        $this->app->bind(CompanyFinancialsProvider::class, fn (): CompanyFinancialsProvider => new class implements CompanyFinancialsProvider
+        {
+            public function financials(string $symbol, int $months): OrderInventoryData
+            {
+                return new OrderInventoryData(
+                    quarters: [
+                        new QuarterlyFinancials(
+                            period: '2026Q2',
+                            endDate: '2026-06-30',
+                            revenue: 1000.0,
+                            costOfGoodsSold: 700.0,
+                            inventories: null,
+                        ),
+                    ],
+                    market: 'tw',
+                    industry: '半導體業',
+                    dataAsOf: '2026-06-30',
+                );
+            }
+        });
+    }
+
+    /**
      * 斷言該行出現在指定的一對分隔線之間（比照 OrderInventoryPromptTest）。
      *
      * 只用 assertStringContainsString 的話，把內容接到 prompt 尾巴、或接在任何
@@ -121,6 +165,51 @@ class OrderInventoryWatchlistTest extends TestCase
         $this->assertStringContainsString($line, $matches[1]);
     }
 
+    /**
+     * 對 BEGIN_ORDER_INVENTORY 區段做逐行形狀＋行數斷言：每一行都必須是單一檔的
+     * 「評級 + 一句判定理由」摘要，且總行數等於有評級的檔數——不是「這段裡有這句」
+     * 而是「這段裡只有這些句」。
+     *
+     * 這條測試存在的理由：把完整的 OrderInventoryGuide::block()（brief 明令禁止
+     * 塞進點名段落的完整區塊）整個附在每檔評級行後面，裸 assertStringContainsString
+     * 或只斷言區段內文包含目標行的 assertInsideSection 都不會發現——附加內容不影響
+     * 「該有的那行還在不在」。逐行形狀＋行數才會抓到「這段被塞進不該有的東西」。
+     */
+    private function assertOrderInventorySectionShape(string $haystack, int $expectedLineCount, bool $en): void
+    {
+        $pattern = '/BEGIN_ORDER_INVENTORY\n(.*?)\nEND_ORDER_INVENTORY/s';
+
+        $this->assertSame(
+            1,
+            preg_match($pattern, $haystack, $matches),
+            'prompt 內找不到成對的 BEGIN_ORDER_INVENTORY／END_ORDER_INVENTORY 分隔線',
+        );
+
+        $lines = explode("\n", $matches[1]);
+
+        $this->assertCount(
+            $expectedLineCount,
+            $lines,
+            sprintf(
+                '點名段落應剛好 %d 行（一檔一行摘要），實際 %d 行：完整區塊（反證／固定提示／時效…）會塞進遠多於此的行數',
+                $expectedLineCount,
+                count($lines),
+            ),
+        );
+
+        $shape = $en
+            ? '/^- \S+: Rating [^(\n]+(\([^)]*\))?\.$/u'
+            : '/^- \S+：評級 [^（\n]+(（[^）]*）)?。$/u';
+
+        foreach ($lines as $line) {
+            $this->assertMatchesRegularExpression(
+                $shape,
+                $line,
+                sprintf('這一行不符合「評級 + 一句判定理由」的形狀，可能混入了完整區塊的內容：%s', $line),
+            );
+        }
+    }
+
     #[Test]
     public function the_watchlist_prompt_names_symbols_with_a_rating(): void
     {
@@ -136,6 +225,8 @@ class OrderInventoryWatchlistTest extends TestCase
         $this->assertInsideSection(self::RATED_LINE, 'BEGIN_ORDER_INVENTORY', 'END_ORDER_INVENTORY', $llm->prompt);
         // 沒有評級那檔的代號不得跟著評級字樣一起出現——確認不是「兩檔都印、只是內容一樣」這種假陽性。
         $this->assertStringNotContainsString('2454.TW：評級', $llm->prompt);
+        // 只有一檔有評級：區段內必須剛好一行，且那一行必須是摘要形狀，不能是完整區塊。
+        $this->assertOrderInventorySectionShape($llm->prompt, expectedLineCount: 1, en: false);
     }
 
     #[Test]
@@ -177,5 +268,61 @@ class OrderInventoryWatchlistTest extends TestCase
         // 快報的紀律接在既有的 BEGIN_SOP_DISCIPLINE 段內，不另立分隔線
         // （比照 StockChatService 的做法）。
         $this->assertInsideSection(self::DISCIPLINE_LINE, 'BEGIN_SOP_DISCIPLINE', 'END_SOP_DISCIPLINE', $llm->prompt);
+    }
+
+    /**
+     * en locale：點名段落與引用紀律都要換成英文，不能中英夾雜。
+     *
+     * Task 3 已經在 config 建好 conditions_en／negative_signals_en／
+     * insufficient_reason_en 三張對照表（鍵集合與中文版一致，見
+     * OrderInventoryGuideTest::the_bilingual_narrative_maps_have_identical_keys），
+     * 快報自己組字串（不像階段 2 那樣把文案解析進 DTO），沒有 Task 3 那個「值只能
+     * 維持中文」的限制，理應完整走 _en 對照表。
+     */
+    #[Test]
+    public function the_english_prompt_uses_the_english_rating_line_and_discipline(): void
+    {
+        $this->bindMixedFinancials();
+
+        $rated = Instrument::factory()->create(['symbol' => '2330.TW']);
+        $unrated = Instrument::factory()->create(['symbol' => '2454.TW']);
+
+        $llm = $this->capturingLlm();
+
+        app(WatchlistAnalysisService::class)->analyze([$rated, $unrated], $llm, 'stub-model', locale: 'en');
+
+        $this->assertInsideSection(self::RATED_LINE_EN, 'BEGIN_ORDER_INVENTORY', 'END_ORDER_INVENTORY', $llm->prompt);
+        $this->assertOrderInventorySectionShape($llm->prompt, expectedLineCount: 1, en: true);
+        $this->assertInsideSection(self::DISCIPLINE_LINE_EN, 'BEGIN_SOP_DISCIPLINE', 'END_SOP_DISCIPLINE', $llm->prompt);
+
+        // 中文版本不得同時出現——locale 沒被傳下去時最典型的症狀。
+        $this->assertStringNotContainsString(self::RATED_LINE, $llm->prompt);
+        $this->assertStringNotContainsString(self::DISCIPLINE_LINE, $llm->prompt);
+    }
+
+    /**
+     * insufficient 的理由文案本身帶句號（config 的
+     * `insufficient_reason.key_line_items_missing` 值以「。」結尾），套進
+     * `（%s）。` 若不先去尾標點會疊成「（……。）。」的雙句號。
+     */
+    #[Test]
+    public function the_insufficient_reason_does_not_double_punctuate(): void
+    {
+        $this->bindMissingInventoryFinancials();
+
+        $instrument = Instrument::factory()->create(['symbol' => '2330.TW']);
+
+        $llm = $this->capturingLlm();
+
+        app(WatchlistAnalysisService::class)->analyze([$instrument], $llm, 'stub-model');
+
+        $this->assertInsideSection(
+            '- 2330.TW：評級 insufficient（缺少關鍵財報科目（營收／營業成本／存貨））。',
+            'BEGIN_ORDER_INVENTORY',
+            'END_ORDER_INVENTORY',
+            $llm->prompt,
+        );
+        $this->assertStringNotContainsString('）。）。', $llm->prompt);
+        $this->assertStringNotContainsString('。）。', $llm->prompt);
     }
 }

@@ -45,11 +45,14 @@ class WatchlistAnalysisService
     private const CHIP_WINDOW = 5;
 
     /**
-     * 為 true 即代表壞事發生的條件，不當支持項報。與
-     * OrderInventoryGuide::NEGATIVE_CONDITIONS 同一份判準，這裡重複一份常數是因為
-     * 快報只取「一句判定理由」而非完整區塊，不透過 Guide 取值（見 orderInventoryReason）。
+     * 支持條件的檢查優先序：固定列出 C1～C10（不含 C7／C8，那兩條是警訊，見
+     * `OrderInventoryGuide::NEGATIVE_CONDITIONS`），依此陣列順序走訪，不依賴
+     * `OrderInventoryAssessment::$conditions` 的鍵序——DTO 沒有承諾鍵序，
+     * `foreach ($assessment->conditions as ...)` 目前雖照插入序，但那是實作細節，
+     * Radar 若改成從 map() 產生 conditions 陣列就可能變動，快報的「一句判定理由」
+     * 不能建立在這個未承諾的行為上。
      */
-    private const ORDER_INVENTORY_NEGATIVE_CONDITIONS = ['C7', 'C8'];
+    private const ORDER_INVENTORY_CONDITION_KEYS = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9', 'C10'];
 
     public function __construct(
         private readonly MarketDataProvider $marketData,
@@ -88,7 +91,7 @@ class WatchlistAnalysisService
         $rates = $this->ratesForWatchlist($symbols, $locale);
 
         $futures = $this->gatherFutures();
-        $stocks = array_map(fn (Instrument $instrument): array => $this->gatherStock($instrument), $instruments);
+        $stocks = array_map(fn (Instrument $instrument): array => $this->gatherStock($instrument, $locale), $instruments);
 
         $payload = [
             'background' => $background,
@@ -286,9 +289,13 @@ class WatchlistAnalysisService
     /**
      * 單一自選股的行情、技術指標、規則訊號與籌碼摘要（全 best-effort）。
      *
+     * $locale 只影響 order_inventory.reason 的語言（其餘欄位是原始數字或既有的
+     * 中文專用資料區塊敘述，沿用 watchlistBlock()／internationalBlock() 等既有慣例，
+     * 本任務不擴大範圍去動它們）。
+     *
      * @return array<string, mixed>
      */
-    private function gatherStock(Instrument $instrument): array
+    private function gatherStock(Instrument $instrument, string $locale): array
     {
         $symbol = $instrument->symbol;
 
@@ -320,7 +327,7 @@ class WatchlistAnalysisService
         // IO，過期才觸發一次上游抓取，因此快報一次十幾檔逐檔直接呼叫是安全的；
         // 成本落在 TTL 過期時的那次抓取，不是本方法本身。best-effort，抓不到
         // （非台美／缺序列／評級失敗）不拖垮整份報告。
-        $orderInventory = $this->orderInventorySummary($instrument);
+        $orderInventory = $this->orderInventorySummary($instrument, $locale);
 
         if ($prices === []) {
             return [
@@ -377,7 +384,7 @@ class WatchlistAnalysisService
      *
      * @return array{rating: string, reason: ?string}|null
      */
-    private function orderInventorySummary(Instrument $instrument): ?array
+    private function orderInventorySummary(Instrument $instrument, string $locale): ?array
     {
         try {
             $assessed = $this->orderInventoryAssessor->forInstrument($instrument);
@@ -396,7 +403,7 @@ class WatchlistAnalysisService
 
         return [
             'rating' => $assessed['assessment']->rating->value,
-            'reason' => $this->orderInventoryReason($assessed['assessment']),
+            'reason' => $this->orderInventoryReason($assessed['assessment'], $locale === 'en'),
         ];
     }
 
@@ -405,30 +412,36 @@ class WatchlistAnalysisService
      * 支持條件。快報只給一行摘要，不是完整清單——完整清單留給
      * OrderInventoryGuide::block()（個股分析／問答，Task 4）。
      *
-     * C7／C8 為 true 是警訊不是支持項，比照 OrderInventoryGuide::NEGATIVE_CONDITIONS
-     * 排除，避免被點名段落誤讀成支持結論的訊號。
+     * insufficient 反推、負面條件排除清單都呼叫 OrderInventoryGuide 的公開方法／
+     * 常數，不在本檔另存一份——那份判準只能有一處，兩處各自維護會漂移
+     * （OrderInventoryGuide::insufficientReasonKey() 的 docblock 已寫明這點）。
+     *
+     * $en 依 locale 選對照表的 zh／en 變體（`conditions_en`／`negative_signals_en`／
+     * `insufficient_reason_en`，Task 3 已建好且鍵集合與中文版一致）。insufficient
+     * 分支的 config 文案本身帶句號，用 rtrim 去掉再套外層括號＋句號，否則會疊成
+     * 「（……。）。」的雙句號。
      */
-    private function orderInventoryReason(OrderInventoryAssessment $assessment): ?string
+    private function orderInventoryReason(OrderInventoryAssessment $assessment, bool $en): ?string
     {
         if ($assessment->rating === OrderInventoryRating::Insufficient) {
-            $map = (array) config('order_inventory.narrative.insufficient_reason', []);
-            $key = ($assessment->freshness['too_old'] ?? false) === true ? 'too_old' : 'key_line_items_missing';
+            $map = (array) config('order_inventory.narrative.'.($en ? 'insufficient_reason_en' : 'insufficient_reason'), []);
+            $key = $this->orderInventoryGuide->insufficientReasonKey($assessment);
             $text = (string) ($map[$key] ?? '');
 
-            return $text === '' ? null : $text;
+            return $text === '' ? null : rtrim($text, '。.');
         }
 
         if ($assessment->negativeSignals !== []) {
-            $map = (array) config('order_inventory.narrative.negative_signals', []);
+            $map = (array) config('order_inventory.narrative.'.($en ? 'negative_signals_en' : 'negative_signals'), []);
             $key = $assessment->negativeSignals[0];
 
             return (string) ($map[$key] ?? $key);
         }
 
-        $map = (array) config('order_inventory.narrative.conditions', []);
+        $map = (array) config('order_inventory.narrative.'.($en ? 'conditions_en' : 'conditions'), []);
 
-        foreach ($assessment->conditions as $key => $value) {
-            if ($value === true && ! in_array($key, self::ORDER_INVENTORY_NEGATIVE_CONDITIONS, true)) {
+        foreach (self::ORDER_INVENTORY_CONDITION_KEYS as $key) {
+            if (($assessment->conditions[$key] ?? null) === true && ! in_array($key, OrderInventoryGuide::NEGATIVE_CONDITIONS, true)) {
                 return (string) ($map[$key] ?? $key);
             }
         }
@@ -582,7 +595,7 @@ class WatchlistAnalysisService
         // 會被 LLM 讀成「這項資料查過而且是空的」，比不提供更糟（比照
         // StockAnalysisService::buildPrompt 的既有處理）。引用紀律跟著同一個條件——
         // 沒有區塊可引用時，那五條規則只會讓模型去猜一個不存在的區塊。
-        $orderInventoryRatings = $this->orderInventoryRatingsBlock($stocks);
+        $orderInventoryRatings = $this->orderInventoryRatingsBlock($stocks, $locale);
         $orderInventorySection = $orderInventoryRatings !== null
             ? "BEGIN_ORDER_INVENTORY\n{$orderInventoryRatings}\nEND_ORDER_INVENTORY\n"
             : '';
@@ -840,16 +853,29 @@ PROMPT;
      *
      * 全部標的都沒有評級時回 null，呼叫端據此連 BEGIN_ORDER_INVENTORY 標頭都不輸出。
      *
+     * 每檔一行的格式依 $locale 選 zh／en：`order_inventory` 摘要（rating／reason）
+     * 在 gatherStock() 已經是對應 locale 的文字（見 orderInventoryReason() 的 $en
+     * 參數），這裡只再決定行首標籤與括號樣式，不重新翻譯內容。
+     *
      * @param  list<array<string, mixed>>  $stocks
      */
-    private function orderInventoryRatingsBlock(array $stocks): ?string
+    private function orderInventoryRatingsBlock(array $stocks, string $locale): ?string
     {
+        $en = $locale === 'en';
         $lines = [];
 
         foreach ($stocks as $stock) {
             $summary = $stock['order_inventory'] ?? null;
 
             if ($summary === null) {
+                continue;
+            }
+
+            if ($en) {
+                $lines[] = $summary['reason'] !== null
+                    ? sprintf('- %s: Rating %s (%s).', $stock['symbol'], $summary['rating'], $summary['reason'])
+                    : sprintf('- %s: Rating %s.', $stock['symbol'], $summary['rating']);
+
                 continue;
             }
 

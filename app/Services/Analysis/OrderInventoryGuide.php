@@ -42,8 +42,11 @@ class OrderInventoryGuide
      * 與 C1（營收連續成長）、C4（存貨明顯增加）並列在「已成立的條件」底下，
      * 會被讀成支持結論的訊號。其餘條件為 true 時都是支持或中性的觀察
      * （C3 的語意是「DIO 穩定」，它為 false 才由 dio_rising 報出來）。
+     *
+     * public：`WatchlistAnalysisService` 的快報點名段落只給一句判定理由（不是完整
+     * 區塊），排除負面條件的判準必須跟這裡同一份，否則兩處各自維護會漂移。
      */
-    private const NEGATIVE_CONDITIONS = ['C7', 'C8'];
+    public const NEGATIVE_CONDITIONS = ['C7', 'C8'];
 
     private function en(string $locale): bool
     {
@@ -217,12 +220,25 @@ ZH;
     }
 
     /**
-     * insufficient 的原因。
+     * insufficient 原因鍵（'too_old'｜'key_line_items_missing'）的反推。
      *
      * OrderInventoryAssessment 沒有直接說明原因，這裡從 freshness['too_old'] 反推：
      * OrderInventoryRadar::assess() 的串聯 0 是 `keyLineItemsMissing || too_old`，
      * **只有這兩個條件**，所以 too_old 為 false 時必然是缺關鍵科目。
-     * 若日後階段 2 在串聯 0 加上第三個條件，這個反推就不再成立，必須同步改這裡。
+     * 若日後階段 2 在串聯 0 加上第三個條件，這個反推就不再成立，必須同步改這裡——
+     * **本方法是這份反推邏輯唯一的落地處**，`WatchlistAnalysisService` 的快報點名
+     * 段落也呼叫這裡取鍵，不得另外複製一份判準。
+     *
+     * public：不含 config 對照與文案前綴，只回鍵本身，供快報只取「一句判定理由」
+     * 時重用同一份反推邏輯。
+     */
+    public function insufficientReasonKey(OrderInventoryAssessment $assessment): string
+    {
+        return ($assessment->freshness['too_old'] ?? false) === true ? 'too_old' : 'key_line_items_missing';
+    }
+
+    /**
+     * insufficient 的原因（完整文案，含前綴）。反推邏輯見 insufficientReasonKey()。
      */
     private function insufficientReason(OrderInventoryAssessment $assessment, bool $en): ?string
     {
@@ -231,7 +247,7 @@ ZH;
         }
 
         $map = (array) config('order_inventory.narrative.'.($en ? 'insufficient_reason_en' : 'insufficient_reason'), []);
-        $key = ($assessment->freshness['too_old'] ?? false) === true ? 'too_old' : 'key_line_items_missing';
+        $key = $this->insufficientReasonKey($assessment);
 
         $text = (string) ($map[$key] ?? '');
         if ($text === '') {
