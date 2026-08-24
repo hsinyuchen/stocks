@@ -2,19 +2,24 @@
 
 namespace Tests\Feature\Alerts;
 
+use App\Contracts\CompanyFinancialsProvider;
 use App\Contracts\FuturesDataProvider;
 use App\Contracts\MarketDataProvider;
 use App\Data\DailyPriceData;
 use App\Data\FuturesMarketData;
 use App\Data\MarketQuoteData;
+use App\Data\OrderInventoryData;
 use App\Models\Alert;
 use App\Models\Instrument;
 use App\Models\User;
 use App\Services\Alerts\AlertEvaluator;
+use App\Services\Fake\FakeCompanyFinancialsProvider;
+use App\Services\Fundamentals\FundamentalsService;
 use App\Services\Market\MarketBearishFlipDetector;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class AlertEvaluatorTest extends TestCase
@@ -200,23 +205,89 @@ class AlertEvaluatorTest extends TestCase
     }
 
     /**
+     * 會真的打上游的財報 provider：呼叫時先發一個 HTTP 請求（由 Http::fake() 攔下），
+     * 再回傳 fake 序列，並計數自己被呼叫幾次。
+     *
+     * 直接綁 FakeCompanyFinancialsProvider 測不出東西：它一個 HTTP 都不發，
+     * `Http::assertNothingSent()` 在修正前後都會過，測試結構上不可能失敗。
+     * 真實路徑上這一次呼叫在美股是 SEC EDGAR（`order_inventory.sec.timeout_seconds`
+     * = 40 秒），而警報評估跑在首頁的同步 web 請求裡。
+     */
+    private function bindUpstreamCallingFinancials(): object
+    {
+        $spy = new class implements CompanyFinancialsProvider
+        {
+            public int $calls = 0;
+
+            public function financials(string $symbol, int $months): OrderInventoryData
+            {
+                $this->calls++;
+                Http::get('https://data.sec.gov/api/xbrl/companyfacts/CIK0000000000.json');
+
+                return (new FakeCompanyFinancialsProvider)->financials($symbol, $months);
+            }
+        };
+
+        $this->app->instance(CompanyFinancialsProvider::class, $spy);
+
+        return $spy;
+    }
+
+    /**
      * 訂單庫存訊號警報要真的會觸發，走 Assessor → context → Rule 整條鏈——不能只靠
      * OrderInventoryScreenRulesTest 手寫 context 的 DTO 形狀，那組測試從沒真正呼叫過
      * AlertEvaluator::contextFor()，接線斷了也不會發現（同一份 contextFor() 邏輯在
      * ScreenerService 與 AlertEvaluator 各複製一份，兩邊要分別驗證）。
      * FakeCompanyFinancialsProvider 的預設情境已由 OrderInventorySeamTest 驗證會評成 B+。
+     *
+     * 警報路徑只讀快取，所以序列必須先落地：先呼叫一次 FundamentalsService 暖快取
+     * （那一次會打上游），evaluate() 本身則不得再打第二次。
      */
     public function test_order_inventory_signal_alert_triggers_with_context(): void
     {
         // 序列季末日寫死 2026-06-30，時效判定比的是 now()，須凍結（理由同 OrderInventorySeamTest）。
         $this->travelTo(CarbonImmutable::parse('2026-08-24 09:00:00'));
+        Http::fake();
 
+        $spy = $this->bindUpstreamCallingFinancials();
         $this->bindProvider(['OI.TW' => ['price' => 130.0, 'changePercent' => 1.0]], daily: ['OI.TW' => $this->ascendingDaily('OI.TW')]);
         $user = User::factory()->create();
         $alert = $this->alert($user, 'OI.TW', 'signal', signalKey: 'order_inventory_b_plus');
 
+        // 暖快取：與正常使用情境一致（個股分析／選股掃描會先把序列抓進 DB）。
+        app(FundamentalsService::class)->orderInventoryFor(Instrument::query()->firstWhere('symbol', 'OI.TW'));
+        $this->assertSame(1, $spy->calls, '暖快取本身必須真的打了一次上游，否則下面的斷言證明不了任何事');
+
         $this->assertSame(1, app(AlertEvaluator::class)->evaluate($user));
         $this->assertSame('triggered', $alert->refresh()->status);
+        // 快取新鮮時，警報評估不得再打上游一次。
+        $this->assertSame(1, $spy->calls);
+    }
+
+    /**
+     * 序列還沒進快取時，警報評估**不得**觸發任何上游抓取。
+     *
+     * 這條路徑跑在首頁的同步 web 請求裡（DashboardController 刻意把 evaluate()
+     * 放在 session cache 之外），而美股的訂單庫存要打 SEC EDGAR、timeout 40 秒，
+     * 沒有 FinMindGate 那種斷路器；受限主機的 max_execution_time 若是 30 秒，
+     * 整個 deferred partial 請求會直接 500，且 controller 的 try/catch 攔不到
+     * PHP 的執行時間上限。取不到評級時該檔不命中規則，等下一次個股分析／選股
+     * 掃描把序列抓進來即可。
+     */
+    public function test_order_inventory_alert_never_fetches_upstream_when_the_series_is_not_cached(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-24 09:00:00'));
+        Http::fake();
+
+        $spy = $this->bindUpstreamCallingFinancials();
+        $this->bindProvider(['OI.TW' => ['price' => 130.0, 'changePercent' => 1.0]], daily: ['OI.TW' => $this->ascendingDaily('OI.TW')]);
+        $user = User::factory()->create();
+        $alert = $this->alert($user, 'OI.TW', 'signal', signalKey: 'order_inventory_b_plus');
+
+        $this->assertSame(0, app(AlertEvaluator::class)->evaluate($user));
+        $this->assertSame('active', $alert->refresh()->status);
+        Http::assertNothingSent();
+        $this->assertSame(0, $spy->calls);
     }
 
     /** 美股沒有籌碼資料：籌碼類訊號警報不得誤觸發（context 為空 → 規則回 false）。 */

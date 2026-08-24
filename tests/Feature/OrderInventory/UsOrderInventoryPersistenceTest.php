@@ -160,6 +160,38 @@ class UsOrderInventoryPersistenceTest extends TestCase
         $this->assertSame(2, $this->companyFactsCallCount(), 'TTL 過期後應重抓');
     }
 
+    /**
+     * cachedOrderInventoryFor()：新鮮就回、過期就回 null，**任何情況都不打 SEC**。
+     *
+     * 這是首頁警報評估走的入口。美股過期後那一次抓取是 SEC EDGAR（timeout 40 秒）
+     * 且沒有斷路器，跑在同步 web 請求裡；受限主機的 max_execution_time 會先把
+     * 請求砍成 500，而 PHP 的執行時間上限不是例外，呼叫端 try/catch 攔不到。
+     * 對照組是 test_expired_row_refetches_when_ttl_has_passed（同樣的過期條件下，
+     * 一般入口確實會重抓）——兩條合起來才證明「不抓」是這個入口的行為，
+     * 不是這個 fixture 根本抓不動。
+     */
+    public function test_cached_only_entry_never_hits_sec_and_returns_null_once_expired(): void
+    {
+        $this->fakeSec([
+            'InventoryNet' => ['CY2026Q2I' => 120],
+            'CostOfRevenue' => ['CY2026Q2' => 80],
+        ]);
+        $instrument = $this->usInstrument();
+
+        Carbon::setTestNow(Carbon::parse('2026-08-20 09:00'));
+        app(FundamentalsService::class)->orderInventoryFor($instrument);
+        $this->assertSame(1, $this->companyFactsCallCount());
+
+        // TTL 內：讀得到，且沒有新增任何 SEC 呼叫。
+        $this->assertNotNull(app(FundamentalsService::class)->cachedOrderInventoryFor($instrument));
+        $this->assertSame(1, $this->companyFactsCallCount());
+
+        // TTL 過期（us_ttl_hours 預設 24）：回 null，而不是就地抓一次。
+        Carbon::setTestNow(Carbon::parse('2026-08-22 09:00'));
+        $this->assertNull(app(FundamentalsService::class)->cachedOrderInventoryFor($instrument));
+        $this->assertSame(1, $this->companyFactsCallCount(), '只讀快取的入口在過期時也不得打 SEC');
+    }
+
     public function test_empty_upstream_keeps_stored_series_and_only_marks_failure(): void
     {
         // 上游回空（SEC 429/故障，或 ticker 查不到）不等於「這家公司沒財報」。

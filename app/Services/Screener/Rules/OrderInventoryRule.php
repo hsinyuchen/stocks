@@ -8,11 +8,18 @@ use App\Services\Screener\ScreenRule;
 /**
  * 訂單／庫存規則的基底。
  *
- * context 由 OrderInventoryAssessor::forInstrument() 供應，形狀是
- * array{assessment: OrderInventoryAssessment, peer_samples: int}|null——標的無資料、
- * 產業不適用、或評級為 insufficient 時該方法回 null。缺鍵、值非陣列、或
- * assessment 型別不對，一律視為「沒有資料」而不命中，不得當成無條件通過
- * （沿用 FundamentalRule 的既有決定：避免沒有資料的標的混進結果）。
+ * context 由 OrderInventoryAssessor 供應（選股掃描走 forInstrument()、首頁警報
+ * 評估走只讀快取的 cachedFor()），形狀是
+ * array{assessment: OrderInventoryAssessment, peer_samples: int}|null。
+ *
+ * **回 null 只代表「拿不到序列」**：非台美市場、序列從未落地、抓取失敗，或
+ * cachedFor() 遇到序列已過期。`insufficient` 與 `not_applicable` **不在此列**——
+ * 那兩種都會回一份完整的 assessment，由各規則自己的 evaluate() 判定不命中。
+ * 寫規則時不要假設「篩得到的一定不是 insufficient」，反過來說，想找 insufficient
+ * 標的的規則也篩得到東西。
+ *
+ * 缺鍵、值非陣列、或 assessment 型別不對，一律視為「沒有資料」而不命中，不得當成
+ * 無條件通過（沿用 FundamentalRule 的既有決定：避免沒有資料的標的混進結果）。
  */
 abstract class OrderInventoryRule implements ScreenRule
 {

@@ -204,8 +204,18 @@ class AlertEvaluator
      * 同邏輯。
      *
      * best-effort：籌碼、融資、基本面只有台股有；訂單庫存台美股皆有（美股走 SEC
-     * 財報），但同樣可能因產業不適用或資料不足而拿不到評級。取不到一律留 null，
-     * 由規則自行判定不命中——不可當「無條件通過」，否則美股在籌碼規則下會被誤觸發。
+     * 財報），但同樣可能因序列尚未落地或已過期而拿不到評級（產業不適用與資料不足
+     * 不在此列，那兩種都會回一份完整的 assessment，由規則自己判定不命中）。取不到
+     * 一律留 null，由規則自行判定不命中——不可當「無條件通過」，否則美股在籌碼規則
+     * 下會被誤觸發。
+     *
+     * 訂單庫存**只讀快取**（cachedFor()，不是 forInstrument()）：本方法跑在首頁的
+     * 同步 web 請求裡（DashboardController 刻意把 evaluate() 放在 session cache
+     * 之外，觸發要即時反映），而 forInstrument() 在 TTL 過期時會就地抓一次上游，
+     * 美股那條打 SEC EDGAR、timeout 40 秒、沒有 FinMindGate 那種斷路器。受限主機的
+     * max_execution_time（常見 30 秒）會先把整個 deferred partial 請求砍成 500，而
+     * PHP 的執行時間上限不是例外，下面的 try/catch 攔不到。選股掃描與快報 job 各有
+     * 總量預算，這條路徑一個都沒有，只能從「不抓」這一端解。
      *
      * @param  list<string>  $needs
      * @return array<string, mixed>
@@ -220,7 +230,7 @@ class AlertEvaluator
                     ScreenRule::NEEDS_CHIP => app(ChipDataService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_FUNDAMENTALS => app(FundamentalsService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_MARGIN => app(MarginDataService::class)->forInstrument($instrument),
-                    ScreenRule::NEEDS_ORDER_INVENTORY => app(OrderInventoryAssessor::class)->forInstrument($instrument),
+                    ScreenRule::NEEDS_ORDER_INVENTORY => app(OrderInventoryAssessor::class)->cachedFor($instrument),
                     default => null,
                 };
             } catch (\Throwable $exception) {

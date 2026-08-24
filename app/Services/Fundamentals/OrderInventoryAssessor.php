@@ -3,6 +3,7 @@
 namespace App\Services\Fundamentals;
 
 use App\Data\OrderInventoryAssessment;
+use App\Data\OrderInventoryData;
 use App\Models\Fundamental;
 use App\Models\Instrument;
 
@@ -26,12 +27,52 @@ class OrderInventoryAssessor
      * 但呈現層必須說得出「同業樣本 N 檔」而不是讓使用者以為系統看過整個產業，
      * 所以一併回傳，避免呼叫端要記得多呼叫一個方法。
      *
+     * 序列過期時會就地打一次上游（美股是 SEC EDGAR，timeout 40 秒）。跑在同步
+     * web 請求裡的呼叫端請改用 cachedFor()。
+     *
+     * **回 null 只代表「拿不到序列」**（非台美市場、序列從未落地、抓取失敗），
+     * 不代表「產業不適用或資料不足」——那兩種情況都會回一份完整的 assessment，
+     * rating 分別是 not_applicable 與 insufficient。
+     *
      * @return array{assessment: OrderInventoryAssessment, peer_samples: int}|null
      */
     public function forInstrument(Instrument $instrument): ?array
     {
-        $data = $this->fundamentals->orderInventoryFor($instrument);
+        return $this->rate($instrument, $this->fundamentals->orderInventoryFor($instrument));
+    }
 
+    /**
+     * 只讀快取的評級：序列已經在 DB 且未過期時才評級，否則回 null，**一次上游都不打**。
+     *
+     * 為警報評估而存在：它跑在首頁的同步 web 請求裡（DashboardController 刻意把
+     * evaluate() 放在 session cache 之外，觸發要即時反映），而 forInstrument() 在
+     * TTL 過期時會就地抓一次上游——美股那條打 SEC EDGAR、timeout 40 秒、沒有
+     * FinMindGate 那種斷路器，受限主機的 max_execution_time 會先把請求砍掉，而
+     * PHP 的執行時間上限不是例外，呼叫端的 try/catch 攔不到。
+     * 選股掃描與快報 job 有各自的總量預算（scan_time_budget_seconds／job timeout），
+     * 這條同步路徑一個都沒有，只能從「不抓」這一端解。
+     *
+     * 拿不到就當沒有：該檔不命中訂單庫存類規則，等下一次個股分析／選股掃描把序列
+     * 抓進快取即可，不在使用者開首頁的當下替他等一次上游。
+     *
+     * @return array{assessment: OrderInventoryAssessment, peer_samples: int}|null
+     */
+    public function cachedFor(Instrument $instrument): ?array
+    {
+        return $this->rate($instrument, $this->fundamentals->cachedOrderInventoryFor($instrument));
+    }
+
+    /**
+     * 取得序列之後的共同流程：同業取樣、前次評級、評級、寫回。
+     *
+     * 兩個入口的差別**只在序列從哪裡來**，評級與寫回一律相同——警報路徑同樣要
+     * 寫回評級，否則首頁評出來的結果不會進到評級軌跡，ratingChange 會與其他
+     * 入口看到的不一致。
+     *
+     * @return array{assessment: OrderInventoryAssessment, peer_samples: int}|null
+     */
+    private function rate(Instrument $instrument, ?OrderInventoryData $data): ?array
+    {
         if ($data === null || ! $data->hasAny()) {
             return null;
         }
@@ -118,6 +159,11 @@ class OrderInventoryAssessor
 
     /**
      * 只更新目標列，**不新增列**——新增列會讓同一個資料日出現兩筆，污染估值分位的樣本。
+     *
+     * 呼叫來源共五處，寫入頻率差距很大，改動這裡前先看齊全：個股分析、個股問答
+     * （**每一則訊息**）、選股掃描（每檔）、排程快報（每檔），以及首頁的警報評估
+     * （**每次首頁載入**，走 cachedFor()）。最後一項是同步 web 路徑，任何在這裡
+     * 加上的額外查詢或寫入都會直接落在使用者的開頁延遲上。
      *
      * 目標列的 `failed_at` 非 null 時不寫評級：`FundamentalsService::persist()` 成功時
      * 一律把 failed_at 清成 null，只有 handleFailure() 會設值，所以 failed_at 非 null

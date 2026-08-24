@@ -95,6 +95,34 @@ class FundamentalsService
     }
 
     /**
+     * 序列的**只讀**入口：已經在 DB 且未過期才回傳，否則回 null，一次上游都不打。
+     *
+     * 給跑在同步 web 請求裡的消費端用（目前是首頁的警報評估）。orderInventoryFor()
+     * 過期時會就地抓一次上游，美股那條打的是 SEC EDGAR、timeout 40 秒，且沒有
+     * FinMindGate 那種斷路器；受限主機的 max_execution_time（常見 30 秒）會先把整個
+     * 請求砍掉，而 PHP 的執行時間上限不是例外，呼叫端的 try/catch 攔不到。
+     * 這個入口讓「拿不到就當沒有」變成可選的語意，不必為此犧牲其他呼叫端的即時抓取。
+     *
+     * 新鮮度判準與各自市場的正常路徑完全一致（台股 isStale()、美股
+     * isUnitedStatesStale()），確保「這裡回 null」等價於「正常路徑此刻會去抓上游」，
+     * 兩套判準不會漂移。
+     */
+    public function cachedOrderInventoryFor(Instrument $instrument): ?OrderInventoryData
+    {
+        $row = $this->latestRow($instrument);
+
+        if ($row === null || ! is_array($row->order_inventory)) {
+            return null;
+        }
+
+        $stale = MarketResolver::isTaiwan($instrument->symbol)
+            ? $this->isStale($row)
+            : $this->isUnitedStatesStale($row);
+
+        return $stale ? null : OrderInventoryData::fromArray($row->order_inventory);
+    }
+
+    /**
      * 台股：序列本來就由 forInstrument() 連同估值一次抓、寫進同一列。
      *
      * 這裡只做「讀既有列」，過期時委派回 forInstrument()，不自己開第二條抓取
