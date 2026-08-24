@@ -62,6 +62,7 @@ final class StockChatService
         private readonly BrokerBranchDataService $brokerBranch,
         private readonly LlmJsonParser $json = new LlmJsonParser,
         private readonly SopGuide $sop = new SopGuide,
+        private readonly OrderInventoryGuide $orderInventoryGuide = new OrderInventoryGuide,
     ) {}
 
     /**
@@ -100,6 +101,7 @@ final class StockChatService
             'technical_snapshot' => $base['technical_snapshot'],
             'rule_signal' => $base['rule_signal'],
             'rates' => $base['rates'],
+            'order_inventory' => $base['order_inventory'],
             'fundamentals' => $fundamentals === null ? null : [
                 'per' => $fundamentals->per,
                 'pbr' => $fundamentals->pbr,
@@ -165,6 +167,13 @@ final class StockChatService
             ? 'If you give a rating or call, always attach a confidence level; a rating from social heat without T1/T2 support is low confidence at best. Before any entry/stop suggestion, add a tradability caveat (attention/disposition status not checked, liquidity, cost).'
             : '若給出評級或操作判斷，一律附信心等級；僅憑社群熱度而無 T1/T2 佐證者最高只能低信心。給任何進場/停損建議前，附可交易性提醒（注意股/處置股未查、流動性、成本）。';
 
+        // 訂單／庫存的引用紀律屬於規則，因此走 system role；區塊本身是資料，走
+        // user message（見 buildUserPrompt）。無評級時整段不輸出——沒有區塊可引用
+        // 時，那五條規則只會讓模型去猜一個不存在的區塊。
+        $orderInventoryDiscipline = ($context['order_inventory'] ?? null) === null
+            ? ''
+            : $this->orderInventoryGuide->discipline($locale)."\n";
+
         if ($locale === 'en') {
             return <<<SYSTEM
 You are the dedicated AI investment advisor for the single stock "{$symbol}　{$name}", and you serve only this stock.
@@ -198,7 +207,7 @@ BEGIN_SOP_DISCIPLINE
 {$dataSufficiency}
 {$antiManipulation}
 {$ratingLine}
-END_SOP_DISCIPLINE
+{$orderInventoryDiscipline}END_SOP_DISCIPLINE
 BEGIN_OUTPUT_CONTRACT
 Return only one JSON object, with no other text before or after and no code fences:
 {"decision":"answer","answer":"your answer"}
@@ -244,7 +253,7 @@ BEGIN_SOP_DISCIPLINE
 {$dataSufficiency}
 {$antiManipulation}
 {$ratingLine}
-END_SOP_DISCIPLINE
+{$orderInventoryDiscipline}END_SOP_DISCIPLINE
 BEGIN_OUTPUT_CONTRACT
 只回傳一個 JSON 物件，前後不要有任何其他文字，也不要包程式碼圍欄：
 {"decision":"answer","answer":"回答內容"}
@@ -260,10 +269,13 @@ SYSTEM;
     /**
      * 使用者訊息：資料段與提問。
      *
+     * $locale 只影響 order_inventory 區塊的敘述語言（其餘資料段是原始數字/JSON，
+     * 或已由 SymbolContextService 依 locale 組好）。給預設值讓既有呼叫端不變。
+     *
      * @param  array<string, mixed>  $context
      * @param  list<array{question: string, answer: string}>  $history
      */
-    public function buildUserPrompt(array $context, string $question, array $history): string
+    public function buildUserPrompt(array $context, string $question, array $history, string $locale = 'zh'): string
     {
         $symbol = (string) $context['symbol'];
         $quote = $context['quote'] ?? [];
@@ -290,6 +302,15 @@ SYSTEM;
         $valuationJson = $this->jsonOrNote($context['valuation_percentiles'] ?? null, '（觀測樣本不足，未提供估值分位）');
         $chipJson = $this->jsonOrNote($context['chip_flows'] ?? [], '（本次未提供籌碼資料）');
         $marginJson = $this->jsonOrNote($context['margin_flows'] ?? [], '（本次未提供融資融券資料）');
+
+        // 訂單／庫存判斷區塊。無評級時**整段不輸出**，連標頭都不留：空標頭會被 LLM
+        // 讀成「這項資料查過而且是空的」，比不提供更糟。這一段刻意不走
+        // jsonOrNote 的「本次未提供」語句——rates 有 RatesNarrative 可以明說抓不到，
+        // 訂單／庫存這邊沒有評級就沒有任何可引用的句子。
+        $orderInventory = $context['order_inventory'] ?? null;
+        $orderInventorySection = $orderInventory === null
+            ? ''
+            : "BEGIN_ORDER_INVENTORY\n".$this->orderInventoryGuide->block($orderInventory, $locale)."\nEND_ORDER_INVENTORY\n";
 
         $newsBlock = $this->newsBlock($context['news'] ?? []);
         $historyBlock = $this->historyBlock($history);
@@ -319,7 +340,7 @@ END_FUNDAMENTALS
 BEGIN_VALUATION_PERCENTILE
 {$valuationJson}
 END_VALUATION_PERCENTILE
-BEGIN_CHIP_FLOWS
+{$orderInventorySection}BEGIN_CHIP_FLOWS
 {$chipJson}
 END_CHIP_FLOWS
 BEGIN_MARGIN_FLOWS
@@ -353,7 +374,7 @@ PROMPT;
     ): array {
         $context = $this->contextFor($instrument, $locale);
         $system = $this->buildSystemPrompt($context, $locale);
-        $prompt = $this->buildUserPrompt($context, $question, $history);
+        $prompt = $this->buildUserPrompt($context, $question, $history, $locale);
 
         try {
             $response = $llm->complete($model, $prompt, $system);

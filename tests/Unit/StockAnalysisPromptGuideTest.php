@@ -7,10 +7,19 @@ use App\Data\DailyPriceData;
 use App\Data\LlmResponseData;
 use App\Data\MarketQuoteData;
 use App\Services\StockAnalysisService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+/**
+ * 這個類別原本完全不碰資料庫，加 RefreshDatabase 是因為個股脈絡組裝（
+ * SymbolContextService::forSymbol()）現在會以代號反查 instruments，好把訂單／庫存
+ * 評級一併掛進脈絡。這裡沒有建 instruments 列，因此查不到標的、不輸出判斷區塊，
+ * 本類別要驗的 prompt 文字不受影響——需要的只是 schema 存在。
+ */
 class StockAnalysisPromptGuideTest extends TestCase
 {
+    use RefreshDatabase;
+
     private function analyzeWithSignal(array $ruleSignal): string
     {
         $llm = new PromptCapturingLlmProvider;

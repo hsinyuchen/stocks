@@ -317,6 +317,164 @@ return [
             '會計政策或認列基礎變動會讓跨期比較失效（需人工判斷）',
             '財報落後實際訂單 1–2 季，本框架偏驗證工具而非領先指標（需人工判斷）',
         ],
+
+        /* 評級封頂說明。不寫的話 LLM 會以為沒有 A 是這檔股票的問題。 */
+        'ceiling_note' => '本系統可判定之最高級為 B+；A 級需人工查證訂單公告與法說會，規則引擎不會自動給予。',
+        'ceiling_note_en' => 'B+ is the highest grade this engine can assign; grade A requires manual verification of order announcements and earnings calls.',
+
+        'lagging_note' => '最新財報已落後一季以上，本框架偏驗證工具而非領先指標。',
+        'lagging_note_en' => 'The latest filing lags by more than one quarter; this framework verifies rather than leads.',
+
+        /*
+         * 條件鍵 → 可讀文字。呈現層只列**明確為 true** 的條件，所以每則文案寫的是
+         * 「該條件成立時的事實」，不是條件名稱本身。C7／C8 成立即為負面，文案照實寫，
+         * 不因為列在「觸發條件」而美化成中性描述。
+         *
+         * 與 counter_evidence／negative_signals 同一個理由放這裡：機器鍵（C1、C4…）
+         * 直接進 prompt 的話，LLM 會照抄給使用者看。
+         */
+        'conditions' => [
+            'C1' => '營收連續成長達門檻期數',
+            'C2' => '毛利率季變動維持穩定',
+            'C3' => '存貨週轉天數維持穩定',
+            'C4' => '存貨明顯增加',
+            'C5' => '應付帳款週轉天數拉長',
+            'C6' => '合約負債（預收款）增加',
+            'C7' => '應收帳款週轉天數明顯拉長',
+            'C8' => '營業現金流品質不佳',
+            'C9' => '資本支出佔營收高於過去平均',
+            'C10' => '營收年增優於同業中位數',
+        ],
+        'conditions_en' => [
+            'C1' => 'revenue grew for the required number of consecutive periods',
+            'C2' => 'gross margin held stable quarter over quarter',
+            'C3' => 'days inventory outstanding stayed within the stable band',
+            'C4' => 'inventory rose materially',
+            'C5' => 'days payable outstanding lengthened',
+            'C6' => 'contract liabilities (customer prepayments) rose',
+            'C7' => 'days sales outstanding lengthened materially',
+            'C8' => 'weak operating cash flow quality',
+            'C9' => 'capex to revenue ran above its trailing average',
+            'C10' => 'revenue growth beat the peer median',
+        ],
+
+        /*
+         * insufficient 的原因文案。
+         *
+         * 評級為 insufficient 時 conditions／negativeSignals／counterEvidence 全是空的，
+         * 不講原因使用者只看得到一個結論，無從判斷該補資料還是該等下一季財報。
+         * 兩個鍵對應 OrderInventoryRadar::assess() 串聯 0 的兩半（缺關鍵科目／資料過舊）。
+         */
+        'insufficient_reason' => [
+            'too_old' => '最新財報已超過可評級的時效上限。',
+            'key_line_items_missing' => '缺少關鍵財報科目（營收／營業成本／存貨）。',
+        ],
+        'insufficient_reason_en' => [
+            'too_old' => 'The latest filing is older than the maximum age this engine will grade.',
+            'key_line_items_missing' => 'Key line items are missing (revenue, cost of goods sold, or inventories).',
+        ],
+
+        /* 反證鍵 → 可讀文字。機器鍵不得直接進 prompt——LLM 會照抄給使用者看。 */
+        'counter_evidence' => [
+            'related_party_payables_rising' => '關係人應付款佔比上升，備料訊號的可信度下降。',
+            'peer_wide_deterioration' => '同業與自身同步走弱，較像產業現象而非公司特定的備料訊號。',
+            'inventory_up_revenue_flat' => '存貨增加但營收未跟上。',
+            'capex_up_revenue_flat' => '資本支出升溫但營收未放大。',
+        ],
+        'counter_evidence_en' => [
+            'related_party_payables_rising' => 'Related-party payables rose as a share of total payables, weakening the stocking-up read.',
+            'peer_wide_deterioration' => 'Peers weakened alongside the company, pointing to an industry effect rather than company-specific stocking up.',
+            'inventory_up_revenue_flat' => 'Inventory rose while revenue did not follow.',
+            'capex_up_revenue_flat' => 'Capex rose while revenue did not scale.',
+        ],
+
+        'negative_signals' => [
+            'dio_rising' => '存貨週轉天數上升超出穩定區間',
+            'dso_rising' => '應收帳款週轉天數明顯拉長',
+            'weak_operating_cash_flow' => '營業現金流品質不佳',
+            'gross_margin_deteriorating' => '毛利率季減超過一個百分點',
+        ],
+        'negative_signals_en' => [
+            'dio_rising' => 'days inventory outstanding rose beyond the stable band',
+            'dso_rising' => 'days sales outstanding lengthened materially',
+            'weak_operating_cash_flow' => 'weak operating cash flow quality',
+            'gross_margin_deteriorating' => 'gross margin fell more than one percentage point quarter over quarter',
+        ],
+
+        /*
+         * 評級值 → 可讀文字。
+         *
+         * B+／B／C 本身就是可讀的等第，逐字保留；`insufficient` 與 `not_applicable`
+         * 是機器值，裸送進 prompt 會被 LLM 照抄給使用者看（與 conditions／
+         * negative_signals 同一個理由）。快報點名段落一檔只有一行，沒有別的欄位
+         * 可以補救這兩個字。
+         *
+         * 三個消費端共用這張表：自選股快報的點名段落，以及個股分析與個股問答的完整
+         * 區塊（都走 OrderInventoryGuide::ratingLabel()）。改這張表會同時影響三處
+         * 面向使用者的輸出。
+         */
+        'ratings' => [
+            'B+' => 'B+',
+            'B' => 'B',
+            'C' => 'C',
+            'insufficient' => '資料不足',
+            'not_applicable' => '本框架不適用',
+        ],
+        'ratings_en' => [
+            'B+' => 'B+',
+            'B' => 'B',
+            'C' => 'C',
+            'insufficient' => 'insufficient data',
+            'not_applicable' => 'not applicable',
+        ],
+
+        'rating_change' => [
+            'first' => '首次評級，無前次可比。',
+            'unchanged' => '評級與上次相同。',
+            'upgraded' => '評級較上次調升。',
+            'downgraded' => '評級較上次調降。',
+        ],
+        'rating_change_en' => [
+            'first' => 'First assessment; no prior grade to compare.',
+            'unchanged' => 'Grade unchanged from the previous assessment.',
+            'upgraded' => 'Grade raised from the previous assessment.',
+            'downgraded' => 'Grade lowered from the previous assessment.',
+        ],
+    ],
+
+    /*
+     * 同業取樣。
+     *
+     * spec 的「機會性計算」：只用**已經在 fundamentals 表快取中**的同市場同產業樣本，
+     * 不為單一標的去抓十幾檔同業財報——那個成本不可接受。選股器掃描會自然把股池的
+     * 財報暖進快取，所以覆蓋率會隨使用而提高，而不是一開始就完整。
+     *
+     * 這些數字與框架門檻一樣是初始估計值，未經回測。
+     */
+    'peer' => [
+        /* 低於這個檔數就不給中位數（但仍照實回報樣本數）。 */
+        'min_samples' => 5,
+
+        /*
+         * 單次取樣最多納入的同業檔數：**截斷輸出陣列**（排除標的自己之後才截）。
+         *
+         * 取捨：排序是「最近抓取的優先」，所以大型產業超過上限時取到的是最近被
+         * 掃描過的那些股票，中位數會偏向近期進出選股器的股池，而不是整個產業的
+         * 真實分佈。調大會讓中位數更有代表性，代價是每次取樣要多 hydrate 幾十列
+         * order_inventory JSON。
+         */
+        'max_samples' => 60,
+
+        /*
+         * 快取列的 `fetched_at` 超過這麼多天就不當同業樣本——比的是「現在」的
+         * 產業狀況。
+         *
+         * **不能改用 `data_as_of`**：該欄同欄不同語意（台股是 PER 日期、每日更新；
+         * 美股是最新季末日、每季更新）。SEC 的 10-Q 在季末後 40–45 天才送件，用
+         * `data_as_of` 當視窗會讓所有美股列從落地那一刻起就已過期，同業樣本恆為
+         * 0 檔。`fetched_at` 兩個市場一致，都是抓取時戳。
+         */
+        'freshness_days' => 30,
     ],
 
 ];

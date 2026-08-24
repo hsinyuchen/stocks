@@ -95,6 +95,40 @@ class FundamentalsService
     }
 
     /**
+     * 序列的**只讀**入口：已經在 DB 且未過期才回傳，否則回 null，一次上游都不打。
+     *
+     * 給跑在同步 web 請求裡的消費端用（目前是首頁的警報評估）。orderInventoryFor()
+     * 過期時會就地抓一次上游，美股那條打的是 SEC EDGAR、timeout 40 秒，且沒有
+     * FinMindGate 那種斷路器；受限主機的 max_execution_time（常見 30 秒）會先把整個
+     * 請求砍掉，而 PHP 的執行時間上限不是例外，呼叫端的 try/catch 攔不到。
+     * 這個入口讓「拿不到就當沒有」變成可選的語意，不必為此犧牲其他呼叫端的即時抓取。
+     *
+     * 新鮮度判準與各自市場的正常路徑完全一致（台股 isStale()、美股
+     * isUnitedStatesStale()），確保「這裡回 null」等價於「正常路徑此刻會去抓上游」，
+     * 兩套判準不會漂移。
+     *
+     * 取列走 latestSeriesRow() 而**不是** latestRow()：美股失敗且無既有列時寫的
+     * 負快取列 data_as_of 是「今天」，成功列則是「季末日」，後者永遠比較早，所以
+     * 只要該檔第一次抓取失敗過，latestRow() 就永遠回那一列不帶序列的負快取列，
+     * 這個入口會恆回 null——該標的的訂單庫存警報從此永久靜默不觸發，而序列其實
+     * 已經落地且新鮮。
+     */
+    public function cachedOrderInventoryFor(Instrument $instrument): ?OrderInventoryData
+    {
+        $row = $this->latestSeriesRow($instrument);
+
+        if ($row === null) {
+            return null;
+        }
+
+        $stale = MarketResolver::isTaiwan($instrument->symbol)
+            ? $this->isStale($row)
+            : $this->isUnitedStatesStale($row);
+
+        return $stale ? null : OrderInventoryData::fromArray($row->order_inventory);
+    }
+
+    /**
      * 台股：序列本來就由 forInstrument() 連同估值一次抓、寫進同一列。
      *
      * 這裡只做「讀既有列」，過期時委派回 forInstrument()，不自己開第二條抓取
@@ -119,6 +153,19 @@ class FundamentalsService
      */
     private function unitedStatesOrderInventory(Instrument $instrument): ?OrderInventoryData
     {
+        // 帶序列的最新列若還新鮮就直接回，不看 latestRow()。
+        //
+        // 這一步不能省：負快取列的 data_as_of 是「今天」、成功列是「季末日」，
+        // 後者永遠比較早，所以該檔第一次抓取失敗之後，latestRow() 恆為那一列
+        // 不帶序列的負快取列、恆判定過期，快取形同不存在，每次開頁都重打 SEC。
+        // 只在「有新鮮序列」時短路，其餘情況一律走原本以 latestRow() 為準的流程
+        // ——失敗節流與 last-known-good 都依賴看得到負快取列本身。
+        $series = $this->latestSeriesRow($instrument);
+
+        if ($series !== null && ! $this->isUnitedStatesStale($series)) {
+            return OrderInventoryData::fromArray($series->order_inventory);
+        }
+
         $row = $this->latestRow($instrument);
         $previous = is_array($row?->order_inventory)
             ? OrderInventoryData::fromArray($row->order_inventory)
@@ -224,6 +271,25 @@ class FundamentalsService
     {
         return Fundamental::query()
             ->where('instrument_id', $instrument->id)
+            ->orderByDesc('data_as_of')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /**
+     * 帶著序列的最新一列（`order_inventory` 非 null）。
+     *
+     * 與 latestRow() 刻意不同：那一個服務估值路徑，**必須**看得到不帶序列的負快取列
+     * ——failed_at 的重試節流、handleFailure() 的 last-known-good 判定、以及美股
+     * 失敗時的節流窗口都以它為依據，換成本方法會讓 SEC 故障時每次請求都重打。
+     * 判準與 OrderInventoryAssessor::targetRow() 同一套（「order_inventory 非 null」
+     * 才是序列真正落地的可靠判準），兩處若要調整必須一起看。
+     */
+    private function latestSeriesRow(Instrument $instrument): ?Fundamental
+    {
+        return Fundamental::query()
+            ->where('instrument_id', $instrument->id)
+            ->whereNotNull('order_inventory')
             ->orderByDesc('data_as_of')
             ->orderByDesc('id')
             ->first();

@@ -160,6 +160,96 @@ class UsOrderInventoryPersistenceTest extends TestCase
         $this->assertSame(2, $this->companyFactsCallCount(), 'TTL 過期後應重抓');
     }
 
+    /**
+     * cachedOrderInventoryFor()：新鮮就回、過期就回 null，**任何情況都不打 SEC**。
+     *
+     * 這是首頁警報評估走的入口。美股過期後那一次抓取是 SEC EDGAR（timeout 40 秒）
+     * 且沒有斷路器，跑在同步 web 請求裡；受限主機的 max_execution_time 會先把
+     * 請求砍成 500，而 PHP 的執行時間上限不是例外，呼叫端 try/catch 攔不到。
+     * 對照組是 test_expired_row_refetches_when_ttl_has_passed（同樣的過期條件下，
+     * 一般入口確實會重抓）——兩條合起來才證明「不抓」是這個入口的行為，
+     * 不是這個 fixture 根本抓不動。
+     */
+    public function test_cached_only_entry_never_hits_sec_and_returns_null_once_expired(): void
+    {
+        $this->fakeSec([
+            'InventoryNet' => ['CY2026Q2I' => 120],
+            'CostOfRevenue' => ['CY2026Q2' => 80],
+        ]);
+        $instrument = $this->usInstrument();
+
+        Carbon::setTestNow(Carbon::parse('2026-08-20 09:00'));
+        app(FundamentalsService::class)->orderInventoryFor($instrument);
+        $this->assertSame(1, $this->companyFactsCallCount());
+
+        // TTL 內：讀得到，且沒有新增任何 SEC 呼叫。
+        $this->assertNotNull(app(FundamentalsService::class)->cachedOrderInventoryFor($instrument));
+        $this->assertSame(1, $this->companyFactsCallCount());
+
+        // TTL 過期（us_ttl_hours 預設 24）：回 null，而不是就地抓一次。
+        Carbon::setTestNow(Carbon::parse('2026-08-22 09:00'));
+        $this->assertNull(app(FundamentalsService::class)->cachedOrderInventoryFor($instrument));
+        $this->assertSame(1, $this->companyFactsCallCount(), '只讀快取的入口在過期時也不得打 SEC');
+    }
+
+    /**
+     * 負快取列不得永久遮蔽帶著序列的成功列。
+     *
+     * 兩種寫入用的 data_as_of 語意不同：抓取失敗且無既有列時寫「今天」，成功時寫
+     * 「最新季末日」。季末日永遠早於今天，所以「第一次抓取就失敗」留下的負快取列
+     * 會永遠排在後來成功那一列前面，`orderByDesc(data_as_of)` 的最新列從此恆為那一列。
+     *
+     * 後果分兩層：正常路徑每次都判定過期、重打 SEC（快取形同不存在）；只讀快取的
+     * 入口（首頁警報）則直接讀到 null，該檔**永久靜默不觸發警報**，即使序列早已
+     * 落地且新鮮。觸發條件只是「該美股標的的第一次抓取失敗」（429／5xx／ticker
+     * 查不到），且沒有任何 prune 會清掉這種列。
+     */
+    public function test_a_negative_cache_row_does_not_shadow_a_successful_series(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-20 09:00'));
+        $instrument = $this->usInstrument();
+
+        // 第一次抓取就失敗 → 寫下 data_as_of = 今天的純節流負快取列。
+        Http::fake([
+            'www.sec.gov/files/company_tickers.json' => Http::response([
+                '0' => ['cik_str' => 1045810, 'ticker' => 'NVDA'],
+            ], 200),
+            'data.sec.gov/*' => Http::response('', 429),
+        ]);
+        $this->app->instance(
+            CompanyFinancialsProvider::class,
+            new SecEdgarFinancialsProvider(new SecTickerCikResolver),
+        );
+        $this->assertNull(app(FundamentalsService::class)->orderInventoryFor($instrument));
+
+        // 節流過後重抓成功 → 另寫一列 data_as_of = 季末日（早於今天）。
+        Carbon::setTestNow(Carbon::parse('2026-08-20 12:00'));
+        $this->fakeSec([
+            'InventoryNet' => ['CY2026Q2I' => 120],
+            'CostOfRevenue' => ['CY2026Q2' => 80],
+        ]);
+        $this->assertNotNull(app(FundamentalsService::class)->orderInventoryFor($instrument));
+
+        // 前提檢查：確實是「負快取列比成功列新」這個狀態，不是測試沒造出情境。
+        $rows = Fundamental::query()->where('instrument_id', $instrument->id)
+            ->orderByDesc('data_as_of')->get();
+        $this->assertCount(2, $rows);
+        $this->assertSame('2026-08-20', $rows[0]->data_as_of->toDateString());
+        $this->assertNull($rows[0]->order_inventory, '最新一列是不帶序列的負快取列');
+        $this->assertSame('2026-06-30', $rows[1]->data_as_of->toDateString());
+        $this->assertIsArray($rows[1]->order_inventory);
+
+        // 只讀快取的入口必須看得到序列，而不是被負快取列擋成 null。
+        $cached = app(FundamentalsService::class)->cachedOrderInventoryFor($instrument);
+        $this->assertNotNull($cached, '負快取列不得遮蔽已落地且新鮮的序列');
+        $this->assertSame('2026Q2', $cached->latestQuarter()->period);
+
+        // 正常路徑也不得因此每次重打 SEC：TTL 內再呼叫一次，SEC 呼叫數不變。
+        $before = $this->companyFactsCallCount();
+        app(FundamentalsService::class)->orderInventoryFor($instrument);
+        $this->assertSame($before, $this->companyFactsCallCount(), 'TTL 內不得因負快取列而重抓');
+    }
+
     public function test_empty_upstream_keeps_stored_series_and_only_marks_failure(): void
     {
         // 上游回空（SEC 429/故障，或 ticker 查不到）不等於「這家公司沒財報」。

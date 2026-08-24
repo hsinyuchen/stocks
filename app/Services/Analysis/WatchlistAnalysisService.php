@@ -6,11 +6,14 @@ use App\Contracts\LlmProvider;
 use App\Contracts\MarketDataProvider;
 use App\Data\ChipFlowData;
 use App\Data\MarginFlowData;
+use App\Data\OrderInventoryAssessment;
 use App\Enums\LlmFailureReason;
+use App\Enums\OrderInventoryRating;
 use App\Exceptions\LlmRequestException;
 use App\Models\Instrument;
 use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
+use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\Futures\FuturesDataService;
 use App\Services\Llm\LlmJsonParser;
 use App\Services\Margin\MarginDataService;
@@ -41,6 +44,16 @@ class WatchlistAnalysisService
     /** 外資買賣超的判讀天數（交易日）。 */
     private const CHIP_WINDOW = 5;
 
+    /**
+     * 支持條件的檢查優先序：固定列出 C1～C10（不含 C7／C8，那兩條是警訊，見
+     * `OrderInventoryGuide::NEGATIVE_CONDITIONS`），依此陣列順序走訪，不依賴
+     * `OrderInventoryAssessment::$conditions` 的鍵序——DTO 沒有承諾鍵序，
+     * `foreach ($assessment->conditions as ...)` 目前雖照插入序，但那是實作細節，
+     * Radar 若改成從 map() 產生 conditions 陣列就可能變動，快報的「一句判定理由」
+     * 不能建立在這個未承諾的行為上。
+     */
+    private const ORDER_INVENTORY_CONDITION_KEYS = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9', 'C10'];
+
     public function __construct(
         private readonly MarketDataProvider $marketData,
         private readonly TechnicalIndicatorService $indicators,
@@ -50,8 +63,10 @@ class WatchlistAnalysisService
         private readonly FuturesDataService $futures,
         private readonly BrokerBranchDataService $brokerData,
         private readonly RatesNarrative $ratesNarrative,
+        private readonly OrderInventoryAssessor $orderInventoryAssessor,
         private readonly LlmJsonParser $json = new LlmJsonParser,
         private readonly SopGuide $sop = new SopGuide,
+        private readonly OrderInventoryGuide $orderInventoryGuide = new OrderInventoryGuide,
     ) {}
 
     /**
@@ -76,7 +91,7 @@ class WatchlistAnalysisService
         $rates = $this->ratesForWatchlist($symbols, $locale);
 
         $futures = $this->gatherFutures();
-        $stocks = array_map(fn (Instrument $instrument): array => $this->gatherStock($instrument), $instruments);
+        $stocks = array_map(fn (Instrument $instrument): array => $this->gatherStock($instrument, $locale), $instruments);
 
         $payload = [
             'background' => $background,
@@ -274,9 +289,13 @@ class WatchlistAnalysisService
     /**
      * 單一自選股的行情、技術指標、規則訊號與籌碼摘要（全 best-effort）。
      *
+     * $locale 只影響 order_inventory.reason 的語言（其餘欄位是原始數字或既有的
+     * 中文專用資料區塊敘述，沿用 watchlistBlock()／internationalBlock() 等既有慣例，
+     * 本任務不擴大範圍去動它們）。
+     *
      * @return array<string, mixed>
      */
-    private function gatherStock(Instrument $instrument): array
+    private function gatherStock(Instrument $instrument, string $locale): array
     {
         $symbol = $instrument->symbol;
 
@@ -303,6 +322,12 @@ class WatchlistAnalysisService
         $marginFlows = $this->marginData->forInstrument($instrument);
         // 券商分點主力摘要（Sponsor 付費；非台股/免費 token 回 null）。
         $brokerBranch = $this->brokerData->summaryFor($instrument);
+        // 訂單／庫存評級：走 orderInventoryFor()，快取命中零額外 IO，**過期時會就地
+        // 觸發一次上游抓取**（美股是 SEC EDGAR）。快報跑在佇列 job 裡（job timeout
+        // 300 秒），一次十幾檔的最壞情況在那個預算內可接受，所以不像首頁警報評估
+        // 那樣改用只讀快取的 cachedFor()。best-effort，抓不到（非台美／缺序列／
+        // 評級失敗）不拖垮整份報告。
+        $orderInventory = $this->orderInventorySummary($instrument, $locale);
 
         if ($prices === []) {
             return [
@@ -316,6 +341,7 @@ class WatchlistAnalysisService
                 'chip' => $this->chipSummary($chipFlows),
                 'margin' => $this->marginSummary($marginFlows),
                 'broker_branch' => $brokerBranch,
+                'order_inventory' => $orderInventory,
             ];
         }
 
@@ -342,7 +368,92 @@ class WatchlistAnalysisService
             'chip' => $this->chipSummary($chipFlows),
             'margin' => $this->marginSummary($marginFlows),
             'broker_branch' => $brokerBranch,
+            'order_inventory' => $orderInventory,
         ];
+    }
+
+    /**
+     * 訂單／庫存評級的一行摘要，供快報「點名」段落使用。只存 rating 與判定理由，
+     * 不存整份 OrderInventoryAssessment——那份 DTO 拿去 json_encode 存進
+     * `watchlist_analyses.payload` 會把 conditions／fixedCaveats／missingForA 等
+     * 完整清單重複存 N 份（N=自選股數），而快報從不需要那些欄位（完整清單只在
+     * 個股分析／問答的 OrderInventoryGuide::block() 出現，見 Task 4）。
+     *
+     * 無評級（非台美／缺序列／抓取失敗）回 null，呼叫端據此整檔略過——空欄位
+     * 會被 LLM 當成有意義的否定訊號。
+     *
+     * `industry_note` 必須跟著送：adjust 桶完全不影響評級（通路商存貨激增在規則裡
+     * 仍算支持項），註記是硬性輸入而非可選補充，丟掉它就會對通路商講出反向結論；
+     * not_applicable／unknown 兩桶更是連判定理由都在註記裡，少了它使用者只看得到
+     * 一個沒有原因的結論。`rating` 仍存機器值（那是資料），翻成可讀文字是呈現層
+     * 的事，見 orderInventoryRatingsBlock()。
+     *
+     * @return array{rating: string, reason: ?string, industry_note: ?string}|null
+     */
+    private function orderInventorySummary(Instrument $instrument, string $locale): ?array
+    {
+        try {
+            $assessed = $this->orderInventoryAssessor->forInstrument($instrument);
+        } catch (Throwable $exception) {
+            Log::warning('brief: order inventory assessment failed', [
+                'symbol' => $instrument->symbol,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        if ($assessed === null) {
+            return null;
+        }
+
+        return [
+            'rating' => $assessed['assessment']->rating->value,
+            'reason' => $this->orderInventoryReason($assessed['assessment'], $locale === 'en'),
+            'industry_note' => $assessed['assessment']->industryNote,
+        ];
+    }
+
+    /**
+     * 一句判定理由，優先序：insufficient 講原因 > 第一個負面訊號 > 第一個觸發的
+     * 支持條件。快報只給一行摘要，不是完整清單——完整清單留給
+     * OrderInventoryGuide::block()（個股分析／問答，Task 4）。
+     *
+     * insufficient 反推、負面條件排除清單都呼叫 OrderInventoryGuide 的公開方法／
+     * 常數，不在本檔另存一份——那份判準只能有一處，兩處各自維護會漂移
+     * （OrderInventoryGuide::insufficientReasonKey() 的 docblock 已寫明這點）。
+     *
+     * $en 依 locale 選對照表的 zh／en 變體（`conditions_en`／`negative_signals_en`／
+     * `insufficient_reason_en`，Task 3 已建好且鍵集合與中文版一致）。insufficient
+     * 分支的 config 文案本身帶句號，用 rtrim 去掉再套外層括號＋句號，否則會疊成
+     * 「（……。）。」的雙句號。
+     */
+    private function orderInventoryReason(OrderInventoryAssessment $assessment, bool $en): ?string
+    {
+        if ($assessment->rating === OrderInventoryRating::Insufficient) {
+            $map = (array) config('order_inventory.narrative.'.($en ? 'insufficient_reason_en' : 'insufficient_reason'), []);
+            $key = $this->orderInventoryGuide->insufficientReasonKey($assessment);
+            $text = (string) ($map[$key] ?? '');
+
+            return $text === '' ? null : rtrim($text, '。.');
+        }
+
+        if ($assessment->negativeSignals !== []) {
+            $map = (array) config('order_inventory.narrative.'.($en ? 'negative_signals_en' : 'negative_signals'), []);
+            $key = $assessment->negativeSignals[0];
+
+            return (string) ($map[$key] ?? $key);
+        }
+
+        $map = (array) config('order_inventory.narrative.'.($en ? 'conditions_en' : 'conditions'), []);
+
+        foreach (self::ORDER_INVENTORY_CONDITION_KEYS as $key) {
+            if (($assessment->conditions[$key] ?? null) === true && ! in_array($key, OrderInventoryGuide::NEGATIVE_CONDITIONS, true)) {
+                return (string) ($map[$key] ?? $key);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -484,13 +595,32 @@ class WatchlistAnalysisService
         $futuresBlock = $this->futuresBlock($futures);
         $watchlist = $this->watchlistBlock($stocks);
 
+        // 訂單／庫存「點名」段落：只列有評級的標的，一檔一行「評級 + 一句判定理由」。
+        // 完整區塊（反證、固定提示、時效…）只在個股分析／問答出現（Task 4）——快報
+        // 一次十幾檔，塞滿 OrderInventoryGuide::block() 會讓 prompt 爆掉且重點被稀釋。
+        // 一檔都沒有評級時整段不輸出，連 BEGIN_ORDER_INVENTORY 標頭都不留：空標頭
+        // 會被 LLM 讀成「這項資料查過而且是空的」，比不提供更糟（比照
+        // StockAnalysisService::buildPrompt 的既有處理）。引用紀律跟著同一個條件——
+        // 沒有區塊可引用時，那些規則只會讓模型去猜一個不存在的區塊；有區塊時也
+        // 只掛摘要模式的紀律（discipline(summary: true)），因為點名段落裡沒有
+        // proxySignals、沒有反證、沒有固定提示，完整紀律的那兩條會要求模型呈現
+        // 它拿不到的東西——等於邀請它自己編一組。
+        $orderInventoryRatings = $this->orderInventoryRatingsBlock($stocks, $locale);
+        $orderInventorySection = $orderInventoryRatings !== null
+            ? "BEGIN_ORDER_INVENTORY\n{$orderInventoryRatings}\nEND_ORDER_INVENTORY\n"
+            : '';
+
         // SOP 共通紀律（免責/來源分級/可交易性/資料不足）；不含單股加權評分與輸出格式 v2。
-        $sopCommon = implode("\n", [
+        // 訂單／庫存引用紀律接在同一段內、不另立分隔線，比照 StockChatService 的
+        // BEGIN_SOP_DISCIPLINE 做法——另包一層會讓 discipline() 首行的 BEGIN_ORDER_INVENTORY
+        // 字樣看起來像沒有配對 END 的巢狀區塊。
+        $sopCommon = implode("\n", array_filter([
             $this->sop->disclaimer($locale),
             $this->sop->sourceTiers($locale),
             $this->sop->tradabilityCheck($locale),
             $this->sop->dataSufficiency($locale),
-        ]);
+            $orderInventoryRatings !== null ? $this->orderInventoryGuide->discipline($locale, summary: true) : null,
+        ], static fn (?string $section): bool => $section !== null));
 
         if ($locale === 'en') {
             $omittedNote = $omitted > 0
@@ -534,7 +664,7 @@ END_TAIWAN_FUTURES
 BEGIN_WATCHLIST
 {$watchlist}{$omittedNote}
 END_WATCHLIST
-BEGIN_CONSTRAINTS
+{$orderInventorySection}BEGIN_CONSTRAINTS
 - symbols may only be chosen from the watchlist above; never include a symbol outside it. Leave an empty array if unsure.
 - stance is a system rule signal (bullish/bearish/neutral/insufficient_data), a reference rather than a fact; you may judge from the technical data and explain your reasoning.
 - An indicator marked unavailable means this fetch failed; treat it as missing and do not guess its value or direction.
@@ -587,7 +717,7 @@ END_TAIWAN_FUTURES
 BEGIN_WATCHLIST
 {$watchlist}{$omittedNote}
 END_WATCHLIST
-BEGIN_CONSTRAINTS
+{$orderInventorySection}BEGIN_CONSTRAINTS
 - symbols 只能從上方自選股清單挑選，不得填入清單外的代號；沒有把握就留空陣列。
 - stance 為系統規則訊號（bullish/bearish/neutral/insufficient_data），是輔助參考而非既成事實，你可依技術數據自行判斷並說明理由。
 - 標為「無法取得」的指標代表本次抓取失敗，請當作缺值處理，不要臆測其數值或方向。
@@ -724,6 +854,64 @@ PROMPT;
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * 訂單／庫存「點名」段落：只列有評級的標的，一檔一行「評級 + 一句判定理由」。
+     * 沒有評級的標的整個略過，不輸出「評級：未知」——空欄位會被 LLM 當成有意義
+     * 的否定訊號（與 OrderInventoryGuide::vintage() 同一條原則）。
+     *
+     * 全部標的都沒有評級時回 null，呼叫端據此連 BEGIN_ORDER_INVENTORY 標頭都不輸出。
+     *
+     * 每檔一行的格式依 $locale 選 zh／en：`order_inventory` 摘要（rating／reason）
+     * 在 gatherStock() 已經是對應 locale 的文字（見 orderInventoryReason() 的 $en
+     * 參數），這裡只再決定行首標籤與括號樣式，不重新翻譯理由。評級值的可讀對應
+     * 呼叫 OrderInventoryGuide::ratingLabel()，與完整區塊共用同一份對照——兩處
+     * 各自維護會漂移（同 insufficientReasonKey() 的處理）。
+     *
+     * 產業註記接在同一行的句號之後，不另起一行：一檔一行是這個段落的形狀不變量
+     * （Task 6 的逐行形狀＋行數斷言把它釘住），多輸出一行會讓「這段裡只有摘要」
+     * 這件事失去可驗證的判準。註記文案本身已帶句號，不再補標點。
+     *
+     * 註記值沒有英文版本（階段 2 直接把中文文案解析進 DTO，見 OrderInventoryGuide
+     * 類別 docblock 的雙語缺口說明）：英文路徑用英文標籤、值保留中文原文，
+     * 與完整區塊同一個處置——丟掉資訊比語言混雜更糟。
+     *
+     * @param  list<array<string, mixed>>  $stocks
+     */
+    private function orderInventoryRatingsBlock(array $stocks, string $locale): ?string
+    {
+        $en = $locale === 'en';
+        $lines = [];
+
+        foreach ($stocks as $stock) {
+            $summary = $stock['order_inventory'] ?? null;
+
+            if ($summary === null) {
+                continue;
+            }
+
+            $rating = $this->orderInventoryGuide->ratingLabel((string) $summary['rating'], $locale);
+            $note = $summary['industry_note'] ?? null;
+
+            if ($en) {
+                $line = $summary['reason'] !== null
+                    ? sprintf('- %s: Rating %s (%s).', $stock['symbol'], $rating, $summary['reason'])
+                    : sprintf('- %s: Rating %s.', $stock['symbol'], $rating);
+
+                $lines[] = $note !== null ? $line.' Industry note: '.$note : $line;
+
+                continue;
+            }
+
+            $line = $summary['reason'] !== null
+                ? sprintf('- %s：評級 %s（%s）。', $stock['symbol'], $rating, $summary['reason'])
+                : sprintf('- %s：評級 %s。', $stock['symbol'], $rating);
+
+            $lines[] = $note !== null ? $line.'產業註記：'.$note : $line;
+        }
+
+        return $lines === [] ? null : implode("\n", $lines);
     }
 
     private function num(mixed $value): string

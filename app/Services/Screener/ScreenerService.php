@@ -8,6 +8,7 @@ use App\Models\Instrument;
 use App\Models\User;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
+use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\Margin\MarginDataService;
 use App\Services\TechnicalIndicatorService;
 use Illuminate\Support\Collection;
@@ -173,9 +174,11 @@ class ScreenerService
     /**
      * 依規則宣告的需求載入額外資料。
      *
-     * 兩者都是 best-effort：籌碼與基本面只有台股有，且上游可能失敗。取不到就
-     * 留 null，由規則自行判定不命中——不可當成「無條件通過」，否則美股會在
-     * 勾選籌碼規則時全部混進結果。
+     * 都是 best-effort：籌碼、融資、基本面只有台股有；訂單庫存台美股皆有（美股走
+     * SEC 財報），但同樣可能因序列缺漏或抓取失敗而拿不到評級（產業不適用與資料
+     * 不足不在此列，那兩種都會回一份完整的 assessment，由規則自己判定不命中）。
+     * 上游都可能失敗，取不到就留 null，由規則自行判定不命中——不可當成「無條件
+     * 通過」，否則美股會在勾選籌碼規則時全部混進結果。
      *
      * @param  list<string>  $needs
      * @return array<string, mixed>
@@ -200,6 +203,7 @@ class ScreenerService
                     ScreenRule::NEEDS_CHIP => app(ChipDataService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_FUNDAMENTALS => app(FundamentalsService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_MARGIN => app(MarginDataService::class)->forInstrument($instrument),
+                    ScreenRule::NEEDS_ORDER_INVENTORY => app(OrderInventoryAssessor::class)->forInstrument($instrument),
                     default => null,
                 };
             } catch (\Throwable $exception) {
