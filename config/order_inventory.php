@@ -317,6 +317,53 @@ return [
             '會計政策或認列基礎變動會讓跨期比較失效（需人工判斷）',
             '財報落後實際訂單 1–2 季，本框架偏驗證工具而非領先指標（需人工判斷）',
         ],
+
+        /* 評級封頂說明。不寫的話 LLM 會以為沒有 A 是這檔股票的問題。 */
+        'ceiling_note' => '本系統可判定之最高級為 B+；A 級需人工查證訂單公告與法說會，規則引擎不會自動給予。',
+        'ceiling_note_en' => 'B+ is the highest grade this engine can assign; grade A requires manual verification of order announcements and earnings calls.',
+
+        'lagging_note' => '最新財報已落後一季以上，本框架偏驗證工具而非領先指標。',
+        'lagging_note_en' => 'The latest filing lags by more than one quarter; this framework verifies rather than leads.',
+
+        /* 反證鍵 → 可讀文字。機器鍵不得直接進 prompt——LLM 會照抄給使用者看。 */
+        'counter_evidence' => [
+            'related_party_payables_rising' => '關係人應付款佔比上升，備料訊號的可信度下降。',
+            'peer_wide_deterioration' => '同業與自身同步走弱，較像產業現象而非公司特定的備料訊號。',
+            'inventory_up_revenue_flat' => '存貨增加但營收未跟上。',
+            'capex_up_revenue_flat' => '資本支出升溫但營收未放大。',
+        ],
+        'counter_evidence_en' => [
+            'related_party_payables_rising' => 'Related-party payables rose as a share of total payables, weakening the stocking-up read.',
+            'peer_wide_deterioration' => 'Peers weakened alongside the company, pointing to an industry effect rather than company-specific stocking up.',
+            'inventory_up_revenue_flat' => 'Inventory rose while revenue did not follow.',
+            'capex_up_revenue_flat' => 'Capex rose while revenue did not scale.',
+        ],
+
+        'negative_signals' => [
+            'dio_rising' => '存貨週轉天數上升超出穩定區間',
+            'dso_rising' => '應收帳款週轉天數明顯拉長',
+            'weak_operating_cash_flow' => '營業現金流品質不佳',
+            'gross_margin_deteriorating' => '毛利率季減超過一個百分點',
+        ],
+        'negative_signals_en' => [
+            'dio_rising' => 'days inventory outstanding rose beyond the stable band',
+            'dso_rising' => 'days sales outstanding lengthened materially',
+            'weak_operating_cash_flow' => 'weak operating cash flow quality',
+            'gross_margin_deteriorating' => 'gross margin fell more than one percentage point quarter over quarter',
+        ],
+
+        'rating_change' => [
+            'first' => '首次評級，無前次可比。',
+            'unchanged' => '評級與上次相同。',
+            'upgraded' => '評級較上次調升。',
+            'downgraded' => '評級較上次調降。',
+        ],
+        'rating_change_en' => [
+            'first' => 'First assessment; no prior grade to compare.',
+            'unchanged' => 'Grade unchanged from the previous assessment.',
+            'upgraded' => 'Grade raised from the previous assessment.',
+            'downgraded' => 'Grade lowered from the previous assessment.',
+        ],
     ],
 
     /*
