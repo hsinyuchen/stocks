@@ -49,11 +49,27 @@ class OrderInventoryWatchlistTest extends TestCase
     /** 同一份 fixture 的英文版：config('order_inventory.narrative.conditions_en.C1')。 */
     private const RATED_LINE_EN = '- 2330.TW: Rating B+ (revenue grew for the required number of consecutive periods).';
 
-    /** 引用紀律的關鍵句：只能引用整句、不得改寫（與 OrderInventoryPromptTest 同一句）。 */
-    private const DISCIPLINE_LINE = '2. 存貨組成方向只能引用區塊內的整句，不得改寫或重新敘述。';
+    /**
+     * 快報用的是**摘要模式**紀律：點名段落只有「評級＋一句理由＋產業註記」，
+     * 完整紀律裡「只能引用整句」與「反證與固定提示必須呈現」兩條，講的是這個
+     * 段落結構上不存在的東西（見 DROPPED_* 兩個常數）。
+     */
+    private const DISCIPLINE_LINE = '1. 評級與條件一律以 BEGIN_ORDER_INVENTORY 區塊為準，不得自行推算或臆測。';
 
-    /** 同一句的英文版（與 OrderInventoryPromptTest::EN_DISCIPLINE_LINE 同一句）。 */
-    private const DISCIPLINE_LINE_EN = '2. Inventory composition direction may only be quoted as whole sentences from that block; never rephrase or restate it in your own words.';
+    /** 同一句的英文版。 */
+    private const DISCIPLINE_LINE_EN = '1. Take the rating and its conditions only from the BEGIN_ORDER_INVENTORY block; do not recompute or infer them yourself.';
+
+    /** 產業註記那一條在快報保留：修正 2 之後點名段落真的帶得出註記。 */
+    private const INDUSTRY_NOTE_RULE = '產業註記若存在，必須納入結論，不可當成可選補充。';
+
+    /** 快報最高只判到 B+ 這條也保留：與資料多寡無關，任何模式都成立。 */
+    private const NO_GRADE_A_RULE = '本系統最高只判到 B+，不得自行給 A。';
+
+    /** 快報不得出現：點名段落沒有 proxySignals，沒有「整句」可引用。 */
+    private const DROPPED_QUOTE_RULE = '存貨組成方向只能引用區塊內的整句';
+
+    /** 快報不得出現：點名段落沒有反證、沒有固定提示，要求「必須呈現」等於要模型自己編。 */
+    private const DROPPED_COUNTER_EVIDENCE_RULE = '反證與固定提示必須呈現';
 
     protected function setUp(): void
     {
@@ -143,6 +159,33 @@ class OrderInventoryWatchlistTest extends TestCase
     }
 
     /**
+     * 換掉產業別、其餘沿用 fake 預設序列：用來重現 adjust 與 not_applicable 兩個
+     * 產業桶。FakeCompanyFinancialsProvider 的產業寫死「光電業」（suited 桶、
+     * 無產業註記），沒有這個包裝就測不到帶註記的路徑。
+     */
+    private function bindIndustryFinancials(string $industry): void
+    {
+        $this->app->bind(CompanyFinancialsProvider::class, fn (): CompanyFinancialsProvider => new class($industry) implements CompanyFinancialsProvider
+        {
+            public function __construct(private readonly string $industry) {}
+
+            public function financials(string $symbol, int $months): OrderInventoryData
+            {
+                $base = (new FakeCompanyFinancialsProvider)->financials($symbol, $months);
+
+                return new OrderInventoryData(
+                    quarters: $base->quarters,
+                    monthlyRevenue: $base->monthlyRevenue,
+                    market: $base->market,
+                    industry: $this->industry,
+                    inventoryCompositionAvailable: $base->inventoryCompositionAvailable,
+                    dataAsOf: $base->dataAsOf,
+                );
+            }
+        });
+    }
+
+    /**
      * 斷言該行出現在指定的一對分隔線之間（比照 OrderInventoryPromptTest）。
      *
      * 只用 assertStringContainsString 的話，把內容接到 prompt 尾巴、或接在任何
@@ -203,9 +246,14 @@ class OrderInventoryWatchlistTest extends TestCase
         // 括號）。原本的 `[^）]*`／`[^)]*` 一遇到內層的右括號就提前收尾，
         // 讓外層括號與行尾句號對不上，整行判定為不符形狀，是假紅而非真的
         // 格式錯誤。只支援一層巢狀：業務文案目前沒有更深的巢狀括號。
+        // 行尾可以接一段產業註記（adjust／not_applicable／unknown 三桶會有），
+        // 但**只能是產業註記**：完整區塊的其餘欄位（反證、固定提示、時效、
+        // 同業樣本…）在 block() 裡各自是獨立一行，多接任何一項都會讓上面的
+        // 行數斷言先紅。註記接在同一行而不另起一行，正是為了維持「一檔一行」
+        // 這個可驗證的形狀不變量。
         $shape = $en
-            ? '/^- \S+: Rating [^(\n]+(\((?:[^()]|\([^)]*\))*\))?\.$/u'
-            : '/^- \S+：評級 [^（\n]+(（(?:[^（）]|（[^）]*）)*）)?。$/u';
+            ? '/^- \S+: Rating [^(\n]+(\((?:[^()]|\([^)]*\))*\))?\.( Industry note: .+)?$/u'
+            : '/^- \S+：評級 [^（\n]+(（(?:[^（）]|（[^）]*）)*）)?。(產業註記：.+)?$/u';
 
         foreach ($lines as $line) {
             $this->assertMatchesRegularExpression(
@@ -274,6 +322,14 @@ class OrderInventoryWatchlistTest extends TestCase
         // 快報的紀律接在既有的 BEGIN_SOP_DISCIPLINE 段內，不另立分隔線
         // （比照 StockChatService 的做法）。
         $this->assertInsideSection(self::DISCIPLINE_LINE, 'BEGIN_SOP_DISCIPLINE', 'END_SOP_DISCIPLINE', $llm->prompt);
+        $this->assertInsideSection(self::INDUSTRY_NOTE_RULE, 'BEGIN_SOP_DISCIPLINE', 'END_SOP_DISCIPLINE', $llm->prompt);
+        $this->assertInsideSection(self::NO_GRADE_A_RULE, 'BEGIN_SOP_DISCIPLINE', 'END_SOP_DISCIPLINE', $llm->prompt);
+
+        // 點名段落裡沒有 proxySignals、沒有反證、沒有固定提示。對一個拿不到這些
+        // 資料的模型下達「必須呈現」，等於邀請它自己編一組，與本功能「不對使用者
+        // 宣稱未經驗證的事」的立場相反。
+        $this->assertStringNotContainsString(self::DROPPED_QUOTE_RULE, $llm->prompt);
+        $this->assertStringNotContainsString(self::DROPPED_COUNTER_EVIDENCE_RULE, $llm->prompt);
     }
 
     /**
@@ -300,10 +356,96 @@ class OrderInventoryWatchlistTest extends TestCase
         $this->assertInsideSection(self::RATED_LINE_EN, 'BEGIN_ORDER_INVENTORY', 'END_ORDER_INVENTORY', $llm->prompt);
         $this->assertOrderInventorySectionShape($llm->prompt, expectedLineCount: 1, en: true);
         $this->assertInsideSection(self::DISCIPLINE_LINE_EN, 'BEGIN_SOP_DISCIPLINE', 'END_SOP_DISCIPLINE', $llm->prompt);
+        $this->assertStringNotContainsString('Counter-evidence and fixed caveats in the block must be presented', $llm->prompt);
 
         // 中文版本不得同時出現——locale 沒被傳下去時最典型的症狀。
         $this->assertStringNotContainsString(self::RATED_LINE, $llm->prompt);
         $this->assertStringNotContainsString(self::DISCIPLINE_LINE, $llm->prompt);
+    }
+
+    /**
+     * adjust 桶的產業註記必須進到點名段落。
+     *
+     * adjust 桶**完全不影響評級**：通路商存貨激增在規則裡仍算 B+ 的支持項。
+     * 快報只送「評級＋一句理由」而丟掉註記時，LLM 會對一檔通路商講出反向結論，
+     * 這正是本功能 Global Constraint 描述的失敗情境（同一檔走
+     * OrderInventoryGuide::block() 則明白印出產業註記）。
+     */
+    #[Test]
+    public function the_industry_note_reaches_the_named_symbol_line(): void
+    {
+        $this->bindIndustryFinancials('貿易百貨業');
+
+        $instrument = Instrument::factory()->create(['symbol' => '2607.TW']);
+
+        $llm = $this->capturingLlm();
+
+        app(WatchlistAnalysisService::class)->analyze([$instrument], $llm, 'stub-model');
+
+        // 逐字：評級與理由不變（adjust 不影響評級），後面接上產業註記整句。
+        $this->assertInsideSection(
+            '- 2607.TW：評級 B+（營收連續成長達門檻期數）。產業註記：'
+                .'此產業需調整判讀：通路商存貨增加偏負面、原物料循環股需拆價量、專案工程看合約負債。',
+            'BEGIN_ORDER_INVENTORY',
+            'END_ORDER_INVENTORY',
+            $llm->prompt,
+        );
+        // 註記進來之後仍是一檔一行，不是把完整區塊搬進來。
+        $this->assertOrderInventorySectionShape($llm->prompt, expectedLineCount: 1, en: false);
+    }
+
+    /**
+     * not_applicable 標的：評級值要有可讀對應，且必須講得出原因。
+     *
+     * 原因就在 industryNote 裡——丟掉註記之後，這種標的在快報裡是
+     * 「- 2801.TW：評級 not_applicable。」，機器鍵裸送進中文 prompt 且完全沒有
+     * 原因，而 config 自己的註解寫著「機器鍵直接進 prompt 的話，LLM 會照抄給
+     * 使用者看」。
+     */
+    #[Test]
+    public function a_not_applicable_symbol_carries_a_readable_rating_and_its_reason(): void
+    {
+        $this->bindIndustryFinancials('金融保險業');
+
+        $instrument = Instrument::factory()->create(['symbol' => '2801.TW']);
+
+        $llm = $this->capturingLlm();
+
+        app(WatchlistAnalysisService::class)->analyze([$instrument], $llm, 'stub-model');
+
+        $this->assertInsideSection(
+            '- 2801.TW：評級 本框架不適用。產業註記：'
+                .'此產業（金融保險、證券、銀行、航運、觀光餐旅等服務業）不具備一般進銷存循環，本框架不適用。',
+            'BEGIN_ORDER_INVENTORY',
+            'END_ORDER_INVENTORY',
+            $llm->prompt,
+        );
+        // 機器值不得出現在整份 prompt 的任何地方。
+        $this->assertStringNotContainsString('not_applicable', $llm->prompt);
+        $this->assertOrderInventorySectionShape($llm->prompt, expectedLineCount: 1, en: false);
+    }
+
+    /** en locale：評級值走英文對照表；註記值沒有英文版本（見 OrderInventoryGuide 的雙語缺口），標籤用英文、值保留中文原文。 */
+    #[Test]
+    public function the_english_prompt_translates_the_machine_rating_and_keeps_the_industry_note(): void
+    {
+        $this->bindIndustryFinancials('金融保險業');
+
+        $instrument = Instrument::factory()->create(['symbol' => '2801.TW']);
+
+        $llm = $this->capturingLlm();
+
+        app(WatchlistAnalysisService::class)->analyze([$instrument], $llm, 'stub-model', locale: 'en');
+
+        $this->assertInsideSection(
+            '- 2801.TW: Rating not applicable. Industry note: '
+                .'此產業（金融保險、證券、銀行、航運、觀光餐旅等服務業）不具備一般進銷存循環，本框架不適用。',
+            'BEGIN_ORDER_INVENTORY',
+            'END_ORDER_INVENTORY',
+            $llm->prompt,
+        );
+        $this->assertStringNotContainsString('not_applicable', $llm->prompt);
+        $this->assertOrderInventorySectionShape($llm->prompt, expectedLineCount: 1, en: true);
     }
 
     /**
@@ -323,7 +465,7 @@ class OrderInventoryWatchlistTest extends TestCase
         app(WatchlistAnalysisService::class)->analyze([$instrument], $llm, 'stub-model');
 
         $this->assertInsideSection(
-            '- 2330.TW：評級 insufficient（缺少關鍵財報科目（營收／營業成本／存貨））。',
+            '- 2330.TW：評級 資料不足（缺少關鍵財報科目（營收／營業成本／存貨））。',
             'BEGIN_ORDER_INVENTORY',
             'END_ORDER_INVENTORY',
             $llm->prompt,

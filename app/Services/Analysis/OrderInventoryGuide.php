@@ -203,32 +203,74 @@ class OrderInventoryGuide
     }
 
     /**
+     * 引用紀律的規則本文（不含編號）。編號在 discipline() 依實際輸出的條數重編，
+     * 兩種模式共用同一份文字——摘要模式若另抄一份，兩處文案遲早漂移。
+     *
+     * @var array<string, string>
+     */
+    private const RULES_ZH = [
+        'rating_source' => '評級與條件一律以 BEGIN_ORDER_INVENTORY 區塊為準，不得自行推算或臆測。',
+        'quote_verbatim' => '存貨組成方向只能引用區塊內的整句，不得改寫或重新敘述。',
+        'industry_note' => '產業註記若存在，必須納入結論，不可當成可選補充。',
+        'counter_evidence' => '反證與固定提示必須呈現，不得只講支持結論的訊號。',
+        'no_grade_a' => '本系統最高只判到 B+，不得自行給 A。',
+    ];
+
+    /** @var array<string, string> */
+    private const RULES_EN = [
+        'rating_source' => 'Take the rating and its conditions only from the BEGIN_ORDER_INVENTORY block; do not recompute or infer them yourself.',
+        'quote_verbatim' => 'Inventory composition direction may only be quoted as whole sentences from that block; never rephrase or restate it in your own words.',
+        'industry_note' => 'If an industry note is present, it must be factored into your conclusion, not treated as optional color.',
+        'counter_evidence' => 'Counter-evidence and fixed caveats in the block must be presented; do not report only the signals that support your conclusion.',
+        'no_grade_a' => "This system's highest attainable grade is B+; never upgrade a rating to A on your own judgment.",
+    ];
+
+    /**
+     * 摘要模式保留的規則。
+     *
+     * 判準是「這條規則要求的東西，摘要區塊裡拿得到嗎」：
+     * - rating_source：拿得到，評級與判定理由就在那一行。
+     * - industry_note：拿得到（快報的點名段落會把產業註記接在同一行）。
+     * - no_grade_a：與資料多寡無關，任何模式都成立。
+     *
+     * 被排除的兩條在摘要區塊裡**結構上不存在**：quote_verbatim 沒有 proxySignals
+     * 的整句可引用，counter_evidence 沒有反證也沒有固定提示。對一個拿不到這些
+     * 資料的模型下達「必須呈現」，等於邀請它自己編一組——與本功能「不對使用者
+     * 宣稱未經驗證的事」的立場相反。留著整條再補一句「若無資料則略過」也不行，
+     * 那還是在要求模型判斷它拿不到的東西。
+     *
+     * @var list<string>
+     */
+    private const SUMMARY_RULES = ['rating_source', 'industry_note', 'no_grade_a'];
+
+    /**
      * 引用紀律，放進 prompt 的規則段。
      *
      * 最重要的一條：只允許引用 proxySignals 的整句，不得自行重新敘述存貨方向。
      * 台股的不確定性前綴綁在句子上，改寫就繞過去了，而那正是本功能的第二號風險。
+     *
+     * $summary：給只有「評級＋一句理由＋產業註記」的摘要區塊用（自選股快報的點名
+     * 段落）。完整區塊與摘要區塊拿得到的東西不同，紀律就不能是同一份，
+     * 見 SUMMARY_RULES。
      */
-    public function discipline(string $locale = 'zh'): string
+    public function discipline(string $locale = 'zh', bool $summary = false): string
     {
-        if ($this->en($locale)) {
-            return <<<'EN'
-BEGIN_ORDER_INVENTORY citation discipline:
-1. Take the rating and its conditions only from the BEGIN_ORDER_INVENTORY block; do not recompute or infer them yourself.
-2. Inventory composition direction may only be quoted as whole sentences from that block; never rephrase or restate it in your own words.
-3. If an industry note is present, it must be factored into your conclusion, not treated as optional color.
-4. Counter-evidence and fixed caveats in the block must be presented; do not report only the signals that support your conclusion.
-5. This system's highest attainable grade is B+; never upgrade a rating to A on your own judgment.
-EN;
+        $en = $this->en($locale);
+        $rules = $en ? self::RULES_EN : self::RULES_ZH;
+
+        if ($summary) {
+            // array_intersect_key 保留左運算元的順序，編號因此仍照原本的規則次序。
+            $rules = array_intersect_key($rules, array_flip(self::SUMMARY_RULES));
         }
 
-        return <<<'ZH'
-BEGIN_ORDER_INVENTORY 引用紀律：
-1. 評級與條件一律以 BEGIN_ORDER_INVENTORY 區塊為準，不得自行推算或臆測。
-2. 存貨組成方向只能引用區塊內的整句，不得改寫或重新敘述。
-3. 產業註記若存在，必須納入結論，不可當成可選補充。
-4. 反證與固定提示必須呈現，不得只講支持結論的訊號。
-5. 本系統最高只判到 B+，不得自行給 A。
-ZH;
+        $lines = [$en ? 'BEGIN_ORDER_INVENTORY citation discipline:' : 'BEGIN_ORDER_INVENTORY 引用紀律：'];
+        $number = 0;
+
+        foreach ($rules as $rule) {
+            $lines[] = sprintf('%d. %s', ++$number, $rule);
+        }
+
+        return implode("\n", $lines);
     }
 
     /** 條目分隔符。中文用全形、英文用半形，與 translatedList() 同一套規則。 */

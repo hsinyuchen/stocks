@@ -257,6 +257,44 @@ class OrderInventoryGuideTest extends TestCase
         }
     }
 
+    /**
+     * 摘要模式只留點名段落**滿足得了**的規則。
+     *
+     * 快報的點名段落只有「評級＋一句理由＋產業註記」：沒有 proxySignals 的整句
+     * 可引用，也沒有反證與固定提示。對一個拿不到這些資料的模型下達「必須呈現」，
+     * 等於邀請它自己編一組，與本功能「不對使用者宣稱未經驗證的事」的立場相反。
+     */
+    #[Test]
+    public function the_summary_discipline_keeps_only_the_rules_a_summary_block_can_satisfy(): void
+    {
+        $zh = (new OrderInventoryGuide)->discipline('zh', summary: true);
+        $en = (new OrderInventoryGuide)->discipline('en', summary: true);
+
+        foreach ([['不得自行推算', 'do not recompute'],
+            ['必須納入結論', 'must be factored into your conclusion'],
+            ['不得自行給 A', 'never upgrade a rating to A']] as [$zhRule, $enRule]) {
+            $this->assertStringContainsString($zhRule, $zh);
+            $this->assertStringContainsString($enRule, $en);
+        }
+
+        foreach ([['不得改寫或重新敘述', 'never rephrase'],
+            ['反證與固定提示必須呈現', 'do not report only the signals that support your conclusion']] as [$zhRule, $enRule]) {
+            $this->assertStringNotContainsString($zhRule, $zh);
+            $this->assertStringNotContainsString($enRule, $en);
+        }
+
+        // 編號要連續重編，不能留下 1. 3. 5. 這種缺口——缺號會讓模型以為自己
+        // 收到的是一份被截斷的規則。
+        foreach ([$zh, $en] as $text) {
+            $lines = explode("\n", $text);
+            $this->assertCount(4, $lines, '標頭 + 三條規則');
+
+            foreach (array_slice($lines, 1) as $index => $line) {
+                $this->assertStringStartsWith(sprintf('%d. ', $index + 1), $line);
+            }
+        }
+    }
+
     #[Test]
     public function it_renders_the_conditions_that_are_explicitly_true(): void
     {
@@ -454,7 +492,7 @@ class OrderInventoryGuideTest extends TestCase
         // 漏一個鍵不會有任何一個測試轉紅，但英文路徑會靜默改變輸出：
         // translatedList() 送機器鍵、ratingChangeLine() 整行消失。
         foreach (['conditions', 'insufficient_reason', 'counter_evidence',
-            'negative_signals', 'rating_change'] as $map) {
+            'negative_signals', 'rating_change', 'ratings'] as $map) {
             $zh = (array) config("order_inventory.narrative.$map");
             $en = (array) config("order_inventory.narrative.{$map}_en");
 
@@ -463,6 +501,26 @@ class OrderInventoryGuideTest extends TestCase
                 array_keys($en),
                 "order_inventory.narrative.$map 與 {$map}_en 的鍵必須完全一致",
             );
+        }
+    }
+
+    /**
+     * 評級值對照表要涵蓋 OrderInventoryRating 的每一個 case。
+     *
+     * 快報點名段落查不到對照時退回機器值（與 translatedList() 同一組防呆退路），
+     * 所以新增一個評級卻忘了加文案，不會有任何錯誤訊號，只會有一行中文 prompt
+     * 裡夾著 `not_applicable` 這種機器鍵被 LLM 照抄給使用者看。
+     */
+    #[Test]
+    public function the_rating_label_maps_cover_every_rating_case(): void
+    {
+        foreach (['ratings', 'ratings_en'] as $map) {
+            $labels = (array) config("order_inventory.narrative.$map");
+
+            foreach (OrderInventoryRating::cases() as $case) {
+                $this->assertArrayHasKey($case->value, $labels, "order_inventory.narrative.$map 缺少 {$case->value} 的可讀文案");
+                $this->assertNotSame('', (string) $labels[$case->value]);
+            }
         }
     }
 

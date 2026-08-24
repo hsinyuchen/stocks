@@ -322,11 +322,11 @@ class WatchlistAnalysisService
         $marginFlows = $this->marginData->forInstrument($instrument);
         // 券商分點主力摘要（Sponsor 付費；非台股/免費 token 回 null）。
         $brokerBranch = $this->brokerData->summaryFor($instrument);
-        // 訂單／庫存評級：只讀已快取者，不為快報預抓財報（見類別註解與 spec 的
-        // 「明確不做」）。orderInventoryFor() 本身有 TTL 與失敗節流，快取命中零額外
-        // IO，過期才觸發一次上游抓取，因此快報一次十幾檔逐檔直接呼叫是安全的；
-        // 成本落在 TTL 過期時的那次抓取，不是本方法本身。best-effort，抓不到
-        // （非台美／缺序列／評級失敗）不拖垮整份報告。
+        // 訂單／庫存評級：走 orderInventoryFor()，快取命中零額外 IO，**過期時會就地
+        // 觸發一次上游抓取**（美股是 SEC EDGAR）。快報跑在佇列 job 裡（job timeout
+        // 300 秒），一次十幾檔的最壞情況在那個預算內可接受，所以不像首頁警報評估
+        // 那樣改用只讀快取的 cachedFor()。best-effort，抓不到（非台美／缺序列／
+        // 評級失敗）不拖垮整份報告。
         $orderInventory = $this->orderInventorySummary($instrument, $locale);
 
         if ($prices === []) {
@@ -382,7 +382,13 @@ class WatchlistAnalysisService
      * 無評級（非台美／缺序列／抓取失敗）回 null，呼叫端據此整檔略過——空欄位
      * 會被 LLM 當成有意義的否定訊號。
      *
-     * @return array{rating: string, reason: ?string}|null
+     * `industry_note` 必須跟著送：adjust 桶完全不影響評級（通路商存貨激增在規則裡
+     * 仍算支持項），註記是硬性輸入而非可選補充，丟掉它就會對通路商講出反向結論；
+     * not_applicable／unknown 兩桶更是連判定理由都在註記裡，少了它使用者只看得到
+     * 一個沒有原因的結論。`rating` 仍存機器值（那是資料），翻成可讀文字是呈現層
+     * 的事，見 orderInventoryRatingsBlock()。
+     *
+     * @return array{rating: string, reason: ?string, industry_note: ?string}|null
      */
     private function orderInventorySummary(Instrument $instrument, string $locale): ?array
     {
@@ -404,6 +410,7 @@ class WatchlistAnalysisService
         return [
             'rating' => $assessed['assessment']->rating->value,
             'reason' => $this->orderInventoryReason($assessed['assessment'], $locale === 'en'),
+            'industry_note' => $assessed['assessment']->industryNote,
         ];
     }
 
@@ -594,7 +601,10 @@ class WatchlistAnalysisService
         // 一檔都沒有評級時整段不輸出，連 BEGIN_ORDER_INVENTORY 標頭都不留：空標頭
         // 會被 LLM 讀成「這項資料查過而且是空的」，比不提供更糟（比照
         // StockAnalysisService::buildPrompt 的既有處理）。引用紀律跟著同一個條件——
-        // 沒有區塊可引用時，那五條規則只會讓模型去猜一個不存在的區塊。
+        // 沒有區塊可引用時，那些規則只會讓模型去猜一個不存在的區塊；有區塊時也
+        // 只掛摘要模式的紀律（discipline(summary: true)），因為點名段落裡沒有
+        // proxySignals、沒有反證、沒有固定提示，完整紀律的那兩條會要求模型呈現
+        // 它拿不到的東西——等於邀請它自己編一組。
         $orderInventoryRatings = $this->orderInventoryRatingsBlock($stocks, $locale);
         $orderInventorySection = $orderInventoryRatings !== null
             ? "BEGIN_ORDER_INVENTORY\n{$orderInventoryRatings}\nEND_ORDER_INVENTORY\n"
@@ -609,7 +619,7 @@ class WatchlistAnalysisService
             $this->sop->sourceTiers($locale),
             $this->sop->tradabilityCheck($locale),
             $this->sop->dataSufficiency($locale),
-            $orderInventoryRatings !== null ? $this->orderInventoryGuide->discipline($locale) : null,
+            $orderInventoryRatings !== null ? $this->orderInventoryGuide->discipline($locale, summary: true) : null,
         ], static fn (?string $section): bool => $section !== null));
 
         if ($locale === 'en') {
@@ -855,7 +865,15 @@ PROMPT;
      *
      * 每檔一行的格式依 $locale 選 zh／en：`order_inventory` 摘要（rating／reason）
      * 在 gatherStock() 已經是對應 locale 的文字（見 orderInventoryReason() 的 $en
-     * 參數），這裡只再決定行首標籤與括號樣式，不重新翻譯內容。
+     * 參數），這裡只再決定行首標籤、括號樣式與評級值的可讀對應，不重新翻譯理由。
+     *
+     * 產業註記接在同一行的句號之後，不另起一行：一檔一行是這個段落的形狀不變量
+     * （Task 6 的逐行形狀＋行數斷言把它釘住），多輸出一行會讓「這段裡只有摘要」
+     * 這件事失去可驗證的判準。註記文案本身已帶句號，不再補標點。
+     *
+     * 註記值沒有英文版本（階段 2 直接把中文文案解析進 DTO，見 OrderInventoryGuide
+     * 類別 docblock 的雙語缺口說明）：英文路徑用英文標籤、值保留中文原文，
+     * 與完整區塊同一個處置——丟掉資訊比語言混雜更糟。
      *
      * @param  list<array<string, mixed>>  $stocks
      */
@@ -871,20 +889,43 @@ PROMPT;
                 continue;
             }
 
+            $rating = $this->orderInventoryRatingLabel((string) $summary['rating'], $en);
+            $note = $summary['industry_note'] ?? null;
+
             if ($en) {
-                $lines[] = $summary['reason'] !== null
-                    ? sprintf('- %s: Rating %s (%s).', $stock['symbol'], $summary['rating'], $summary['reason'])
-                    : sprintf('- %s: Rating %s.', $stock['symbol'], $summary['rating']);
+                $line = $summary['reason'] !== null
+                    ? sprintf('- %s: Rating %s (%s).', $stock['symbol'], $rating, $summary['reason'])
+                    : sprintf('- %s: Rating %s.', $stock['symbol'], $rating);
+
+                $lines[] = $note !== null ? $line.' Industry note: '.$note : $line;
 
                 continue;
             }
 
-            $lines[] = $summary['reason'] !== null
-                ? sprintf('- %s：評級 %s（%s）。', $stock['symbol'], $summary['rating'], $summary['reason'])
-                : sprintf('- %s：評級 %s。', $stock['symbol'], $summary['rating']);
+            $line = $summary['reason'] !== null
+                ? sprintf('- %s：評級 %s（%s）。', $stock['symbol'], $rating, $summary['reason'])
+                : sprintf('- %s：評級 %s。', $stock['symbol'], $rating);
+
+            $lines[] = $note !== null ? $line.'產業註記：'.$note : $line;
         }
 
         return $lines === [] ? null : implode("\n", $lines);
+    }
+
+    /**
+     * 評級值的可讀對應。`insufficient`／`not_applicable` 是機器值，裸送進 prompt
+     * 會被 LLM 照抄給使用者看（config 的 conditions 區塊註解已寫明這件事），而
+     * 點名段落一檔只有一行，沒有別的欄位可以補救。
+     *
+     * 查不到對照時退回原值：與 translatedList()／orderInventoryReason() 同一組
+     * 「防呆退路」設計（Task 7 的收斂範圍不含這一類），對照表本身由
+     * OrderInventoryGuideTest 常駐驗證涵蓋 OrderInventoryRating 的每一個 case。
+     */
+    private function orderInventoryRatingLabel(string $rating, bool $en): string
+    {
+        $map = (array) config('order_inventory.narrative.'.($en ? 'ratings_en' : 'ratings'), []);
+
+        return (string) ($map[$rating] ?? $rating);
     }
 
     private function num(mixed $value): string

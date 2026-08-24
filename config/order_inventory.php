@@ -401,6 +401,33 @@ return [
             'gross_margin_deteriorating' => 'gross margin fell more than one percentage point quarter over quarter',
         ],
 
+        /*
+         * 評級值 → 可讀文字。
+         *
+         * B+／B／C 本身就是可讀的等第，逐字保留；`insufficient` 與 `not_applicable`
+         * 是機器值，裸送進 prompt 會被 LLM 照抄給使用者看（與 conditions／
+         * negative_signals 同一個理由）。快報點名段落一檔只有一行，沒有別的欄位
+         * 可以補救這兩個字。
+         *
+         * 目前只有快報的點名段落用這張表；個股分析／問答的完整區塊
+         * （OrderInventoryGuide::block()）另有「資料不足原因」與「產業註記」兩行
+         * 交代原因，不在本次改動範圍。
+         */
+        'ratings' => [
+            'B+' => 'B+',
+            'B' => 'B',
+            'C' => 'C',
+            'insufficient' => '資料不足',
+            'not_applicable' => '本框架不適用',
+        ],
+        'ratings_en' => [
+            'B+' => 'B+',
+            'B' => 'B',
+            'C' => 'C',
+            'insufficient' => 'insufficient data',
+            'not_applicable' => 'not applicable',
+        ],
+
         'rating_change' => [
             'first' => '首次評級，無前次可比。',
             'unchanged' => '評級與上次相同。',
