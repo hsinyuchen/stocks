@@ -203,15 +203,19 @@ class StockAnalysisService
         // 取得」的處理方向一致（那邊有話可說，這邊沒有）。
         // 引用紀律跟著同一個條件：沒有區塊可引用時，那五條規則只會讓模型去猜一個
         // 不存在的區塊。
+        //
+        // 紀律接在既有的 BEGIN_FIELD_GUIDE 段內、**不另立分隔線**，比照 BEGIN_RATES
+        // 的既有做法（StockChatService 的 field guide、WatchlistAnalysisService 的
+        // reading principles 都是把「一律以某某區塊為準」寫成規則段裡的一條）。
+        // 另包一層 BEGIN_ORDER_INVENTORY_DISCIPLINE 會讓 discipline() 首行那個指向
+        // 資料區塊的 BEGIN_ORDER_INVENTORY 字樣看起來像沒有配對 END 的巢狀區塊。
         $orderInventorySection = '';
         $orderInventoryDiscipline = '';
 
         if ($orderInventory !== null) {
             $orderInventoryBlock = $this->orderInventoryGuide->block($orderInventory, $locale);
             $orderInventorySection = "BEGIN_ORDER_INVENTORY\n{$orderInventoryBlock}\nEND_ORDER_INVENTORY\n";
-
-            $discipline = $this->orderInventoryGuide->discipline($locale);
-            $orderInventoryDiscipline = "BEGIN_ORDER_INVENTORY_DISCIPLINE\n{$discipline}\nEND_ORDER_INVENTORY_DISCIPLINE\n";
+            $orderInventoryDiscipline = $this->orderInventoryGuide->discipline($locale)."\n";
         }
 
         // SOP v2 區塊（依 locale）。nowdoc 承載，內含字面 $ 亦安全。
@@ -242,7 +246,7 @@ BEGIN_SOURCE_TIERS
 END_SOURCE_TIERS
 BEGIN_FIELD_GUIDE
 {$fieldGuide}
-END_FIELD_GUIDE
+{$orderInventoryDiscipline}END_FIELD_GUIDE
 BEGIN_SYMBOL
 Symbol: {$symbol}
 END_SYMBOL
@@ -282,7 +286,7 @@ END_SOCIAL_SIGNAL
 BEGIN_DATA_SUFFICIENCY
 {$dataSufficiency}
 END_DATA_SUFFICIENCY
-{$orderInventoryDiscipline}BEGIN_OUTPUT_FORMAT
+BEGIN_OUTPUT_FORMAT
 {$outputFormat}
 END_OUTPUT_FORMAT
 PROMPT;
