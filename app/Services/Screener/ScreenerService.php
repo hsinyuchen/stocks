@@ -8,6 +8,7 @@ use App\Models\Instrument;
 use App\Models\User;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
+use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\Margin\MarginDataService;
 use App\Services\TechnicalIndicatorService;
 use Illuminate\Support\Collection;
@@ -200,6 +201,7 @@ class ScreenerService
                     ScreenRule::NEEDS_CHIP => app(ChipDataService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_FUNDAMENTALS => app(FundamentalsService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_MARGIN => app(MarginDataService::class)->forInstrument($instrument),
+                    ScreenRule::NEEDS_ORDER_INVENTORY => app(OrderInventoryAssessor::class)->forInstrument($instrument),
                     default => null,
                 };
             } catch (\Throwable $exception) {

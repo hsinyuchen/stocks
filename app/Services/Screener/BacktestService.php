@@ -21,8 +21,8 @@ use App\Services\TechnicalIndicatorService;
  * 評估不需要為每個日期重算指標——那會是 O(n²)。
  *
  * 三個必須講清楚的限制：
- *   1. 只支援純技術規則。籌碼與基本面的 matchesAt() 一律回 false，因為用當下
- *      資料去評估過去是前視偏誤（fundamentals 的歷史也才剛開始累積）。
+ *   1. 只支援純技術規則。籌碼、基本面、訂單庫存規則的 matchesAt() 一律回 false，
+ *      因為用當下資料去評估過去是前視偏誤（這幾類資料的歷史也才剛開始累積）。
  *   2. 不計交易成本、滑價、流動性與除權息調整。
  *   3. 樣本來自目前的股池，本身就有存活者偏誤——下市或早已消失的標的不在其中。
  *
@@ -159,6 +159,11 @@ class BacktestService
     {
         $needs = [];
 
+        // 只有 MarginRule 能把資料截到該根 K 棒的日期再評估，回放才不會前視偏誤
+        // （見 unsupportedRules() docblock）。訂單庫存規則（NEEDS_ORDER_INVENTORY）
+        // 與籌碼、基本面規則同樣不是 MarginRule，因此需求永遠不會被收集到這裡，
+        // 其 matchesAt() 之後一律收到空 context、回 false——這正是「回測給 null」
+        // 的實作方式，不需要在下面的 match 額外開一個永遠不會被打到的分支。
         foreach ($rules as $rule) {
             if (! $rule instanceof MarginRule) {
                 continue;
@@ -208,8 +213,9 @@ class BacktestService
      * 必須明確回報，否則使用者會誤以為「這組規則歷史上從沒訊號」。
      *
      * 判準不是「有沒有 requires()」而是規則自己有沒有實作時點截斷：融資規則
-     * （MarginRule）會把資料截到該根 K 棒的日期再評估，可以正確回放；籌碼與
-     * 基本面規則沒有接時點資訊，用當下資料評估過去屬前視偏誤，仍不支援。
+     * （MarginRule）會把資料截到該根 K 棒的日期再評估，可以正確回放；籌碼、
+     * 基本面、訂單庫存規則都沒有接時點資訊，用當下資料評估過去屬前視偏誤，
+     * 仍不支援。
      *
      * @param  list<ScreenRule>  $rules
      * @return list<string>

@@ -22,6 +22,9 @@ interface ScreenRule
     /** 需要融資融券資料（餘額、限額、券資比）。 */
     public const NEEDS_MARGIN = 'margin';
 
+    /** 需要訂單／庫存判斷（財報序列 + 評級）。 */
+    public const NEEDS_ORDER_INVENTORY = 'order_inventory';
+
     public function key(): string;
 
     public function label(): string;

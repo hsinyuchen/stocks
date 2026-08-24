@@ -4,22 +4,26 @@ namespace App\Services\Screener;
 
 use App\Services\Screener\Rules\AboveMa20;
 use App\Services\Screener\Rules\BelowMa20;
+use App\Services\Screener\Rules\CashFlowDiverging;
 use App\Services\Screener\Rules\ForeignBuyingStreak;
 use App\Services\Screener\Rules\ForeignSellingStreak;
 use App\Services\Screener\Rules\HighMarginUsage;
 use App\Services\Screener\Rules\HighReturnOnEquity;
 use App\Services\Screener\Rules\HighShortRatio;
 use App\Services\Screener\Rules\InstitutionalAccumulation;
+use App\Services\Screener\Rules\InventoryDeteriorating;
 use App\Services\Screener\Rules\KdDeathCross;
 use App\Services\Screener\Rules\KdGoldenCross;
 use App\Services\Screener\Rules\LowMarginUsage;
 use App\Services\Screener\Rules\LowValuation;
 use App\Services\Screener\Rules\MacdBullishCross;
+use App\Services\Screener\Rules\RatedBPlus;
 use App\Services\Screener\Rules\RetailChasing;
 use App\Services\Screener\Rules\RevenueGrowth;
 use App\Services\Screener\Rules\RsiOverbought;
 use App\Services\Screener\Rules\RsiOversold;
 use App\Services\Screener\Rules\SmartMoneyAbsorbing;
+use App\Services\Screener\Rules\StockingUpStarted;
 use App\Services\Screener\Rules\VolumeSurge;
 
 class ScreenRuleRegistry
@@ -42,6 +46,10 @@ class ScreenRuleRegistry
             // 不同。交叉型規則（後兩條）同時讀兩種資料，資訊量高於單看任一邊。
             new LowMarginUsage, new HighMarginUsage, new HighShortRatio,
             new SmartMoneyAbsorbing, new RetailChasing,
+            // 訂單庫存：跨財報序列的複合判斷（僅台股／存貨佔比達標的美股），與上列
+            // 單一指標規則正交——後者看單一時點的價格/籌碼/基本面快照，這裡看的是
+            // 訂單庫存框架跨季串聯後的評級與條件組合。
+            new RatedBPlus, new StockingUpStarted, new InventoryDeteriorating, new CashFlowDiverging,
         ];
 
         $out = [];
