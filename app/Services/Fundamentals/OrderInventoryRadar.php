@@ -92,12 +92,20 @@ class OrderInventoryRadar
     }
 
     /**
-     * 從 requireConfigArray() 讀到的陣列取一個鍵，缺鍵直接拋錯，不讓呼叫端對
-     * null 做 (float)/(int)/(string) 轉型而靜默降級。
+     * 從 requireConfigArray() 讀到的陣列取一個鍵，缺鍵或值為 null 一律拋錯，
+     * 不讓呼叫端對 null 做 (float)/(int)/(string) 轉型而靜默降級。
+     *
+     * 用 `isset()` 而不是隻查 `array_key_exists()`：後者只擋「鍵不存在」，鍵存在
+     * 但值是 `null`（例如 `config(['order_inventory.thresholds.gross_margin_stable_pp'
+     * => null])`，或 YAML／env 覆寫把值清空）會原封傳回，呼叫端接著
+     * `(float) null === 0.0`，C2 的門檻從「≥ −0.5pp」靜默變成「≥ 0pp」——這正是
+     * brief 開頭描述、本任務存在理由的那個情境，`array_key_exists()` 單獨用不會擋下來
+     * （複審實測：只查 `array_key_exists` 時這個情境完全不拋錯）。`isset()` 對
+     * 值為 `0`／`false`／`''` 等合法非 null 值仍回 true，不會誤擋合法門檻。
      */
     private function requireConfigKey(array $group, string $key, string $path): mixed
     {
-        if (! array_key_exists($key, $group)) {
+        if (! isset($group[$key])) {
             throw new \RuntimeException("{$path}.{$key} config 缺失，無法計算訂單庫存判斷。");
         }
 

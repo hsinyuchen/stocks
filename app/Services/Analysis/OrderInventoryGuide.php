@@ -257,6 +257,19 @@ ZH;
 
     /**
      * insufficient 的原因（完整文案，含前綴）。反推邏輯見 insufficientReasonKey()。
+     *
+     * **與 requireNarrative()（ceiling_note／lagging_note／proxy_prefix 等）刻意不
+     * 一致，Task 7 複審點名過、裁決仍不收斂**：`$map` 整組缺失或缺 `$key` 對應的
+     * 那一鍵時，這裡退回 `null`，讓「- 資料不足原因：」整行從輸出消失，而不是
+     * 拋錯。上面呼叫端第 99–101 行的註解講的是「不講原因，使用者只看得到一個
+     * 結論」——那是本方法存在的理由，論述上確實與這裡靜默吞掉整行的行為互相
+     * 矛盾。維持原樣的理由是範圍界定而非否認矛盾：這個 `??`-guarded 讀法與
+     * `translatedList()`／`ratingChangeLine()` 是同一組 Task 3 已通過複審的既有
+     * 設計（查不到單一鍵時分別退回原鍵或整行略過，是刻意的防呆退路，理論上不該
+     * 被觸發），Task 7 的裁決只收斂「陣列給假預設直接索引」與「完全沒有防護的
+     * 純量讀取」兩類，不包含這整組帶防呆退路的既有設計；若只改這一個方法、
+     * 不動另外兩個結構相同的方法，會在同一個檔案裡留下更難解釋的不一致。要收斂
+     * 就該三個方法一起評估，是否還要保留「整組對照表被刪也不拋錯」這個退路。
      */
     private function insufficientReason(OrderInventoryAssessment $assessment, bool $en): ?string
     {

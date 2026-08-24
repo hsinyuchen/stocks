@@ -88,6 +88,43 @@ class OrderInventoryConfigFallbackTest extends TestCase
     }
 
     #[Test]
+    public function a_threshold_key_present_but_null_fails_loudly_instead_of_becoming_zero(): void
+    {
+        // 這是複審實測揪出的真正 bug 情境，也是 brief 開頭那句話描述的原話：
+        // 鍵**存在**、值是 null（不是「鍵不存在」）。requireConfigKey() 原本只查
+        // array_key_exists，這種情況會原封回傳 null，(float) null === 0.0，
+        // C2 門檻從「≥ -0.5pp」靜默變成「≥ 0pp」——-0.4 這個本該落在門檻之下的
+        // 毛利率會被誤判成 true，而且全程沒有任何例外（複審已實測確認）。
+        config(['order_inventory.thresholds' => [
+            'revenue_streak_months' => 3,
+            'revenue_streak_quarters' => 2,
+            'gross_margin_stable_pp' => null, // 鍵存在，值是 null。
+            'gross_margin_deteriorating_pp' => -1.0,
+            'dio_stable_days' => 10.0,
+            'dio_stable_ratio' => 0.15,
+            'inventory_surge_qoq' => 0.15,
+            'inventory_surge_yoy' => 0.25,
+            'payable_days_up' => 10.0,
+            'payable_ratio_up' => 0.15,
+            'receivable_days_up' => 10.0,
+            'receivable_ratio_up' => 0.15,
+            'ocf_to_net_income_floor' => 0.8,
+        ]]);
+
+        // 不在 expectException() 之後接自訂斷言（例如檢查 C2 的錯誤值）：
+        // PHPUnit\Framework\Exception 系列（含 assertNotFalse 失敗時拋出的
+        // ExpectationFailedException）本身繼承 \RuntimeException，接在後面的
+        // 斷言萬一失敗，拋出的例外會被 expectException(\RuntimeException::class)
+        // 誤認成「這就是預期的例外」，只在 expectExceptionMessage 的訊息比對上
+        // 出現落差——與本檔前面記錄過的自我坐實 bug 是同一個地雷，這裡直接避開，
+        // 只靠 expectException／expectExceptionMessage 這組已驗證過的安全寫法。
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('order_inventory.thresholds.gross_margin_stable_pp');
+
+        (new OrderInventoryRadar)->conditions(new OrderInventoryMetrics(grossMarginQoqPp: -0.4));
+    }
+
+    #[Test]
     public function a_missing_freshness_group_fails_loudly_instead_of_silently_rating(): void
     {
         config(['order_inventory.freshness' => null]);
@@ -283,6 +320,25 @@ class OrderInventoryConfigFallbackTest extends TestCase
         $this->expectExceptionMessage('order_inventory.narrative.proxy_prefix_us');
 
         (new OrderInventoryRadar)->assess($this->contractLiabilitiesFromZeroData('us'));
+    }
+
+    #[Test]
+    public function a_narrative_value_that_is_an_empty_string_fails_loudly_like_a_missing_key(): void
+    {
+        // requireNarrative() 的判準是「! is_string($value) || $value === ''」，
+        // 兩支檔案（Radar／Guide）的 docblock 都寫「缺鍵或值為空字串一律拋」，
+        // 但先前只用 config() 覆寫成 null 去測——null 同時會讓 is_string() 為
+        // false，就算把「值為空字串」那一半判準拿掉，這些測試也一樣會過，
+        // 完全測不出「空字串」這一半有沒有真的被擋下來。這裡改用真正的空字串
+        // '' 覆寫（不是 null），才是唯一能證明「值為空字串」這一半判準有效的
+        // fixture。proxy_prefix 選這個鍵是因為它是設計文件點名的第二號風險，
+        // 空字串前綴比缺鍵更隱蔽——config 檔看起來「有這一行」，值卻是空的。
+        config(['order_inventory.narrative.proxy_prefix' => '']);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('order_inventory.narrative.proxy_prefix');
+
+        (new OrderInventoryRadar)->assess($this->contractLiabilitiesFromZeroData('tw'));
     }
 
     /**
