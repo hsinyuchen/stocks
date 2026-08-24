@@ -108,19 +108,32 @@ class BacktestServiceTest extends TestCase
     }
 
     /**
-     * 籌碼與基本面規則不支援回放，必須明確回報。
+     * 籌碼、基本面、訂單庫存規則不支援回放，必須明確回報。
      *
      * 它們的 matchesAt() 永遠回 false（用當下資料評估過去是前視偏誤），
      * 混進必要條件會讓命中數直接歸零——不回報的話使用者會誤以為「這組規則
      * 歷史上從沒訊號」。
+     *
+     * 訂單庫存規則額外驗證 unsupportedRules() 的判準本身：backtestContext()
+     * 只替 MarginRule 收集需求，OrderInventoryRule 不是 MarginRule，理論上
+     * 永遠不會被收集到 $needs——但那道過濾器一旦被放寬（例如日後有人想讓訂單
+     * 庫存規則也支援時點截斷），unsupportedRules() 的判準（requires() 非空
+     * 且非 MarginRule）仍會正確把它列為不支援，不會因為過濾器變動而漏判。
      */
     public function test_rules_requiring_extra_data_are_reported_as_unsupported(): void
     {
         $this->bindProvider(fn (int $i): float => 100.0 + $i);
 
-        $result = $this->service()->run(['AAA' => 'A'], ['above_ma20', 'foreign_buying_streak'], [], 200, [5]);
+        $result = $this->service()->run(
+            ['AAA' => 'A'],
+            ['above_ma20', 'foreign_buying_streak', 'order_inventory_b_plus'],
+            [],
+            200,
+            [5],
+        );
 
         $this->assertContains('foreign_buying_streak', $result['unsupported_rules']);
+        $this->assertContains('order_inventory_b_plus', $result['unsupported_rules']);
         $this->assertSame(0, $result['signals'], '含不支援的規則時不得產生訊號。');
     }
 

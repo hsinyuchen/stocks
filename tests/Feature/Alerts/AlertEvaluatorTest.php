@@ -12,6 +12,7 @@ use App\Models\Instrument;
 use App\Models\User;
 use App\Services\Alerts\AlertEvaluator;
 use App\Services\Market\MarketBearishFlipDetector;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
@@ -193,6 +194,26 @@ class AlertEvaluatorTest extends TestCase
         $this->bindProvider(['MRGN.TW' => ['price' => 130.0, 'changePercent' => 1.0]], daily: ['MRGN.TW' => $this->ascendingDaily('MRGN.TW')]);
         $user = User::factory()->create();
         $alert = $this->alert($user, 'MRGN.TW', 'signal', signalKey: 'high_margin_usage');
+
+        $this->assertSame(1, app(AlertEvaluator::class)->evaluate($user));
+        $this->assertSame('triggered', $alert->refresh()->status);
+    }
+
+    /**
+     * 訂單庫存訊號警報要真的會觸發，走 Assessor → context → Rule 整條鏈——不能只靠
+     * OrderInventoryScreenRulesTest 手寫 context 的 DTO 形狀，那組測試從沒真正呼叫過
+     * AlertEvaluator::contextFor()，接線斷了也不會發現（同一份 contextFor() 邏輯在
+     * ScreenerService 與 AlertEvaluator 各複製一份，兩邊要分別驗證）。
+     * FakeCompanyFinancialsProvider 的預設情境已由 OrderInventorySeamTest 驗證會評成 B+。
+     */
+    public function test_order_inventory_signal_alert_triggers_with_context(): void
+    {
+        // 序列季末日寫死 2026-06-30，時效判定比的是 now()，須凍結（理由同 OrderInventorySeamTest）。
+        $this->travelTo(CarbonImmutable::parse('2026-08-24 09:00:00'));
+
+        $this->bindProvider(['OI.TW' => ['price' => 130.0, 'changePercent' => 1.0]], daily: ['OI.TW' => $this->ascendingDaily('OI.TW')]);
+        $user = User::factory()->create();
+        $alert = $this->alert($user, 'OI.TW', 'signal', signalKey: 'order_inventory_b_plus');
 
         $this->assertSame(1, app(AlertEvaluator::class)->evaluate($user));
         $this->assertSame('triggered', $alert->refresh()->status);

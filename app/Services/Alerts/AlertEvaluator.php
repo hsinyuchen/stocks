@@ -200,10 +200,12 @@ class AlertEvaluator
     }
 
     /**
-     * 依規則宣告的需求載入籌碼／融資／基本面，與 ScreenerService::contextFor 同邏輯。
+     * 依規則宣告的需求載入籌碼／融資／基本面／訂單庫存，與 ScreenerService::contextFor
+     * 同邏輯。
      *
-     * best-effort：只有台股有、且上游可能失敗，取不到留 null，由規則自行判定不命中——
-     * 不可當「無條件通過」，否則美股在籌碼規則下會被誤觸發。
+     * best-effort：籌碼、融資、基本面只有台股有；訂單庫存台美股皆有（美股走 SEC
+     * 財報），但同樣可能因產業不適用或資料不足而拿不到評級。取不到一律留 null，
+     * 由規則自行判定不命中——不可當「無條件通過」，否則美股在籌碼規則下會被誤觸發。
      *
      * @param  list<string>  $needs
      * @return array<string, mixed>
