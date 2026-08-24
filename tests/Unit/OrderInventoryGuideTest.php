@@ -48,26 +48,38 @@ class OrderInventoryGuideTest extends TestCase
     #[Test]
     public function it_always_renders_every_fixed_caveat(): void
     {
-        $block = (new OrderInventoryGuide)->block($this->assessed([
-            'fixedCaveats' => ['甲（需人工判斷）', '乙（需人工判斷）', '丙（需人工判斷）'],
-        ]));
+        // 六條而非三條：config 的 fixed_caveats 基準正好是 5 條，
+        // OrderInventoryRadar::fixedCaveats() 再依降級狀況追加第 6、7 條。
+        // 樣本少於 6 條時，任何 array_slice(..., 0, 5) 的截斷都測不出來，
+        // 而那正好只砍掉 Radar 追加的降級警語。
+        $caveats = ['甲（需人工判斷）', '乙（需人工判斷）', '丙（需人工判斷）',
+            '丁（需人工判斷）', '戊（需人工判斷）', '己（需人工判斷）', '庚（需人工判斷）'];
+        $block = (new OrderInventoryGuide)->block($this->assessed(['fixedCaveats' => $caveats]));
 
-        foreach (['甲', '乙', '丙'] as $caveat) {
-            $this->assertStringContainsString($caveat, $block);
+        foreach ($caveats as $caveat) {
+            $this->assertStringContainsString($caveat, $block, '提示清單長度不固定，不得假設只有 5 條');
         }
     }
 
     #[Test]
     public function it_renders_proxy_signals_verbatim(): void
     {
-        $line = '存貨組成未知（財報附註未公開於資料源），以下為代理訊號推論：存貨與應付帳款同步增加。';
-        $block = (new OrderInventoryGuide)->block($this->assessed(['proxySignals' => [$line]]));
+        // 兩條而非一條：OrderInventoryRadar::inventoryCompositionSignals() 會連續
+        // push 多條（提前備料／塞貨去化不良／合約負債能見度）。只放一條的話，
+        // 「全部渲染」與「只取 [0]」輸出完全相同，截斷會靜默丟掉塞貨這類負面訊號。
+        $lines = [
+            '存貨組成未知（財報附註未公開於資料源），以下為代理訊號推論：存貨與應付帳款同步增加。',
+            '存貨組成未知（財報附註未公開於資料源），以下為代理訊號推論：存貨增加但營收下滑且收款天數拉長，較像塞貨或去化不良。',
+        ];
+        $block = (new OrderInventoryGuide)->block($this->assessed(['proxySignals' => $lines]));
 
-        $this->assertStringContainsString(
-            $line,
-            $block,
-            '不確定性前綴綁在句子上，任何改寫都會把它繞過去',
-        );
+        foreach ($lines as $line) {
+            $this->assertStringContainsString(
+                $line,
+                $block,
+                '不確定性前綴綁在句子上，任何改寫都會把它繞過去',
+            );
+        }
     }
 
     #[Test]
@@ -90,6 +102,15 @@ class OrderInventoryGuideTest extends TestCase
         $this->assertMatchesRegularExpression(
             '/同業樣本\s*0\s*檔/u',
             $block,
+            '樣本數為 0 也要寫出來，不能讓使用者以為系統看過整個產業',
+        );
+
+        // 英文分支要獨立斷言，否則只砍英文那一行不會被發現。
+        $english = (new OrderInventoryGuide)->block($this->assessed(peerSamples: 0), 'en');
+
+        $this->assertMatchesRegularExpression(
+            '/Peer sample:\s*0\s*filings/u',
+            $english,
             '樣本數為 0 也要寫出來，不能讓使用者以為系統看過整個產業',
         );
     }
@@ -200,7 +221,7 @@ class OrderInventoryGuideTest extends TestCase
     }
 
     #[Test]
-    public function the_discipline_forbids_restating_the_proxy_signals(): void
+    public function the_discipline_states_all_five_citation_rules_in_both_locales(): void
     {
         $zh = (new OrderInventoryGuide)->discipline();
         $en = (new OrderInventoryGuide)->discipline('en');
@@ -208,5 +229,205 @@ class OrderInventoryGuideTest extends TestCase
         $this->assertStringContainsString('BEGIN_ORDER_INVENTORY', $zh);
         $this->assertStringContainsString('BEGIN_ORDER_INVENTORY', $en);
         $this->assertNotSame($zh, $en);
+
+        // 逐條驗規則內容。只比對兩者不相等的話，整條規則被刪掉都不會轉紅——
+        // 第 2 條是台股不確定性前綴唯一的防線。
+        $rules = [
+            ['不得自行推算', 'do not recompute'],
+            ['不得改寫或重新敘述', 'never rephrase'],
+            ['必須納入結論', 'must be factored into your conclusion'],
+            ['反證與固定提示必須呈現', 'do not report only the signals that support your conclusion'],
+            ['不得自行給 A', 'never upgrade a rating to A'],
+        ];
+
+        foreach ($rules as [$zhRule, $enRule]) {
+            $this->assertStringContainsString($zhRule, $zh);
+            $this->assertStringContainsString($enRule, $en);
+        }
+    }
+
+    #[Test]
+    public function it_renders_the_conditions_that_are_explicitly_true(): void
+    {
+        // B+ 的正常路徑（C1 && C2 && !C7 && !C8 && 任一支持項）下 negativeSignals 必為空，
+        // 沒有這一段的話，整個「判定理由」在最好的評級上一個字都不會輸出。
+        $block = (new OrderInventoryGuide)->block($this->assessed([
+            'rating' => OrderInventoryRating::BPlus,
+            'conditions' => ['C1' => true, 'C2' => true, 'C3' => null, 'C4' => true, 'C5' => true,
+                'C6' => true, 'C7' => false, 'C8' => false, 'C9' => null, 'C10' => null],
+        ]));
+
+        foreach (['C1', 'C2', 'C4', 'C5', 'C6'] as $condition) {
+            $this->assertStringContainsString(
+                (string) config("order_inventory.narrative.conditions.$condition"),
+                $block,
+                "觸發的條件 $condition 必須出現，只給評級不給理由使用者無從判斷可信度",
+            );
+            $this->assertStringNotContainsString(
+                $condition,
+                $block,
+                '機器鍵不得直接進 prompt——LLM 會照抄給使用者看',
+            );
+        }
+    }
+
+    #[Test]
+    public function it_omits_conditions_that_are_false_or_unevaluable(): void
+    {
+        // null 是「算不出來」不是「不成立」，列出來會被 LLM 讀成否定結論。
+        $block = (new OrderInventoryGuide)->block($this->assessed([
+            'conditions' => ['C1' => true, 'C3' => false, 'C9' => null],
+        ]));
+
+        $this->assertStringContainsString((string) config('order_inventory.narrative.conditions.C1'), $block);
+        $this->assertStringNotContainsString((string) config('order_inventory.narrative.conditions.C3'), $block);
+        $this->assertStringNotContainsString((string) config('order_inventory.narrative.conditions.C9'), $block);
+    }
+
+    #[Test]
+    public function it_explains_why_an_insufficient_rating_could_not_be_graded(): void
+    {
+        // 串聯 0 的兩半：資料過舊，與缺關鍵科目。兩條路徑的 conditions／
+        // negativeSignals／counterEvidence 都是空陣列，不講原因使用者只拿到一個結論。
+        $tooOld = (new OrderInventoryGuide)->block($this->assessed([
+            'rating' => OrderInventoryRating::Insufficient,
+            'conditions' => [],
+            'freshness' => ['as_of' => '2024-06-30', 'period' => '2024Q2',
+                'revenue_month' => null, 'lagging' => true, 'too_old' => true],
+        ]));
+
+        $this->assertStringContainsString(
+            (string) config('order_inventory.narrative.insufficient_reason.too_old'),
+            $tooOld,
+        );
+
+        $missing = (new OrderInventoryGuide)->block($this->assessed([
+            'rating' => OrderInventoryRating::Insufficient,
+            'conditions' => [],
+            'freshness' => ['as_of' => null, 'period' => null,
+                'revenue_month' => null, 'lagging' => false, 'too_old' => false],
+        ]));
+
+        $this->assertStringContainsString(
+            (string) config('order_inventory.narrative.insufficient_reason.key_line_items_missing'),
+            $missing,
+        );
+    }
+
+    #[Test]
+    public function it_does_not_explain_insufficiency_on_a_graded_assessment(): void
+    {
+        $block = (new OrderInventoryGuide)->block($this->assessed());
+
+        $this->assertStringNotContainsString(
+            (string) config('order_inventory.narrative.insufficient_reason.key_line_items_missing'),
+            $block,
+        );
+    }
+
+    #[Test]
+    public function it_omits_absent_sections_instead_of_writing_none(): void
+    {
+        // 缺席的欄位整段略過，不補「無」／「N/A」——空欄位會被 LLM 當成有意義的
+        // 否定訊號（「反證：無」讀起來像系統查過而且沒有反證）。
+        $empty = [
+            'conditions' => [], 'negativeSignals' => [], 'industryNote' => null,
+            'freshness' => ['as_of' => null, 'period' => null, 'revenue_month' => null,
+                'lagging' => false, 'too_old' => false],
+            'missingForA' => [], 'counterEvidence' => [], 'fixedCaveats' => [], 'proxySignals' => [],
+            'previousRating' => 'B', 'ratingChange' => 'unchanged',
+        ];
+
+        $block = (new OrderInventoryGuide)->block($this->assessed($empty));
+
+        foreach (['反證', '產業註記', '存貨組成訊號', '升到 A 還缺', '固定提示',
+            '判定理由', '觸發條件', '資料時效', '資料不足原因', '無', 'N/A'] as $absent) {
+            $this->assertStringNotContainsString($absent, $block, "缺席時不得輸出「{$absent}」");
+        }
+
+        $english = (new OrderInventoryGuide)->block($this->assessed($empty), 'en');
+
+        foreach (['Counter-evidence', 'Industry note', 'Inventory composition signal',
+            'Missing for grade A', 'Caveats', 'Trigger reasons', 'Conditions met',
+            'Data vintage', 'Insufficient reason', 'None', 'N/A'] as $absent) {
+            $this->assertStringNotContainsString($absent, $english, "缺席時不得輸出「{$absent}」");
+        }
+    }
+
+    #[Test]
+    public function the_english_block_never_leaks_machine_keys(): void
+    {
+        // 中英對照表漏一個鍵時，translatedList() 的 `$map[$key] ?? $key` 會把機器鍵
+        // 原樣送進英文 prompt。中文路徑有守，英文路徑原本一條都沒有。
+        $block = (new OrderInventoryGuide)->block($this->assessed([
+            'conditions' => ['C1' => true, 'C4' => true],
+            'negativeSignals' => ['dio_rising', 'dso_rising'],
+            'counterEvidence' => ['inventory_up_revenue_flat', 'capex_up_revenue_flat'],
+            'previousRating' => 'C',
+            'ratingChange' => 'upgraded',
+        ]), 'en');
+
+        foreach (['C1', 'C4', 'dio_rising', 'dso_rising',
+            'inventory_up_revenue_flat', 'capex_up_revenue_flat', 'upgraded'] as $machineKey) {
+            $this->assertStringNotContainsString(
+                $machineKey,
+                $block,
+                '機器鍵不得直接進 prompt——LLM 會照抄給使用者看',
+            );
+        }
+
+        $this->assertStringContainsString(
+            (string) config('order_inventory.narrative.rating_change_en.upgraded'),
+            $block,
+        );
+    }
+
+    #[Test]
+    public function it_joins_list_items_with_a_locale_appropriate_separator(): void
+    {
+        // 值本身沒有英文版本（Radar 給的是中文定稿），但分隔符是 Guide 自己產生的，
+        // 必須隨 locale 切換，與 translatedList() 同一套規則。
+        $zh = (new OrderInventoryGuide)->block($this->assessed());
+        $en = (new OrderInventoryGuide)->block($this->assessed(), 'en');
+
+        $this->assertStringContainsString('甲（需人工判斷）；乙（需人工判斷）', $zh);
+        $this->assertStringContainsString('查甲；查乙', $zh);
+
+        $this->assertStringContainsString('甲（需人工判斷）; 乙（需人工判斷）', $en);
+        $this->assertStringContainsString('查甲; 查乙', $en);
+    }
+
+    #[Test]
+    public function the_bilingual_narrative_maps_have_identical_keys(): void
+    {
+        // 漏一個鍵不會有任何一個測試轉紅，但英文路徑會靜默改變輸出：
+        // translatedList() 送機器鍵、ratingChangeLine() 整行消失。
+        foreach (['conditions', 'insufficient_reason', 'counter_evidence',
+            'negative_signals', 'rating_change'] as $map) {
+            $zh = (array) config("order_inventory.narrative.$map");
+            $en = (array) config("order_inventory.narrative.{$map}_en");
+
+            $this->assertSame(
+                array_keys($zh),
+                array_keys($en),
+                "order_inventory.narrative.$map 與 {$map}_en 的鍵必須完全一致",
+            );
+        }
+    }
+
+    #[Test]
+    public function it_skips_the_rating_change_line_rather_than_claiming_a_first_assessment(): void
+    {
+        // 語意 fallback 比缺一行更危險：對 LLM 講「首次評級，無前次可比」
+        // 而同一行後面接著「（前次：C）」，是自相矛盾的假話。
+        config()->set('order_inventory.narrative.rating_change', ['first' => '首次評級，無前次可比。']);
+
+        $block = (new OrderInventoryGuide)->block($this->assessed([
+            'previousRating' => 'C',
+            'ratingChange' => 'upgraded',
+        ]));
+
+        $this->assertStringNotContainsString('首次評級', $block);
+        $this->assertStringNotContainsString('評級變動', $block);
     }
 }
