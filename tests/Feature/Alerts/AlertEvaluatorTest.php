@@ -10,6 +10,7 @@ use App\Data\FuturesMarketData;
 use App\Data\MarketQuoteData;
 use App\Data\OrderInventoryData;
 use App\Models\Alert;
+use App\Models\Fundamental;
 use App\Models\Instrument;
 use App\Models\User;
 use App\Services\Alerts\AlertEvaluator;
@@ -288,6 +289,46 @@ class AlertEvaluatorTest extends TestCase
         $this->assertSame('active', $alert->refresh()->status);
         Http::assertNothingSent();
         $this->assertSame(0, $spy->calls);
+    }
+
+    /**
+     * 只讀快取的入口不得被「較新但不帶序列」的負快取列擋住。
+     *
+     * 美股兩種寫入的 data_as_of 語意不同（失敗寫今天、成功寫季末日），所以該檔
+     * 第一次抓取失敗留下的負快取列會永遠排在成功列前面。改用 cachedFor() 之後，
+     * 這種標的會**永久靜默不觸發警報**——序列明明已落地且新鮮。這比修正前的
+     * 「每次重抓、很慢但會觸發」更糟，因為使用者看不出發生過什麼事。
+     */
+    public function test_order_inventory_alert_is_not_blinded_by_a_newer_negative_cache_row(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-24 09:00:00'));
+        Http::fake();
+
+        $spy = $this->bindUpstreamCallingFinancials();
+        $this->bindProvider(['NVDA' => ['price' => 130.0, 'changePercent' => 1.0]], daily: ['NVDA' => $this->ascendingDaily('NVDA')]);
+        $user = User::factory()->create();
+        $alert = $this->alert($user, 'NVDA', 'signal', signalKey: 'order_inventory_b_plus');
+
+        $instrument = Instrument::query()->firstWhere('symbol', 'NVDA');
+
+        // 暖快取：美股成功列的 data_as_of 是季末日（fake 序列寫死 2026-06-30）。
+        app(FundamentalsService::class)->orderInventoryFor($instrument);
+        $this->assertSame(1, $spy->calls);
+
+        // 該檔第一次抓取失敗留下的負快取列：data_as_of = 今天、不帶序列，
+        // 且 failed_at 早已超過 failure_ttl（不是靠節流才讀不到）。
+        Fundamental::query()->create([
+            'instrument_id' => $instrument->id,
+            'data_as_of' => now()->startOfDay(),
+            'fetched_at' => now()->subDays(3),
+            'failed_at' => now()->subDays(3),
+            'order_inventory' => null,
+        ]);
+
+        $this->assertSame(1, app(AlertEvaluator::class)->evaluate($user));
+        $this->assertSame('triggered', $alert->refresh()->status);
+        // 讀得到快取就不該再打上游。
+        $this->assertSame(1, $spy->calls);
     }
 
     /** 美股沒有籌碼資料：籌碼類訊號警報不得誤觸發（context 為空 → 規則回 false）。 */
