@@ -6,11 +6,14 @@ use App\Contracts\LlmProvider;
 use App\Contracts\MarketDataProvider;
 use App\Data\ChipFlowData;
 use App\Data\MarginFlowData;
+use App\Data\OrderInventoryAssessment;
 use App\Enums\LlmFailureReason;
+use App\Enums\OrderInventoryRating;
 use App\Exceptions\LlmRequestException;
 use App\Models\Instrument;
 use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
+use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\Futures\FuturesDataService;
 use App\Services\Llm\LlmJsonParser;
 use App\Services\Margin\MarginDataService;
@@ -41,6 +44,13 @@ class WatchlistAnalysisService
     /** 外資買賣超的判讀天數（交易日）。 */
     private const CHIP_WINDOW = 5;
 
+    /**
+     * 為 true 即代表壞事發生的條件，不當支持項報。與
+     * OrderInventoryGuide::NEGATIVE_CONDITIONS 同一份判準，這裡重複一份常數是因為
+     * 快報只取「一句判定理由」而非完整區塊，不透過 Guide 取值（見 orderInventoryReason）。
+     */
+    private const ORDER_INVENTORY_NEGATIVE_CONDITIONS = ['C7', 'C8'];
+
     public function __construct(
         private readonly MarketDataProvider $marketData,
         private readonly TechnicalIndicatorService $indicators,
@@ -50,8 +60,10 @@ class WatchlistAnalysisService
         private readonly FuturesDataService $futures,
         private readonly BrokerBranchDataService $brokerData,
         private readonly RatesNarrative $ratesNarrative,
+        private readonly OrderInventoryAssessor $orderInventoryAssessor,
         private readonly LlmJsonParser $json = new LlmJsonParser,
         private readonly SopGuide $sop = new SopGuide,
+        private readonly OrderInventoryGuide $orderInventoryGuide = new OrderInventoryGuide,
     ) {}
 
     /**
@@ -303,6 +315,12 @@ class WatchlistAnalysisService
         $marginFlows = $this->marginData->forInstrument($instrument);
         // 券商分點主力摘要（Sponsor 付費；非台股/免費 token 回 null）。
         $brokerBranch = $this->brokerData->summaryFor($instrument);
+        // 訂單／庫存評級：只讀已快取者，不為快報預抓財報（見類別註解與 spec 的
+        // 「明確不做」）。orderInventoryFor() 本身有 TTL 與失敗節流，快取命中零額外
+        // IO，過期才觸發一次上游抓取，因此快報一次十幾檔逐檔直接呼叫是安全的；
+        // 成本落在 TTL 過期時的那次抓取，不是本方法本身。best-effort，抓不到
+        // （非台美／缺序列／評級失敗）不拖垮整份報告。
+        $orderInventory = $this->orderInventorySummary($instrument);
 
         if ($prices === []) {
             return [
@@ -316,6 +334,7 @@ class WatchlistAnalysisService
                 'chip' => $this->chipSummary($chipFlows),
                 'margin' => $this->marginSummary($marginFlows),
                 'broker_branch' => $brokerBranch,
+                'order_inventory' => $orderInventory,
             ];
         }
 
@@ -342,7 +361,79 @@ class WatchlistAnalysisService
             'chip' => $this->chipSummary($chipFlows),
             'margin' => $this->marginSummary($marginFlows),
             'broker_branch' => $brokerBranch,
+            'order_inventory' => $orderInventory,
         ];
+    }
+
+    /**
+     * 訂單／庫存評級的一行摘要，供快報「點名」段落使用。只存 rating 與判定理由，
+     * 不存整份 OrderInventoryAssessment——那份 DTO 拿去 json_encode 存進
+     * `watchlist_analyses.payload` 會把 conditions／fixedCaveats／missingForA 等
+     * 完整清單重複存 N 份（N=自選股數），而快報從不需要那些欄位（完整清單只在
+     * 個股分析／問答的 OrderInventoryGuide::block() 出現，見 Task 4）。
+     *
+     * 無評級（非台美／缺序列／抓取失敗）回 null，呼叫端據此整檔略過——空欄位
+     * 會被 LLM 當成有意義的否定訊號。
+     *
+     * @return array{rating: string, reason: ?string}|null
+     */
+    private function orderInventorySummary(Instrument $instrument): ?array
+    {
+        try {
+            $assessed = $this->orderInventoryAssessor->forInstrument($instrument);
+        } catch (Throwable $exception) {
+            Log::warning('brief: order inventory assessment failed', [
+                'symbol' => $instrument->symbol,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        if ($assessed === null) {
+            return null;
+        }
+
+        return [
+            'rating' => $assessed['assessment']->rating->value,
+            'reason' => $this->orderInventoryReason($assessed['assessment']),
+        ];
+    }
+
+    /**
+     * 一句判定理由，優先序：insufficient 講原因 > 第一個負面訊號 > 第一個觸發的
+     * 支持條件。快報只給一行摘要，不是完整清單——完整清單留給
+     * OrderInventoryGuide::block()（個股分析／問答，Task 4）。
+     *
+     * C7／C8 為 true 是警訊不是支持項，比照 OrderInventoryGuide::NEGATIVE_CONDITIONS
+     * 排除，避免被點名段落誤讀成支持結論的訊號。
+     */
+    private function orderInventoryReason(OrderInventoryAssessment $assessment): ?string
+    {
+        if ($assessment->rating === OrderInventoryRating::Insufficient) {
+            $map = (array) config('order_inventory.narrative.insufficient_reason', []);
+            $key = ($assessment->freshness['too_old'] ?? false) === true ? 'too_old' : 'key_line_items_missing';
+            $text = (string) ($map[$key] ?? '');
+
+            return $text === '' ? null : $text;
+        }
+
+        if ($assessment->negativeSignals !== []) {
+            $map = (array) config('order_inventory.narrative.negative_signals', []);
+            $key = $assessment->negativeSignals[0];
+
+            return (string) ($map[$key] ?? $key);
+        }
+
+        $map = (array) config('order_inventory.narrative.conditions', []);
+
+        foreach ($assessment->conditions as $key => $value) {
+            if ($value === true && ! in_array($key, self::ORDER_INVENTORY_NEGATIVE_CONDITIONS, true)) {
+                return (string) ($map[$key] ?? $key);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -484,13 +575,29 @@ class WatchlistAnalysisService
         $futuresBlock = $this->futuresBlock($futures);
         $watchlist = $this->watchlistBlock($stocks);
 
+        // 訂單／庫存「點名」段落：只列有評級的標的，一檔一行「評級 + 一句判定理由」。
+        // 完整區塊（反證、固定提示、時效…）只在個股分析／問答出現（Task 4）——快報
+        // 一次十幾檔，塞滿 OrderInventoryGuide::block() 會讓 prompt 爆掉且重點被稀釋。
+        // 一檔都沒有評級時整段不輸出，連 BEGIN_ORDER_INVENTORY 標頭都不留：空標頭
+        // 會被 LLM 讀成「這項資料查過而且是空的」，比不提供更糟（比照
+        // StockAnalysisService::buildPrompt 的既有處理）。引用紀律跟著同一個條件——
+        // 沒有區塊可引用時，那五條規則只會讓模型去猜一個不存在的區塊。
+        $orderInventoryRatings = $this->orderInventoryRatingsBlock($stocks);
+        $orderInventorySection = $orderInventoryRatings !== null
+            ? "BEGIN_ORDER_INVENTORY\n{$orderInventoryRatings}\nEND_ORDER_INVENTORY\n"
+            : '';
+
         // SOP 共通紀律（免責/來源分級/可交易性/資料不足）；不含單股加權評分與輸出格式 v2。
-        $sopCommon = implode("\n", [
+        // 訂單／庫存引用紀律接在同一段內、不另立分隔線，比照 StockChatService 的
+        // BEGIN_SOP_DISCIPLINE 做法——另包一層會讓 discipline() 首行的 BEGIN_ORDER_INVENTORY
+        // 字樣看起來像沒有配對 END 的巢狀區塊。
+        $sopCommon = implode("\n", array_filter([
             $this->sop->disclaimer($locale),
             $this->sop->sourceTiers($locale),
             $this->sop->tradabilityCheck($locale),
             $this->sop->dataSufficiency($locale),
-        ]);
+            $orderInventoryRatings !== null ? $this->orderInventoryGuide->discipline($locale) : null,
+        ], static fn (?string $section): bool => $section !== null));
 
         if ($locale === 'en') {
             $omittedNote = $omitted > 0
@@ -534,7 +641,7 @@ END_TAIWAN_FUTURES
 BEGIN_WATCHLIST
 {$watchlist}{$omittedNote}
 END_WATCHLIST
-BEGIN_CONSTRAINTS
+{$orderInventorySection}BEGIN_CONSTRAINTS
 - symbols may only be chosen from the watchlist above; never include a symbol outside it. Leave an empty array if unsure.
 - stance is a system rule signal (bullish/bearish/neutral/insufficient_data), a reference rather than a fact; you may judge from the technical data and explain your reasoning.
 - An indicator marked unavailable means this fetch failed; treat it as missing and do not guess its value or direction.
@@ -587,7 +694,7 @@ END_TAIWAN_FUTURES
 BEGIN_WATCHLIST
 {$watchlist}{$omittedNote}
 END_WATCHLIST
-BEGIN_CONSTRAINTS
+{$orderInventorySection}BEGIN_CONSTRAINTS
 - symbols 只能從上方自選股清單挑選，不得填入清單外的代號；沒有把握就留空陣列。
 - stance 為系統規則訊號（bullish/bearish/neutral/insufficient_data），是輔助參考而非既成事實，你可依技術數據自行判斷並說明理由。
 - 標為「無法取得」的指標代表本次抓取失敗，請當作缺值處理，不要臆測其數值或方向。
@@ -724,6 +831,34 @@ PROMPT;
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * 訂單／庫存「點名」段落：只列有評級的標的，一檔一行「評級 + 一句判定理由」。
+     * 沒有評級的標的整個略過，不輸出「評級：未知」——空欄位會被 LLM 當成有意義
+     * 的否定訊號（與 OrderInventoryGuide::vintage() 同一條原則）。
+     *
+     * 全部標的都沒有評級時回 null，呼叫端據此連 BEGIN_ORDER_INVENTORY 標頭都不輸出。
+     *
+     * @param  list<array<string, mixed>>  $stocks
+     */
+    private function orderInventoryRatingsBlock(array $stocks): ?string
+    {
+        $lines = [];
+
+        foreach ($stocks as $stock) {
+            $summary = $stock['order_inventory'] ?? null;
+
+            if ($summary === null) {
+                continue;
+            }
+
+            $lines[] = $summary['reason'] !== null
+                ? sprintf('- %s：評級 %s（%s）。', $stock['symbol'], $summary['rating'], $summary['reason'])
+                : sprintf('- %s：評級 %s。', $stock['symbol'], $summary['rating']);
+        }
+
+        return $lines === [] ? null : implode("\n", $lines);
     }
 
     private function num(mixed $value): string
