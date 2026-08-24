@@ -209,6 +209,33 @@ class OrderInventoryWatchlistTest extends TestCase
     }
 
     /**
+     * 斷言區段內容**逐字等於**期望值，而不是「包含」期望值。
+     *
+     * 形狀正則的行尾註記群組是 `.+`（貪婪），會吞掉產業註記之後的任何同行內容：
+     * 在有註記的行尾接上「反證：…固定提示：…」時，逐行形狀與行數兩道斷言都還是綠的
+     * （複審實測）。帶註記的案例因此改用整段逐字比對——區段裡只有一檔、期望值就是
+     * 完整的一行，多一個字都會轉紅，不必再依賴正則去描述「不該有什麼」。
+     */
+    private function assertSectionIs(string $expected, string $begin, string $end, string $haystack): void
+    {
+        $pattern = sprintf(
+            '/%s
+(.*?)
+%s/s',
+            preg_quote($begin, '/'),
+            preg_quote($end, '/'),
+        );
+
+        $this->assertSame(
+            1,
+            preg_match($pattern, $haystack, $matches),
+            sprintf('prompt 內找不到成對的 %s／%s 分隔線', $begin, $end),
+        );
+
+        $this->assertSame($expected, $matches[1]);
+    }
+
+    /**
      * 對 BEGIN_ORDER_INVENTORY 區段做逐行形狀＋行數斷言：每一行都必須是單一檔的
      * 「評級 + 一句判定理由」摘要，且總行數等於有評級的檔數——不是「這段裡有這句」
      * 而是「這段裡只有這些句」。
@@ -383,7 +410,7 @@ class OrderInventoryWatchlistTest extends TestCase
         app(WatchlistAnalysisService::class)->analyze([$instrument], $llm, 'stub-model');
 
         // 逐字：評級與理由不變（adjust 不影響評級），後面接上產業註記整句。
-        $this->assertInsideSection(
+        $this->assertSectionIs(
             '- 2607.TW：評級 B+（營收連續成長達門檻期數）。產業註記：'
                 .'此產業需調整判讀：通路商存貨增加偏負面、原物料循環股需拆價量、專案工程看合約負債。',
             'BEGIN_ORDER_INVENTORY',
@@ -413,7 +440,7 @@ class OrderInventoryWatchlistTest extends TestCase
 
         app(WatchlistAnalysisService::class)->analyze([$instrument], $llm, 'stub-model');
 
-        $this->assertInsideSection(
+        $this->assertSectionIs(
             '- 2801.TW：評級 本框架不適用。產業註記：'
                 .'此產業（金融保險、證券、銀行、航運、觀光餐旅等服務業）不具備一般進銷存循環，本框架不適用。',
             'BEGIN_ORDER_INVENTORY',
@@ -437,7 +464,7 @@ class OrderInventoryWatchlistTest extends TestCase
 
         app(WatchlistAnalysisService::class)->analyze([$instrument], $llm, 'stub-model', locale: 'en');
 
-        $this->assertInsideSection(
+        $this->assertSectionIs(
             '- 2801.TW: Rating not applicable. Industry note: '
                 .'此產業（金融保險、證券、銀行、航運、觀光餐旅等服務業）不具備一般進銷存循環，本框架不適用。',
             'BEGIN_ORDER_INVENTORY',
