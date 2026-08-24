@@ -865,7 +865,9 @@ PROMPT;
      *
      * 每檔一行的格式依 $locale 選 zh／en：`order_inventory` 摘要（rating／reason）
      * 在 gatherStock() 已經是對應 locale 的文字（見 orderInventoryReason() 的 $en
-     * 參數），這裡只再決定行首標籤、括號樣式與評級值的可讀對應，不重新翻譯理由。
+     * 參數），這裡只再決定行首標籤與括號樣式，不重新翻譯理由。評級值的可讀對應
+     * 呼叫 OrderInventoryGuide::ratingLabel()，與完整區塊共用同一份對照——兩處
+     * 各自維護會漂移（同 insufficientReasonKey() 的處理）。
      *
      * 產業註記接在同一行的句號之後，不另起一行：一檔一行是這個段落的形狀不變量
      * （Task 6 的逐行形狀＋行數斷言把它釘住），多輸出一行會讓「這段裡只有摘要」
@@ -889,7 +891,7 @@ PROMPT;
                 continue;
             }
 
-            $rating = $this->orderInventoryRatingLabel((string) $summary['rating'], $en);
+            $rating = $this->orderInventoryGuide->ratingLabel((string) $summary['rating'], $locale);
             $note = $summary['industry_note'] ?? null;
 
             if ($en) {
@@ -910,22 +912,6 @@ PROMPT;
         }
 
         return $lines === [] ? null : implode("\n", $lines);
-    }
-
-    /**
-     * 評級值的可讀對應。`insufficient`／`not_applicable` 是機器值，裸送進 prompt
-     * 會被 LLM 照抄給使用者看（config 的 conditions 區塊註解已寫明這件事），而
-     * 點名段落一檔只有一行，沒有別的欄位可以補救。
-     *
-     * 查不到對照時退回原值：與 translatedList()／orderInventoryReason() 同一組
-     * 「防呆退路」設計（Task 7 的收斂範圍不含這一類），對照表本身由
-     * OrderInventoryGuideTest 常駐驗證涵蓋 OrderInventoryRating 的每一個 case。
-     */
-    private function orderInventoryRatingLabel(string $rating, bool $en): string
-    {
-        $map = (array) config('order_inventory.narrative.'.($en ? 'ratings_en' : 'ratings'), []);
-
-        return (string) ($map[$rating] ?? $rating);
     }
 
     private function num(mixed $value): string

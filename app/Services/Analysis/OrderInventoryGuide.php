@@ -87,12 +87,12 @@ class OrderInventoryGuide
         $lines[] = $en
             ? sprintf(
                 '- Rating: %s. %s',
-                $assessment->rating->value,
+                $this->ratingLabel($assessment->rating->value, $locale),
                 $this->requireNarrative('ceiling_note_en'),
             )
             : sprintf(
                 '- 評級：%s。%s',
-                $assessment->rating->value,
+                $this->ratingLabel($assessment->rating->value, $locale),
                 $this->requireNarrative('ceiling_note'),
             );
 
@@ -271,6 +271,28 @@ class OrderInventoryGuide
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * 評級值的可讀文字。
+     *
+     * `B+`／`B`／`C` 是語言中性的等第，對照表逐字保留；`insufficient` 與
+     * `not_applicable` 是機器識別字，直接進 prompt 會被 LLM 照抄給使用者看
+     * （config 的 conditions 區塊註解已寫明這件事）。
+     *
+     * public：自選股快報的點名段落只給一行摘要（不是完整區塊），評級的可讀對應
+     * 必須跟這裡同一份，否則兩處呈現會漂移——與 insufficientReasonKey()／
+     * NEGATIVE_CONDITIONS 公開的理由相同。
+     *
+     * 查不到對照時退回原值：與 translatedList() 同一組防呆退路（Task 7 的收斂
+     * 範圍不含這一類）。對照表必須涵蓋 OrderInventoryRating 每一個 case 這件事，
+     * 由 OrderInventoryGuideTest 常駐驗證，不靠這條退路。
+     */
+    public function ratingLabel(string $rating, string $locale = 'zh'): string
+    {
+        $map = (array) config('order_inventory.narrative.'.($this->en($locale) ? 'ratings_en' : 'ratings'), []);
+
+        return (string) ($map[$rating] ?? $rating);
     }
 
     /** 條目分隔符。中文用全形、英文用半形，與 translatedList() 同一套規則。 */

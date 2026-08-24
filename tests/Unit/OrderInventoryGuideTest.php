@@ -403,6 +403,53 @@ class OrderInventoryGuideTest extends TestCase
         );
     }
 
+    /**
+     * 完整區塊的評級那一行也不得裸送機器識別字。
+     *
+     * `insufficient`／`not_applicable` 是機器值，直接進 prompt 會被 LLM 照抄給
+     * 使用者看（config 的 conditions 區塊註解已寫明），與快報點名段落是同一類
+     * 洩漏，只是這一條在主路徑（個股分析與個股問答）上。`B+`／`B`／`C` 是語言
+     * 中性的等第，逐字保留、不受影響（由 ZH_RATING_LINE／EN_RATING_LINE 兩條
+     * 既有的迴歸護欄守著）。
+     *
+     * 斷言下在**評級那一行**而不是整份區塊：英文的可讀文案本身就叫
+     * 「insufficient data」，對整份區塊做 notContains('insufficient') 會誤判，
+     * 而逐行比對能精準區分「機器值」與「以它為字首的可讀文案」。
+     */
+    #[Test]
+    public function the_block_renders_a_readable_rating_instead_of_a_machine_key(): void
+    {
+        $insufficient = $this->assessed([
+            'rating' => OrderInventoryRating::Insufficient,
+            'conditions' => [],
+        ]);
+        $notApplicable = $this->assessed([
+            'rating' => OrderInventoryRating::NotApplicable,
+            'conditions' => [],
+            'industryNote' => '此產業不具備一般進銷存循環，本框架不適用。',
+        ]);
+
+        $zhInsufficient = $this->lineStartingWith((new OrderInventoryGuide)->block($insufficient), '- 評級：');
+        $enInsufficient = $this->lineStartingWith((new OrderInventoryGuide)->block($insufficient, 'en'), '- Rating: ');
+        $zhNotApplicable = $this->lineStartingWith((new OrderInventoryGuide)->block($notApplicable), '- 評級：');
+        $enNotApplicable = $this->lineStartingWith((new OrderInventoryGuide)->block($notApplicable, 'en'), '- Rating: ');
+
+        $this->assertStringStartsWith('- 評級：資料不足。', $zhInsufficient);
+        $this->assertStringStartsWith('- Rating: insufficient data.', $enInsufficient);
+        $this->assertStringStartsWith('- 評級：本框架不適用。', $zhNotApplicable);
+        $this->assertStringStartsWith('- Rating: not applicable.', $enNotApplicable);
+
+        foreach ([$zhInsufficient, $enInsufficient, $zhNotApplicable, $enNotApplicable] as $line) {
+            $this->assertStringNotContainsString('not_applicable', $line);
+        }
+
+        // 機器值與可讀文案在英文只差一個空白／一個字，用「以機器值收尾的評級」
+        // 這個更精準的形狀再擋一次：`- Rating: insufficient.` 是舊行為，
+        // `- Rating: insufficient data.` 才是修正後的。
+        $this->assertStringNotContainsString('- 評級：insufficient。', $zhInsufficient);
+        $this->assertStringNotContainsString('- Rating: insufficient.', $enInsufficient);
+    }
+
     #[Test]
     public function it_does_not_explain_insufficiency_on_a_graded_assessment(): void
     {
