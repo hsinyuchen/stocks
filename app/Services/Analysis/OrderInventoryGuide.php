@@ -3,6 +3,7 @@
 namespace App\Services\Analysis;
 
 use App\Data\OrderInventoryAssessment;
+use App\Enums\OrderInventoryRating;
 
 /**
  * 訂單／庫存判斷的 prompt 區塊。依 locale 產生，與 SopGuide、RatesNarrative 同一模式。
@@ -62,7 +63,31 @@ class OrderInventoryGuide
                 (string) config('order_inventory.narrative.ceiling_note'),
             );
 
-        // 2. 判定理由：negativeSignals 翻成可讀文字。只給結論不給理由，
+        // 2. insufficient 的原因。這條評級走 OrderInventoryRadar::assess() 的串聯 0，
+        // conditions／negativeSignals／counterEvidence 全是空陣列——後面每一段都會被
+        // 略過，使用者只拿到「評級：insufficient」而沒有任何一個字說明為什麼。
+        $insufficientReason = $this->insufficientReason($assessment, $en);
+        if ($insufficientReason !== null) {
+            $lines[] = $insufficientReason;
+        }
+
+        // 3. 觸發的條件。只列**明確為 true** 的：false 那半由 negativeSignals 負責，
+        // null 是「算不出來」，列出來會被 LLM 讀成否定結論，比不列更糟。
+        $triggered = array_keys(array_filter(
+            $assessment->conditions,
+            static fn (?bool $value): bool => $value === true,
+        ));
+
+        if ($triggered !== []) {
+            $lines[] = $this->translatedList(
+                $triggered,
+                $en ? 'conditions_en' : 'conditions',
+                $en ? '- Conditions met: ' : '- 觸發條件：',
+                $en,
+            );
+        }
+
+        // 4. 判定理由：negativeSignals 翻成可讀文字。只給結論不給理由，
         // 使用者無從判斷可信度。
         if ($assessment->negativeSignals !== []) {
             $lines[] = $this->translatedList(
@@ -73,7 +98,7 @@ class OrderInventoryGuide
             );
         }
 
-        // 3. 產業註記。adjust 桶完全不影響評級，通路商存貨激增在規則裡仍算支持項，
+        // 5. 產業註記。adjust 桶完全不影響評級，通路商存貨激增在規則裡仍算支持項，
         // 沒有這段使用者無從得知規則對此產業有保留——是硬性輸入不是可選補充。
         // 值沒有英文版本（見上方雙語缺口說明），英文路徑用英文標籤但保留中文原文，
         // 不能整段丟掉。
@@ -81,7 +106,7 @@ class OrderInventoryGuide
             $lines[] = ($en ? '- Industry note: ' : '- 產業註記：').$assessment->industryNote;
         }
 
-        // 4. 存貨組成訊號，逐字輸出。台股的不確定性前綴綁在句子上，
+        // 6. 存貨組成訊號，逐字輸出。台股的不確定性前綴綁在句子上，
         // 重新敘述就繞過去了，不論 locale 一律原樣照抄。
         if ($assessment->proxySignals !== []) {
             $header = $en ? '- Inventory composition signal: ' : '- 存貨組成訊號：';
@@ -90,7 +115,7 @@ class OrderInventoryGuide
             }
         }
 
-        // 5. 反證。框架第 8 節要求每次至少呈現一項反證，不得只講支持結論的訊號。
+        // 7. 反證。框架第 8 節要求每次至少呈現一項反證，不得只講支持結論的訊號。
         if ($assessment->counterEvidence !== []) {
             $lines[] = $this->translatedList(
                 $assessment->counterEvidence,
@@ -100,14 +125,15 @@ class OrderInventoryGuide
             );
         }
 
-        // 6. 固定提示，全部渲染，長度不固定。系統判斷不了什麼的安全性警語，
+        // 8. 固定提示，全部渲染，長度不固定。系統判斷不了什麼的安全性警語，
         // 不能因為沒有英文版本就在英文路徑丟掉——值沒有英文版本（見上方雙語缺口
         // 說明），英文路徑用英文標籤但保留中文原文。
         if ($assessment->fixedCaveats !== []) {
-            $lines[] = ($en ? '- Caveats: ' : '- 固定提示：').implode('；', $assessment->fixedCaveats);
+            $lines[] = ($en ? '- Caveats: ' : '- 固定提示：')
+                .implode($this->separator($en), $assessment->fixedCaveats);
         }
 
-        // 7. 資料時效。框架第 2 條原則：本框架偏驗證工具不是領先指標，
+        // 9. 資料時效。框架第 2 條原則：本框架偏驗證工具不是領先指標，
         // 缺席的子欄位（例如台股沒抓到月營收）直接略過，不補「無」。
         $vintage = $this->vintage($assessment->freshness, $en);
         if ($vintage !== null) {
@@ -120,20 +146,24 @@ class OrderInventoryGuide
             );
         }
 
-        // 8. 同業樣本數。spec 要求明寫「同業樣本 N 檔」，0 也要寫，
+        // 10. 同業樣本數。spec 要求明寫「同業樣本 N 檔」，0 也要寫，
         // 不能讓使用者以為系統看過整個產業。
         $lines[] = $en
             ? sprintf('- Peer sample: %d filings in cache (same market and industry).', $assessed['peer_samples'])
             : sprintf('- 同業樣本 %d 檔（同市場同產業，快取內）。', $assessed['peer_samples']);
 
-        // 9. 升到 A 還缺什麼：可執行的人工查證清單。值沒有英文版本（見上方雙語
+        // 11. 升到 A 還缺什麼：可執行的人工查證清單。值沒有英文版本（見上方雙語
         // 缺口說明），英文路徑用英文標籤但保留中文原文。
         if ($assessment->missingForA !== []) {
-            $lines[] = ($en ? '- Missing for grade A: ' : '- 升到 A 還缺：').implode('；', $assessment->missingForA);
+            $lines[] = ($en ? '- Missing for grade A: ' : '- 升到 A 還缺：')
+                .implode($this->separator($en), $assessment->missingForA);
         }
 
-        // 10. 評級變動。框架第 8 節要求，且無論是否有前次評級都要交代。
-        $lines[] = $this->ratingChangeLine($assessment, $en);
+        // 12. 評級變動。框架第 8 節要求，且無論是否有前次評級都要交代。
+        $ratingChange = $this->ratingChangeLine($assessment, $en);
+        if ($ratingChange !== null) {
+            $lines[] = $ratingChange;
+        }
 
         return implode("\n", $lines);
     }
@@ -167,6 +197,37 @@ BEGIN_ORDER_INVENTORY 引用紀律：
 ZH;
     }
 
+    /** 條目分隔符。中文用全形、英文用半形，與 translatedList() 同一套規則。 */
+    private function separator(bool $en): string
+    {
+        return $en ? '; ' : '；';
+    }
+
+    /**
+     * insufficient 的原因。
+     *
+     * OrderInventoryAssessment 沒有直接說明原因，這裡從 freshness['too_old'] 反推：
+     * OrderInventoryRadar::assess() 的串聯 0 是 `keyLineItemsMissing || too_old`，
+     * **只有這兩個條件**，所以 too_old 為 false 時必然是缺關鍵科目。
+     * 若日後階段 2 在串聯 0 加上第三個條件，這個反推就不再成立，必須同步改這裡。
+     */
+    private function insufficientReason(OrderInventoryAssessment $assessment, bool $en): ?string
+    {
+        if ($assessment->rating !== OrderInventoryRating::Insufficient) {
+            return null;
+        }
+
+        $map = (array) config('order_inventory.narrative.'.($en ? 'insufficient_reason_en' : 'insufficient_reason'), []);
+        $key = ($assessment->freshness['too_old'] ?? false) === true ? 'too_old' : 'key_line_items_missing';
+
+        $text = (string) ($map[$key] ?? '');
+        if ($text === '') {
+            return null;
+        }
+
+        return ($en ? '- Insufficient reason: ' : '- 資料不足原因：').$text;
+    }
+
     /**
      * 把機器鍵陣列翻成可讀文字並組成一行。查不到對照時退回原鍵——
      * 理論上不會發生（Radar 產生的鍵與 config 對照表一一對應），保留是防呆而非常規路徑。
@@ -182,7 +243,7 @@ ZH;
             $keys,
         );
 
-        return $prefix.implode($en ? '; ' : '；', $readable);
+        return $prefix.implode($this->separator($en), $readable);
     }
 
     /**
@@ -218,10 +279,20 @@ ZH;
         return ($en ? '- Data vintage: ' : '- 資料時效：').implode($en ? ', ' : '、', $parts);
     }
 
-    private function ratingChangeLine(OrderInventoryAssessment $assessment, bool $en): string
+    /**
+     * 評級變動那一行。查不到對照時整行略過（回 null），**不退回 `first` 的文案**：
+     * 那會在 upgraded／downgraded 缺鍵時對 LLM 講「首次評級，無前次可比」，
+     * 與事實相反，而且同一行後面還接著「（前次：B）」自相矛盾。
+     * 語意 fallback 比缺一行更危險，寧可少一行。
+     */
+    private function ratingChangeLine(OrderInventoryAssessment $assessment, bool $en): ?string
     {
         $map = (array) config('order_inventory.narrative.'.($en ? 'rating_change_en' : 'rating_change'), []);
-        $text = (string) ($map[$assessment->ratingChange] ?? $map['first'] ?? '');
+        $text = (string) ($map[$assessment->ratingChange] ?? '');
+
+        if ($text === '') {
+            return null;
+        }
 
         $previous = $assessment->previousRating !== null
             ? ($en ? sprintf(' (previous: %s)', $assessment->previousRating) : sprintf('（前次：%s）', $assessment->previousRating))

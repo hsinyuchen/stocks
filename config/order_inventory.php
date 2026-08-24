@@ -325,6 +325,55 @@ return [
         'lagging_note' => '最新財報已落後一季以上，本框架偏驗證工具而非領先指標。',
         'lagging_note_en' => 'The latest filing lags by more than one quarter; this framework verifies rather than leads.',
 
+        /*
+         * 條件鍵 → 可讀文字。呈現層只列**明確為 true** 的條件，所以每則文案寫的是
+         * 「該條件成立時的事實」，不是條件名稱本身。C7／C8 成立即為負面，文案照實寫，
+         * 不因為列在「觸發條件」而美化成中性描述。
+         *
+         * 與 counter_evidence／negative_signals 同一個理由放這裡：機器鍵（C1、C4…）
+         * 直接進 prompt 的話，LLM 會照抄給使用者看。
+         */
+        'conditions' => [
+            'C1' => '營收連續成長達門檻期數',
+            'C2' => '毛利率季變動維持穩定',
+            'C3' => '存貨週轉天數維持穩定',
+            'C4' => '存貨明顯增加',
+            'C5' => '應付帳款週轉天數拉長',
+            'C6' => '合約負債（預收款）增加',
+            'C7' => '應收帳款週轉天數明顯拉長',
+            'C8' => '營業現金流品質不佳',
+            'C9' => '資本支出佔營收高於過去平均',
+            'C10' => '營收年增優於同業中位數',
+        ],
+        'conditions_en' => [
+            'C1' => 'revenue grew for the required number of consecutive periods',
+            'C2' => 'gross margin held stable quarter over quarter',
+            'C3' => 'days inventory outstanding stayed within the stable band',
+            'C4' => 'inventory rose materially',
+            'C5' => 'days payable outstanding lengthened',
+            'C6' => 'contract liabilities (customer prepayments) rose',
+            'C7' => 'days sales outstanding lengthened materially',
+            'C8' => 'weak operating cash flow quality',
+            'C9' => 'capex to revenue ran above its trailing average',
+            'C10' => 'revenue growth beat the peer median',
+        ],
+
+        /*
+         * insufficient 的原因文案。
+         *
+         * 評級為 insufficient 時 conditions／negativeSignals／counterEvidence 全是空的，
+         * 不講原因使用者只看得到一個結論，無從判斷該補資料還是該等下一季財報。
+         * 兩個鍵對應 OrderInventoryRadar::assess() 串聯 0 的兩半（缺關鍵科目／資料過舊）。
+         */
+        'insufficient_reason' => [
+            'too_old' => '最新財報已超過可評級的時效上限。',
+            'key_line_items_missing' => '缺少關鍵財報科目（營收／營業成本／存貨）。',
+        ],
+        'insufficient_reason_en' => [
+            'too_old' => 'The latest filing is older than the maximum age this engine will grade.',
+            'key_line_items_missing' => 'Key line items are missing (revenue, cost of goods sold, or inventories).',
+        ],
+
         /* 反證鍵 → 可讀文字。機器鍵不得直接進 prompt——LLM 會照抄給使用者看。 */
         'counter_evidence' => [
             'related_party_payables_rising' => '關係人應付款佔比上升，備料訊號的可信度下降。',
