@@ -98,20 +98,49 @@ class OrderInventoryPromptTest extends TestCase
     }
 
     /**
-     * 斷言該行出現在 BEGIN_ORDER_INVENTORY／END_ORDER_INVENTORY 之間。
+     * 斷言該行出現在指定的一對分隔線之間。
      *
-     * 只用 assertStringContainsString 的話，把區塊接到 prompt 尾巴、或接在標頭之外
-     * 的任何位置都照樣綠燈；區塊的定界正是 LLM 判斷「哪些句子只能整句引用」的依據。
+     * 只用 assertStringContainsString 的話，把內容接到 prompt 尾巴、或接在任何區段
+     * 之外都照樣綠燈——而區段歸屬本身就是被驗的東西：資料區塊的定界是 LLM 判斷
+     * 「哪些句子只能整句引用」的依據；引用紀律則必須落在規則段內才會被當成規則。
      */
-    private function assertInsideBlock(string $line, string $haystack): void
+    private function assertInsideSection(string $line, string $begin, string $end, string $haystack): void
     {
+        $pattern = sprintf(
+            '/%s\n(.*?)\n%s/s',
+            preg_quote($begin, '/'),
+            preg_quote($end, '/'),
+        );
+
         $this->assertSame(
             1,
-            preg_match('/BEGIN_ORDER_INVENTORY\n(.*?)\nEND_ORDER_INVENTORY/s', $haystack, $matches),
-            'prompt 內找不到成對的 BEGIN_ORDER_INVENTORY／END_ORDER_INVENTORY 標頭',
+            preg_match($pattern, $haystack, $matches),
+            sprintf('prompt 內找不到成對的 %s／%s 分隔線', $begin, $end),
         );
 
         $this->assertStringContainsString($line, $matches[1]);
+    }
+
+    /** 訂單／庫存的資料區塊。 */
+    private function assertInsideBlock(string $line, string $haystack): void
+    {
+        $this->assertInsideSection($line, 'BEGIN_ORDER_INVENTORY', 'END_ORDER_INVENTORY', $haystack);
+    }
+
+    /**
+     * 引用紀律在個股分析裡接在既有的 BEGIN_FIELD_GUIDE 段內（該段本來就承載
+     * 「只能使用本 prompt 提供的數據」這類硬性規則），不另立分隔線。釘住這一對，
+     * 日後重排 prompt 讓紀律浮出區段時會立刻紅。
+     */
+    private function assertDisciplineInAnalysisRules(string $line, string $haystack): void
+    {
+        $this->assertInsideSection($line, 'BEGIN_FIELD_GUIDE', 'END_FIELD_GUIDE', $haystack);
+    }
+
+    /** 個股問答的紀律走 system role 的 BEGIN_SOP_DISCIPLINE 段（其餘 SOP 紀律都在那裡）。 */
+    private function assertDisciplineInChatRules(string $line, string $system): void
+    {
+        $this->assertInsideSection($line, 'BEGIN_SOP_DISCIPLINE', 'END_SOP_DISCIPLINE', $system);
     }
 
     #[Test]
@@ -150,7 +179,7 @@ class OrderInventoryPromptTest extends TestCase
         $analysisLlm = $this->capturingLlm();
         app(StockAnalysisService::class)->analyze('2330.TW', 'stub-model', $analysisLlm);
 
-        $this->assertStringContainsString(self::ZH_DISCIPLINE_LINE, $analysisLlm->prompt);
+        $this->assertDisciplineInAnalysisRules(self::ZH_DISCIPLINE_LINE, $analysisLlm->prompt);
 
         $chatLlm = $this->capturingLlm();
         app(StockChatService::class)->answer($instrument, '庫存去化如何？', [], 'stub-model', $chatLlm);
@@ -158,7 +187,7 @@ class OrderInventoryPromptTest extends TestCase
         // 個股問答的規則一律走 system role（指令與資料分離），紀律屬於規則。
         // system 與 prompt 同樣由 complete() 送出，都是「LLM 真的看到的字串」。
         $this->assertNotNull($chatLlm->system);
-        $this->assertStringContainsString(self::ZH_DISCIPLINE_LINE, (string) $chatLlm->system);
+        $this->assertDisciplineInChatRules(self::ZH_DISCIPLINE_LINE, (string) $chatLlm->system);
     }
 
     #[Test]
@@ -220,7 +249,7 @@ class OrderInventoryPromptTest extends TestCase
         $this->assertStringContainsString('本次缺少價格歷史資料', $llm->prompt);
         $this->assertInsideBlock(self::ZH_RATING_LINE, $llm->prompt);
         $this->assertInsideBlock(self::ZH_PEER_LINE, $llm->prompt);
-        $this->assertStringContainsString(self::ZH_DISCIPLINE_LINE, (string) $llm->system);
+        $this->assertDisciplineInChatRules(self::ZH_DISCIPLINE_LINE, (string) $llm->system);
     }
 
     #[Test]
@@ -233,7 +262,7 @@ class OrderInventoryPromptTest extends TestCase
 
         $this->assertInsideBlock(self::EN_RATING_LINE, $analysisLlm->prompt);
         $this->assertInsideBlock(self::EN_PEER_LINE, $analysisLlm->prompt);
-        $this->assertStringContainsString(self::EN_DISCIPLINE_LINE, $analysisLlm->prompt);
+        $this->assertDisciplineInAnalysisRules(self::EN_DISCIPLINE_LINE, $analysisLlm->prompt);
         // 中文區塊不得同時出現（locale 沒被傳下去時最典型的症狀）。
         $this->assertStringNotContainsString(self::ZH_RATING_LINE, $analysisLlm->prompt);
         $this->assertStringNotContainsString(self::ZH_DISCIPLINE_LINE, $analysisLlm->prompt);
@@ -244,7 +273,7 @@ class OrderInventoryPromptTest extends TestCase
         $this->assertInsideBlock(self::EN_RATING_LINE, $chatLlm->prompt);
         $this->assertInsideBlock(self::EN_PEER_LINE, $chatLlm->prompt);
         $this->assertStringNotContainsString(self::ZH_RATING_LINE, $chatLlm->prompt);
-        $this->assertStringContainsString(self::EN_DISCIPLINE_LINE, (string) $chatLlm->system);
+        $this->assertDisciplineInChatRules(self::EN_DISCIPLINE_LINE, (string) $chatLlm->system);
         $this->assertStringNotContainsString(self::ZH_DISCIPLINE_LINE, (string) $chatLlm->system);
     }
 }
