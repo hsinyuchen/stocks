@@ -197,9 +197,15 @@ class OrderInventoryWatchlistTest extends TestCase
             ),
         );
 
+        // 括號內容允許一層巢狀：insufficient 的理由文案本身可能帶括號（例如
+        // 「缺少關鍵財報科目（營收／營業成本／存貨）」再被外層「（…）」包住，
+        // en 版本同理——key_line_items_missing 的英文文案本身就帶一組 ASCII
+        // 括號）。原本的 `[^）]*`／`[^)]*` 一遇到內層的右括號就提前收尾，
+        // 讓外層括號與行尾句號對不上，整行判定為不符形狀，是假紅而非真的
+        // 格式錯誤。只支援一層巢狀：業務文案目前沒有更深的巢狀括號。
         $shape = $en
-            ? '/^- \S+: Rating [^(\n]+(\([^)]*\))?\.$/u'
-            : '/^- \S+：評級 [^（\n]+(（[^）]*）)?。$/u';
+            ? '/^- \S+: Rating [^(\n]+(\((?:[^()]|\([^)]*\))*\))?\.$/u'
+            : '/^- \S+：評級 [^（\n]+(（(?:[^（）]|（[^）]*）)*）)?。$/u';
 
         foreach ($lines as $line) {
             $this->assertMatchesRegularExpression(
@@ -324,5 +330,10 @@ class OrderInventoryWatchlistTest extends TestCase
         );
         $this->assertStringNotContainsString('）。）。', $llm->prompt);
         $this->assertStringNotContainsString('。）。', $llm->prompt);
+
+        // 巢狀全形括號的形狀斷言：這條理由文案本身帶一層括號（缺少關鍵財報科目
+        // （…）），是 assertOrderInventorySectionShape() 目前唯一會走到巢狀括號
+        // 分支的既有測試。regex 若退回不支援巢狀的版本，這裡會先紅。
+        $this->assertOrderInventorySectionShape($llm->prompt, expectedLineCount: 1, en: false);
     }
 }

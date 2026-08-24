@@ -54,6 +54,26 @@ class OrderInventoryGuide
     }
 
     /**
+     * 讀一則一律渲染的固定文案，缺鍵或值為空字串直接拋錯。
+     *
+     * 只用在**沒有機器鍵對照表可退**的固定文案（評級封頂說明、資料落後提示）：
+     * 不像 translatedList／insufficientReason／ratingChangeLine 各自有查不到
+     * 就退回原鍵或整行略過的設計（那是已審查過的既有行為，不在本次改動範圍），
+     * 這兩則文案沒有退路——缺了就是整句少一截，或整行只剩一個空白項目符號，
+     * 使用者完全看不出發生過什麼事。config 缺鍵是部署問題，讓它在這裡拋出來。
+     */
+    private function requireNarrative(string $key): string
+    {
+        $value = config("order_inventory.narrative.$key");
+
+        if (! is_string($value) || $value === '') {
+            throw new \RuntimeException("order_inventory.narrative.$key config 缺失，無法產生訂單庫存判斷區塊。");
+        }
+
+        return $value;
+    }
+
+    /**
      * @param  array{assessment: OrderInventoryAssessment, peer_samples: int}  $assessed
      */
     public function block(array $assessed, string $locale = 'zh'): string
@@ -68,12 +88,12 @@ class OrderInventoryGuide
             ? sprintf(
                 '- Rating: %s. %s',
                 $assessment->rating->value,
-                (string) config('order_inventory.narrative.ceiling_note_en'),
+                $this->requireNarrative('ceiling_note_en'),
             )
             : sprintf(
                 '- 評級：%s。%s',
                 $assessment->rating->value,
-                (string) config('order_inventory.narrative.ceiling_note'),
+                $this->requireNarrative('ceiling_note'),
             );
 
         // 2. insufficient 的原因。這條評級走 OrderInventoryRadar::assess() 的串聯 0，
@@ -157,9 +177,7 @@ class OrderInventoryGuide
         }
 
         if (($assessment->freshness['lagging'] ?? false) === true) {
-            $lines[] = '- '.(string) config(
-                'order_inventory.narrative.'.($en ? 'lagging_note_en' : 'lagging_note'),
-            );
+            $lines[] = '- '.$this->requireNarrative($en ? 'lagging_note_en' : 'lagging_note');
         }
 
         // 10. 同業樣本數。spec 要求明寫「同業樣本 N 檔」，0 也要寫，

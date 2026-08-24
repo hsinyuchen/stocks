@@ -27,30 +27,82 @@ class OrderInventoryRadar
     ) {}
 
     /**
+     * 門檻設定，缺鍵直接拋錯而不是靜默退回空陣列。
+     *
+     * 舊寫法 `(array) config('order_inventory.thresholds', [])` 給的 `[]` 從未
+     * 真正生效過——後面立刻用鍵索引。**本專案的 error_reporting(-1) 全域設定下，
+     * 這個 Undefined array key 警告其實會被 Laravel 的 HandleExceptions 轉成
+     * ErrorException 拋出**（實測見 git 歷史：暫時還原此方法後跑
+     * OrderInventoryConfigFallbackTest 會拿到 ErrorException 而非靜默的 0）——
+     * 這點與階段 2 審查筆記「config 缺鍵不會拋錯」的結論不同，拋出的仍是語意
+     * 不明的框架層例外（訊息只有 PHP 的警告字面文字，不會講是哪個 config 路徑
+     * 缺了），且這個轉換行為繫於全域 error_reporting 設定，不是本類別自己的
+     * 保證——只要有人在別處收窄 error_reporting 或用 `@` 抑制，就會打回
+     * `(float) null` 靜默變 `0.0` 的原始風險（C2 的門檻可能從「≥ −0.5pp」
+     * 跑成「≥ 0pp」）。改成這裡自己拋出型別明確、訊息帶 config 路徑的例外，
+     * 不依賴外部錯誤處理設定，缺鍵時的錯誤才不會因執行環境而變得可辨識或不可辨識。
+     *
+     * @return array<string, mixed>
+     */
+    private function thresholds(): array
+    {
+        return $this->requireConfigArray('order_inventory.thresholds');
+    }
+
+    /**
+     * 讀一組 config 陣列，缺失或型別不對就拋錯。
+     *
+     * @return array<string, mixed>
+     */
+    private function requireConfigArray(string $path): array
+    {
+        $value = config($path);
+
+        if (! is_array($value)) {
+            throw new \RuntimeException("{$path} config 缺失或型別錯誤，無法計算訂單庫存判斷。");
+        }
+
+        return $value;
+    }
+
+    /**
+     * 從 requireConfigArray() 讀到的陣列取一個鍵，缺鍵直接拋錯，不讓呼叫端對
+     * null 做 (float)/(int)/(string) 轉型而靜默降級。
+     */
+    private function requireConfigKey(array $group, string $key, string $path): mixed
+    {
+        if (! array_key_exists($key, $group)) {
+            throw new \RuntimeException("{$path}.{$key} config 缺失，無法計算訂單庫存判斷。");
+        }
+
+        return $group[$key];
+    }
+
+    /**
      * @return array<string, ?bool> 鍵為 C1…C10
      */
     public function conditions(OrderInventoryMetrics $m, ?float $peerRevenueGrowthMedian = null): array
     {
-        $t = (array) config('order_inventory.thresholds', []);
+        $t = $this->thresholds();
 
         return [
             'C1' => $this->revenueStreakMet($m, $t),
             'C2' => $m->grossMarginQoqPp === null
                 ? null
-                : $m->grossMarginQoqPp >= (float) $t['gross_margin_stable_pp'],
+                : $m->grossMarginQoqPp >= (float) $this->requireConfigKey($t, 'gross_margin_stable_pp', 'order_inventory.thresholds'),
             'C3' => $this->inventoryDaysStable($m, $t),
             'C4' => $this->anyThreshold([
-                [$m->inventoriesQoq, (float) $t['inventory_surge_qoq']],
-                [$m->inventoriesYoy, (float) $t['inventory_surge_yoy']],
+                [$m->inventoriesQoq, (float) $this->requireConfigKey($t, 'inventory_surge_qoq', 'order_inventory.thresholds')],
+                [$m->inventoriesYoy, (float) $this->requireConfigKey($t, 'inventory_surge_yoy', 'order_inventory.thresholds')],
             ]),
             'C5' => $this->anyThreshold([
-                [$m->dpoChangeDays, (float) $t['payable_days_up']],
-                [$m->dpoChangeRatio, (float) $t['payable_ratio_up']],
+                [$m->dpoChangeDays, (float) $this->requireConfigKey($t, 'payable_days_up', 'order_inventory.thresholds')],
+                [$m->dpoChangeRatio, (float) $this->requireConfigKey($t, 'payable_ratio_up', 'order_inventory.thresholds')],
             ]),
             'C6' => $this->contractLiabilitiesUp($m),
             'C7' => $this->anyThreshold([
-                [$m->dsoChangeDays, (float) $t['receivable_days_up']],
-                [$m->dsoChangeRatio, (float) $t['receivable_ratio_up']],
+                [$m->dsoChangeDays, (float) $this->requireConfigKey($t, 'receivable_days_up', 'order_inventory.thresholds')],
+                [$m->dsoChangeRatio, (float) $this->requireConfigKey($t, 'receivable_ratio_up', 'order_inventory.thresholds')],
             ]),
             'C8' => $this->cashFlowQuality($m, $t),
             'C9' => $m->capexToRevenue === null || $m->capexToRevenueTrailingAverage === null
@@ -75,8 +127,8 @@ class OrderInventoryRadar
         }
 
         return match ($m->revenueGrowthBasis) {
-            'monthly' => $m->revenueGrowthStreak >= (int) $t['revenue_streak_months'],
-            'quarterly' => $m->revenueGrowthStreak >= (int) $t['revenue_streak_quarters'],
+            'monthly' => $m->revenueGrowthStreak >= (int) $this->requireConfigKey($t, 'revenue_streak_months', 'order_inventory.thresholds'),
+            'quarterly' => $m->revenueGrowthStreak >= (int) $this->requireConfigKey($t, 'revenue_streak_quarters', 'order_inventory.thresholds'),
             default => null,
         };
     }
@@ -97,8 +149,8 @@ class OrderInventoryRadar
             return true;
         }
 
-        return ($m->dioChangeDays !== null && abs($m->dioChangeDays) <= (float) $t['dio_stable_days'])
-            || ($m->dioChangeRatio !== null && abs($m->dioChangeRatio) <= (float) $t['dio_stable_ratio']);
+        return ($m->dioChangeDays !== null && abs($m->dioChangeDays) <= (float) $this->requireConfigKey($t, 'dio_stable_days', 'order_inventory.thresholds'))
+            || ($m->dioChangeRatio !== null && abs($m->dioChangeRatio) <= (float) $this->requireConfigKey($t, 'dio_stable_ratio', 'order_inventory.thresholds'));
     }
 
     /**
@@ -132,7 +184,7 @@ class OrderInventoryRadar
 
         return $m->ocfToNetIncome === null
             ? null
-            : $m->ocfToNetIncome < (float) $t['ocf_to_net_income_floor'];
+            : $m->ocfToNetIncome < (float) $this->requireConfigKey($t, 'ocf_to_net_income_floor', 'order_inventory.thresholds');
     }
 
     /**
@@ -168,7 +220,7 @@ class OrderInventoryRadar
      */
     public function rate(array $conditions, ?float $grossMarginQoqPp): OrderInventoryRating
     {
-        $t = (array) config('order_inventory.thresholds', []);
+        $t = $this->thresholds();
 
         // 規則 2 只在 C1 **明確為 false** 時觸發。null 代表算不出來，
         // 拿它當「不成立」會讓所有缺資料的標的被系統性推向 C 級。
@@ -236,7 +288,7 @@ class OrderInventoryRadar
             'negativeSignals' => $this->negativeSignals(
                 $conditions,
                 $metrics->grossMarginQoqPp,
-                (array) config('order_inventory.thresholds', []),
+                $this->thresholds(),
             ),
             'counterEvidence' => $this->counterEvidence($metrics, $conditions, $peerRevenueGrowthMedian),
             'proxySignals' => $this->inventoryCompositionSignals($data, $metrics, $compositionSignals),
@@ -427,7 +479,7 @@ class OrderInventoryRadar
             return false;
         }
 
-        $threshold = (int) ((array) config('order_inventory.thresholds', []))['revenue_streak_months'];
+        $threshold = (int) $this->requireConfigKey($this->thresholds(), 'revenue_streak_months', 'order_inventory.thresholds');
 
         if ($m->revenueGrowthStreak < $threshold) {
             return false;
@@ -516,8 +568,8 @@ class OrderInventoryRadar
             return [];
         }
 
-        $labels = (array) config('order_inventory.narrative.composition_labels', []);
-        $directions = (array) config('order_inventory.narrative.composition_directions', []);
+        $labels = $this->requireConfigArray('order_inventory.narrative.composition_labels');
+        $directions = $this->requireConfigArray('order_inventory.narrative.composition_directions');
         $lines = [];
 
         foreach ([
@@ -531,12 +583,12 @@ class OrderInventoryRadar
 
             $lines[] = sprintf(
                 (string) config('order_inventory.narrative.composition_line_format'),
-                (string) $labels[$key],
-                (string) $directions[match (true) {
+                (string) $this->requireConfigKey($labels, $key, 'order_inventory.narrative.composition_labels'),
+                (string) $this->requireConfigKey($directions, match (true) {
                     $current > $previous => 'up',
                     $current < $previous => 'down',
                     default => 'flat',
-                }],
+                }, 'order_inventory.narrative.composition_directions'),
                 number_format($previous),
                 number_format($current),
             );
@@ -577,7 +629,7 @@ class OrderInventoryRadar
         }
 
         if ($grossMarginQoqPp !== null
-            && $grossMarginQoqPp < (float) $t['gross_margin_deteriorating_pp']) {
+            && $grossMarginQoqPp < (float) $this->requireConfigKey($t, 'gross_margin_deteriorating_pp', 'order_inventory.thresholds')) {
             $signals[] = 'gross_margin_deteriorating';
         }
 
@@ -617,11 +669,14 @@ class OrderInventoryRadar
      */
     private function freshness(OrderInventoryMetrics $metrics, CarbonImmutable $now): array
     {
-        $f = (array) config('order_inventory.freshness', []);
+        $f = $this->requireConfigArray('order_inventory.freshness');
 
         // 壞日期一律視為「無時效資訊」：不拋例外（Radar 宣稱純計算，拋了會炸掉
         // 整個 job），也不靜默判成過舊（'0000-00-00' 解得出來卻會讓評級變
         // insufficient，使用者只會看到「資料過舊」而不知道真正的原因是格式壞掉）。
+        //
+        // 這裡的拋錯只保留給「config 本身缺鍵」——那是部署問題。日期本身解析
+        // 失敗仍走上面這條不拋例外的路徑，兩者不可混為一談。
         $endDate = $this->parseDate($metrics->latestEndDate);
         $age = $endDate?->diffInDays($now);
 
@@ -629,8 +684,8 @@ class OrderInventoryRadar
             'as_of' => $endDate === null ? null : $metrics->latestEndDate,
             'period' => $metrics->latestPeriod,
             'revenue_month' => $metrics->latestRevenueMonth,
-            'lagging' => $age !== null && $age > (int) $f['lagging_quarter_age_days'],
-            'too_old' => $age !== null && $age > (int) $f['max_quarter_age_days'],
+            'lagging' => $age !== null && $age > (int) $this->requireConfigKey($f, 'lagging_quarter_age_days', 'order_inventory.freshness'),
+            'too_old' => $age !== null && $age > (int) $this->requireConfigKey($f, 'max_quarter_age_days', 'order_inventory.freshness'),
         ];
     }
 
@@ -675,18 +730,20 @@ class OrderInventoryRadar
      */
     private function missingForA(OrderInventoryData $data, bool $compositionReadable): array
     {
-        $n = (array) config('order_inventory.narrative.missing_for_a', []);
+        $n = $this->requireConfigArray('order_inventory.narrative.missing_for_a');
         $items = [];
 
         if (! $compositionReadable) {
-            $items[] = (string) $n['inventory_composition'];
+            $items[] = (string) $this->requireConfigKey($n, 'inventory_composition', 'order_inventory.narrative.missing_for_a');
         }
 
-        $items[] = (string) ($data->market === 'us'
-            ? $n['order_announcements_us']
-            : $n['order_announcements_tw']);
-        $items[] = (string) $n['earnings_call'];
-        $items[] = (string) $n['supply_chain'];
+        $items[] = (string) $this->requireConfigKey(
+            $n,
+            $data->market === 'us' ? 'order_announcements_us' : 'order_announcements_tw',
+            'order_inventory.narrative.missing_for_a',
+        );
+        $items[] = (string) $this->requireConfigKey($n, 'earnings_call', 'order_inventory.narrative.missing_for_a');
+        $items[] = (string) $this->requireConfigKey($n, 'supply_chain', 'order_inventory.narrative.missing_for_a');
 
         return $items;
     }
