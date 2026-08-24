@@ -66,6 +66,32 @@ class OrderInventoryRadar
     }
 
     /**
+     * 讀一則面向使用者的固定文案，缺鍵或值為空字串直接拋錯。
+     *
+     * 這些是純量 `config('order_inventory.narrative.xxx')`，沒有陣列可索引、
+     * 也沒有機器鍵對照表可退（不像 conditions／counter_evidence 那些鍵→文字
+     * 對照表，各消費端已有「查不到就退回原鍵」的既有設計）。缺鍵時 `config()`
+     * 直接回傳 `null`，不像陣列索引在本專案 error_reporting(-1) 全域設定下
+     * 會被 Laravel 轉成 ErrorException——這裡才是真正「完全靜默、無任何錯誤
+     * 訊號」的一半，`(string) null` 悄悄變成 `''`，句子少一截甚至整句消失。
+     *
+     * proxy_prefix／proxy_prefix_us 尤其不能靜默：那是台股「代理推論」與美股
+     * 「財報實測」的強制區隔前綴（config 註解自己寫「不得省略」），設計文件把
+     * 「使用者把代理推論當實測」列為本功能第二號風險——前綴消失時代理推論的
+     * 句子讀起來反而更像確定的實測數字，而且不會有任何錯誤訊號可供察覺。
+     */
+    private function requireNarrative(string $key): string
+    {
+        $value = config("order_inventory.narrative.$key");
+
+        if (! is_string($value) || $value === '') {
+            throw new \RuntimeException("order_inventory.narrative.$key config 缺失，無法產生訂單庫存判斷文字。");
+        }
+
+        return $value;
+    }
+
+    /**
      * 從 requireConfigArray() 讀到的陣列取一個鍵，缺鍵直接拋錯，不讓呼叫端對
      * null 做 (float)/(int)/(string) 轉型而靜默降級。
      */
@@ -316,11 +342,11 @@ class OrderInventoryRadar
         $caveats = array_values((array) config('order_inventory.narrative.fixed_caveats', []));
 
         if ($m->revenueGrowthDegraded) {
-            $caveats[] = (string) config('order_inventory.narrative.revenue_basis_degraded');
+            $caveats[] = $this->requireNarrative('revenue_basis_degraded');
         }
 
         if ($m->latestPeriod !== null && $m->latestEndDate !== null && $this->parseDate($m->latestEndDate) === null) {
-            $caveats[] = (string) config('order_inventory.narrative.quarter_end_date_unparseable');
+            $caveats[] = $this->requireNarrative('quarter_end_date_unparseable');
         }
 
         return $caveats;
@@ -423,12 +449,12 @@ class OrderInventoryRadar
             && $previousQuarter->accountsPayable !== null
             && $latest->accountsPayable > $previousQuarter->accountsPayable
             && $this->revenueMomentumAfterQuarter($m)) {
-            $readings[] = (string) config('order_inventory.narrative.proxy_stocking_up');
+            $readings[] = $this->requireNarrative('proxy_stocking_up');
         }
 
         if ($m->revenueQoq !== null && $m->revenueQoq < 0.0
             && $m->dsoChangeDays !== null && $m->dsoChangeDays > 0.0) {
-            $readings[] = (string) config('order_inventory.narrative.proxy_channel_stuffing');
+            $readings[] = $this->requireNarrative('proxy_channel_stuffing');
         }
 
         // contractLiabilitiesFromZero 不可漏：基期為 0 時比率數學上無定義，
@@ -436,7 +462,7 @@ class OrderInventoryRadar
         // case（預收款從無到有）靜默棄權。與 C6 的 contractLiabilitiesUp() 同處理。
         if (($m->contractLiabilitiesQoq !== null && $m->contractLiabilitiesQoq > 0.0)
             || $m->contractLiabilitiesFromZero) {
-            $readings[] = (string) config('order_inventory.narrative.proxy_visibility');
+            $readings[] = $this->requireNarrative('proxy_visibility');
         }
 
         if ($readings === []) {
@@ -447,8 +473,8 @@ class OrderInventoryRadar
         // 每個人新增文案時都記得加標點。分隔符本身也是呈現決定，一併放 config。
         return [
             $this->proxyPrefix($data)
-                .implode((string) config('order_inventory.narrative.proxy_separator'), $readings)
-                .(string) config('order_inventory.narrative.proxy_terminator'),
+                .implode($this->requireNarrative('proxy_separator'), $readings)
+                .$this->requireNarrative('proxy_terminator'),
         ];
     }
 
@@ -521,11 +547,7 @@ class OrderInventoryRadar
      */
     private function proxyPrefix(OrderInventoryData $data): string
     {
-        return (string) config(
-            $data->market === 'us'
-                ? 'order_inventory.narrative.proxy_prefix_us'
-                : 'order_inventory.narrative.proxy_prefix',
-        );
+        return $this->requireNarrative($data->market === 'us' ? 'proxy_prefix_us' : 'proxy_prefix');
     }
 
     /**
@@ -582,7 +604,7 @@ class OrderInventoryRadar
             }
 
             $lines[] = sprintf(
-                (string) config('order_inventory.narrative.composition_line_format'),
+                $this->requireNarrative('composition_line_format'),
                 (string) $this->requireConfigKey($labels, $key, 'order_inventory.narrative.composition_labels'),
                 (string) $this->requireConfigKey($directions, match (true) {
                     $current > $previous => 'up',
@@ -599,10 +621,10 @@ class OrderInventoryRadar
         }
 
         return [sprintf(
-            (string) config('order_inventory.narrative.actual_composition_prefix'),
+            $this->requireNarrative('actual_composition_prefix'),
             $previousQuarter->period,
             $latest->period,
-        ).implode((string) config('order_inventory.narrative.composition_separator'), $lines)];
+        ).implode($this->requireNarrative('composition_separator'), $lines)];
     }
 
     /**

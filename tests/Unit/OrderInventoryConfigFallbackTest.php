@@ -211,4 +211,304 @@ class OrderInventoryConfigFallbackTest extends TestCase
             'revenue_month' => null, 'lagging' => true, 'too_old' => false,
         ]]));
     }
+
+    /*
+     * ------------------------------------------------------------------
+     * 追加：OrderInventoryRadar 內「完全沒有預設值」的純量文案讀取
+     * （config('order_inventory.narrative.xxx')，無陣列可索引）。
+     *
+     * 這些才是真正「現狀就是靜默、不拋任何東西」的那一半——config() 缺鍵時
+     * 走 Arr::get() 的 isset 檢查直接回傳 null，不像陣列索引在本專案
+     * error_reporting(-1) 下會被轉成 ErrorException（見類別 docblock）。
+     * 每條都用能真正命中該字串輸出的 fixture，證明缺鍵時是 requireNarrative()
+     * 拋出、不是被其他分支短路繞過。
+     * ------------------------------------------------------------------
+     */
+
+    /**
+     * 合約負債從無到有（contractLiabilitiesFromZero）觸發代理矩陣第三腿
+     * （proxy_visibility），且不涉及月營收或應收應付變動，是最短能讓
+     * inventoryCompositionSignals() 真正組出代理句子（走到 proxyPrefix／
+     * proxy_separator／proxy_terminator）的 fixture。
+     */
+    private function contractLiabilitiesFromZeroData(string $market): OrderInventoryData
+    {
+        return new OrderInventoryData(
+            quarters: [
+                new QuarterlyFinancials(
+                    period: '2026Q1',
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 300.0,
+                    contractLiabilities: 0.0,
+                ),
+                new QuarterlyFinancials(
+                    period: '2026Q2',
+                    endDate: now()->toDateString(),
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 400.0,
+                    contractLiabilities: 100.0,
+                ),
+            ],
+            market: $market,
+            industry: $market === 'us' ? null : '半導體業',
+        );
+    }
+
+    #[Test]
+    public function a_missing_proxy_prefix_fails_loudly_instead_of_an_unprefixed_proxy_sentence(): void
+    {
+        // proxy_prefix 是台股「代理推論」與美股「財報實測」的強制區隔前綴
+        // （config 註解自己寫「不得省略」），設計文件把「使用者把代理推論當
+        // 實測」列為本功能第二號風險。缺鍵時舊寫法把前綴悄悄變成空字串，
+        // 代理推論的句子會讀起來像確定的實測數字，且不會有任何錯誤訊號。
+        config(['order_inventory.narrative.proxy_prefix' => null]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('order_inventory.narrative.proxy_prefix');
+
+        (new OrderInventoryRadar)->assess($this->contractLiabilitiesFromZeroData('tw'));
+    }
+
+    #[Test]
+    public function a_missing_proxy_prefix_us_fails_loudly_instead_of_an_unprefixed_proxy_sentence(): void
+    {
+        // 美股讀不到當季存貨組成、回落代理矩陣時用的是另一把 config 鍵
+        // （proxy_prefix_us），理由與成因跟台股那把不同（本次沒抓到 SEC tag，
+        // 不是制度上不公開），必須各自驗證各自的鍵確實有防護。
+        config(['order_inventory.narrative.proxy_prefix_us' => null]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('order_inventory.narrative.proxy_prefix_us');
+
+        (new OrderInventoryRadar)->assess($this->contractLiabilitiesFromZeroData('us'));
+    }
+
+    /**
+     * proxy_visibility／proxy_separator／proxy_terminator 共用同一個 fixture
+     * 驗證：只要代理矩陣組出至少一條 reading，組裝最終句子時三個鍵都會被
+     * 求值（separator／terminator 是 implode() 與字串串接的參數，PHP 一律
+     * 先求值參數才呼叫函式，即使只有一條 reading、separator 實際沒被
+     * implode() 用到也一樣）。
+     */
+    #[Test]
+    public function missing_proxy_assembly_keys_fail_loudly_instead_of_a_silently_incomplete_sentence(): void
+    {
+        foreach (['proxy_visibility', 'proxy_separator', 'proxy_terminator'] as $key) {
+            // 先存下原始值再蓋成 null：三個鍵同一次組裝都會被求值
+            // （見上方 docblock），迭代到後面兩個鍵時，前一個鍵若沒有先還原，
+            // 會在到達目標鍵之前就先被前一個仍是 null 的鍵搶先拋錯，
+            // 導致斷言的訊息其實對不上這一輪真正要測的鍵。
+            $original = config('order_inventory.narrative.'.$key);
+            config(['order_inventory.narrative.'.$key => null]);
+            $threw = false;
+
+            // 不可把 $this->fail() 放進 try 區塊：PHPUnit\Framework\Exception
+            // （AssertionFailedError 的父類別）本身繼承 \RuntimeException，
+            // 放在 try 裡的 fail() 會被下面這個 catch (\RuntimeException $e)
+            // 接住，再用它自己失敗訊息裡的路徑字串通過 assertStringContainsString
+            // ——變成測試在跟自己的失敗訊息比對，不管程式碼有沒有真的拋錯都會綠。
+            // 這裡改用旗標，斷言留在 try/catch 區塊外面。
+            try {
+                (new OrderInventoryRadar)->assess($this->contractLiabilitiesFromZeroData('tw'));
+            } catch (\RuntimeException $e) {
+                $threw = true;
+                $this->assertStringContainsString(
+                    "order_inventory.narrative.{$key}",
+                    $e->getMessage(),
+                    "拋出的例外訊息應該點名缺失的 config 路徑 {$key}",
+                );
+            } finally {
+                config(['order_inventory.narrative.'.$key => $original]);
+            }
+
+            $this->assertTrue($threw, "order_inventory.narrative.{$key} 缺鍵時應該拋出例外，實際沒有拋出");
+        }
+    }
+
+    /**
+     * 美股兩季都揭露存貨組成，讓 actualCompositionSignals() 真正組出實測句子，
+     * composition_line_format／actual_composition_prefix／composition_separator
+     * 三個鍵都會被用到。
+     */
+    private function usCompositionData(): OrderInventoryData
+    {
+        return new OrderInventoryData(
+            quarters: [
+                new QuarterlyFinancials(
+                    period: '2026Q1',
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 350.0,
+                    inventoryRawMaterials: 100.0,
+                    inventoryWorkInProcess: 150.0,
+                    inventoryFinishedGoods: 100.0,
+                ),
+                new QuarterlyFinancials(
+                    period: '2026Q2',
+                    endDate: now()->toDateString(),
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 500.0,
+                    inventoryRawMaterials: 200.0,
+                    inventoryWorkInProcess: 200.0,
+                    inventoryFinishedGoods: 100.0,
+                ),
+            ],
+            market: 'us',
+            inventoryCompositionAvailable: true,
+        );
+    }
+
+    #[Test]
+    public function missing_composition_narrative_keys_fail_loudly_instead_of_a_malformed_line(): void
+    {
+        foreach (['composition_line_format', 'actual_composition_prefix', 'composition_separator'] as $key) {
+            $original = config('order_inventory.narrative.'.$key);
+            config(['order_inventory.narrative.'.$key => null]);
+            $threw = false;
+
+            // 同一個陷阱、同一個修法，見 missing_proxy_assembly_keys_...() 的
+            // docblock：$this->fail() 不可放進 try 區塊。
+            try {
+                (new OrderInventoryRadar)->assess($this->usCompositionData());
+            } catch (\RuntimeException $e) {
+                $threw = true;
+                $this->assertStringContainsString(
+                    "order_inventory.narrative.{$key}",
+                    $e->getMessage(),
+                    "拋出的例外訊息應該點名缺失的 config 路徑 {$key}",
+                );
+            } finally {
+                config(['order_inventory.narrative.'.$key => $original]);
+            }
+
+            $this->assertTrue($threw, "order_inventory.narrative.{$key} 缺鍵時應該拋出例外，實際沒有拋出");
+        }
+    }
+
+    #[Test]
+    public function a_missing_revenue_basis_degraded_caveat_fails_loudly_instead_of_a_blank_caveat(): void
+    {
+        // 台股月營收沒抓到（monthlyRevenue: []）時，C1 靜默退回季基準——
+        // revenueGrowthDegraded 這個旗標要靠 fixedCaveats() 主動寫成提示，
+        // 沒有旗標就沒人知道系統其實拿美股的季門檻去判了一檔台股。
+        config(['order_inventory.narrative.revenue_basis_degraded' => null]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('order_inventory.narrative.revenue_basis_degraded');
+
+        (new OrderInventoryRadar)->assess(new OrderInventoryData(
+            quarters: [
+                new QuarterlyFinancials(period: '2025Q2', revenue: 900.0, costOfGoodsSold: 630.0, inventories: 300.0),
+                new QuarterlyFinancials(
+                    period: '2026Q2',
+                    endDate: now()->toDateString(),
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 350.0,
+                ),
+            ],
+            monthlyRevenue: [],
+            market: 'tw',
+            industry: '半導體業',
+        ));
+    }
+
+    #[Test]
+    public function a_missing_quarter_end_date_unparseable_caveat_fails_loudly_instead_of_a_blank_caveat(): void
+    {
+        // 季末日期壞值（'N/A'）時 freshness() 的 as_of／lagging／too_old
+        // 靜默降級成 null／false／false，這條提示是唯一講出「這份判斷沒有
+        // 時效依據」的地方，見 fixedCaveats() docblock。
+        config(['order_inventory.narrative.quarter_end_date_unparseable' => null]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('order_inventory.narrative.quarter_end_date_unparseable');
+
+        (new OrderInventoryRadar)->assess(new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2026Q2',
+                endDate: 'N/A',
+                revenue: 1000.0,
+                costOfGoodsSold: 700.0,
+                inventories: 350.0,
+            )],
+            market: 'tw',
+            industry: '半導體業',
+        ), now: CarbonImmutable::parse('2026-08-22'));
+    }
+
+    #[Test]
+    public function a_missing_proxy_stocking_up_reading_fails_loudly_instead_of_an_incomplete_sentence(): void
+    {
+        // 代理矩陣第一列（提前備料）：應付帳款餘額同步增加＋後續月營收持續
+        // 成長（monthlyRevenue 三個月連正 yoy，且晚於季末日）。這是三條代理
+        // reading 裡設定最複雜的一條，必須有獨立 fixture 才能真正命中它。
+        config(['order_inventory.narrative.proxy_stocking_up' => null]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('order_inventory.narrative.proxy_stocking_up');
+
+        (new OrderInventoryRadar)->assess(new OrderInventoryData(
+            quarters: [
+                new QuarterlyFinancials(
+                    period: '2026Q1',
+                    endDate: '2026-03-31',
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 300.0,
+                    accountsPayable: 280.0,
+                ),
+                new QuarterlyFinancials(
+                    period: '2026Q2',
+                    endDate: '2026-05-31',
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 400.0,
+                    accountsPayable: 350.0,
+                ),
+            ],
+            monthlyRevenue: [
+                ['month' => '2026-04-01', 'revenue' => 100.0, 'yoy' => 0.05],
+                ['month' => '2026-05-01', 'revenue' => 110.0, 'yoy' => 0.08],
+                ['month' => '2026-06-01', 'revenue' => 120.0, 'yoy' => 0.11],
+            ],
+            market: 'tw',
+            industry: '半導體業',
+        ), now: CarbonImmutable::parse('2026-06-15'));
+    }
+
+    #[Test]
+    public function a_missing_proxy_channel_stuffing_reading_fails_loudly_instead_of_an_incomplete_sentence(): void
+    {
+        // 代理矩陣第二列（塞貨或去化不良）：營收下滑＋存貨增加＋收款天數拉長。
+        config(['order_inventory.narrative.proxy_channel_stuffing' => null]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('order_inventory.narrative.proxy_channel_stuffing');
+
+        (new OrderInventoryRadar)->assess(new OrderInventoryData(
+            quarters: [
+                new QuarterlyFinancials(
+                    period: '2026Q1',
+                    revenue: 1000.0,
+                    costOfGoodsSold: 700.0,
+                    inventories: 300.0,
+                    accountsReceivable: 100.0,
+                ),
+                new QuarterlyFinancials(
+                    period: '2026Q2',
+                    endDate: now()->toDateString(),
+                    revenue: 900.0,
+                    costOfGoodsSold: 650.0,
+                    inventories: 400.0,
+                    accountsReceivable: 200.0,
+                ),
+            ],
+            market: 'tw',
+            industry: '半導體業',
+        ));
+    }
 }
