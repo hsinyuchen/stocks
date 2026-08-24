@@ -166,12 +166,37 @@ class OrderInventoryGuideTest extends TestCase
     }
 
     #[Test]
-    public function the_english_block_contains_no_chinese_prose(): void
+    public function the_english_block_uses_english_prose_but_keeps_untranslated_chinese_values(): void
     {
-        $block = (new OrderInventoryGuide)->block($this->assessed(), 'en');
+        // industryNote 沒有預設值，這裡刻意帶一個，驗證它在英文路徑不會被丟掉——
+        // adjust 桶不影響評級，通路商存貨激增在規則裡仍算支持項，缺了這段英文
+        // 使用者會被導向反向結論。
+        $note = '此產業需調整判讀：通路商存貨增加偏負面。';
+        $block = (new OrderInventoryGuide)->block($this->assessed([
+            'industryBucket' => 'adjust',
+            'industryNote' => $note,
+        ]), 'en');
 
-        // 允許出現在資料值裡的中文（產業名等）不在本測資中，故整段不應有 CJK。
-        $this->assertDoesNotMatchRegularExpression('/[\x{4e00}-\x{9fff}]/u', $block);
+        // Guide 自己產生的文案要走英文分支：含 ceiling_note_en，不含 ceiling_note 的中文版本。
+        $this->assertStringContainsString(
+            (string) config('order_inventory.narrative.ceiling_note_en'),
+            $block,
+        );
+        $this->assertStringNotContainsString(
+            (string) config('order_inventory.narrative.ceiling_note'),
+            $block,
+        );
+
+        // fixedCaveats／industryNote／missingForA 沒有英文版本的值，但丟掉資訊比
+        // 語言混雜更糟——英文路徑必須保留這三段內容，只是標籤換成英文。
+        $this->assertStringContainsString('甲（需人工判斷）', $block, 'fixedCaveats 不能因為沒有英文版本就被丟掉');
+        $this->assertStringContainsString($note, $block, 'industryNote 是硬性輸入，不能被丟掉');
+        $this->assertStringContainsString('查甲', $block, 'missingForA 不能因為沒有英文版本就被丟掉');
+
+        // 段落標籤本身必須是英文，不能整行都是中文。
+        $this->assertStringContainsString('Caveats:', $block);
+        $this->assertStringContainsString('Industry note:', $block);
+        $this->assertStringContainsString('Missing for grade A:', $block);
     }
 
     #[Test]

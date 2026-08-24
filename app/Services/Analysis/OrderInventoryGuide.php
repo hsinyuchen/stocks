@@ -11,20 +11,26 @@ use App\Data\OrderInventoryAssessment;
  * 本類別唯一的「決定」是把機器鍵翻成可讀文字，因為機器鍵直接進 prompt 的話，
  * LLM 會照抄給使用者看。
  *
- * **已知的雙語缺口**：`fixedCaveats`、`missingForA`、`industryNote` 這三個欄位是
- * OrderInventoryRadar 在組裝 OrderInventoryAssessment 時，直接從 config 的中文
- * 固定文案解析成字串寫進 DTO（見 OrderInventoryRadar::fixedCaveats()／missingForA()
- * 與 OrderInventoryIndustryPolicy 的 note），Radar 本身不吃 locale、config 也沒有
- * `fixed_caveats_en` / `missing_for_a_en` 對照表。換句話說到了呈現層這三個欄位裡的
- * 文字已經是繁中定稿，沒有可翻譯的空間。為避免英文報告裡混入整段中文，這三段在
- * locale=en 時直接略過，而不是硬塞繁中或編造翻譯——本類別的定位是純呈現層，
- * 沒有能力也不該自己造一份翻譯。這代表英文使用者目前看不到這三段內容，是尚未解決
- * 的架構缺口，需要之後讓 Radar 感知 locale（或替這三個鍵各補一份 `_en` 對照）才能
- * 補上，超出本階段（呈現層）範圍。
+ * **已知的雙語缺口（值維持中文，標籤是英文）**：`fixedCaveats`、`missingForA`、
+ * `industryNote` 這三個欄位是 OrderInventoryRadar 在組裝 OrderInventoryAssessment
+ * 時，直接從 config 的中文固定文案解析成字串寫進 DTO（見
+ * OrderInventoryRadar::fixedCaveats()／missingForA() 與 OrderInventoryIndustryPolicy
+ * 的 note），Radar 本身不吃 locale、config 也沒有 `fixed_caveats_en` /
+ * `missing_for_a_en` 對照表。到了呈現層，這三個欄位裡的文字已經是繁中定稿，
+ * 沒有可翻譯的空間。
  *
- * `proxySignals` 不在此列：規則明訂逐字引用、不得改寫，即使因此在英文區塊夾雜
- * 中文也維持逐字——那正是「不確定性前綴綁在句子上、改寫即繞過」這條規則要防的事，
- * 寧可讓英文使用者看到一句中文，也不能讓語意跑掉。
+ * 這三段內容**不能因此在英文路徑被丟掉**：`fixedCaveats` 是系統判斷不了什麼的
+ * 安全性警語清單，`industryNote` 在本框架是硬性輸入而非可選補充（`adjust` 產業桶
+ * 不影響評級，通路商存貨激增在規則裡仍算支持項，缺了這個註記英文使用者會被導向
+ * 反向結論）。丟掉資訊比語言混雜更糟，所以英文路徑照樣輸出這三段——**段落標籤
+ * 用英文，值原樣保留 Radar 給的中文**，不做機器翻譯（避免「公開資訊觀測站」這類
+ * 專有名詞被翻壞）。正解是讓 `OrderInventoryRadar` 改為輸出機器鍵、由本類別依
+ * locale 渲染成文字，但那要動階段 2 已通過六輪審查的類別，不在本階段（呈現層）
+ * 範圍內。
+ *
+ * `proxySignals` 同樣一律逐字輸出、不分 locale：規則明訂不得改寫，即使因此在
+ * 英文區塊夾雜中文也維持逐字——那正是「不確定性前綴綁在句子上、改寫即繞過」
+ * 這條規則要防的事。
  */
 class OrderInventoryGuide
 {
@@ -68,9 +74,11 @@ class OrderInventoryGuide
         }
 
         // 3. 產業註記。adjust 桶完全不影響評級，通路商存貨激增在規則裡仍算支持項，
-        // 沒有這段使用者無從得知規則對此產業有保留。僅中文（見上方雙語缺口說明）。
-        if (! $en && $assessment->industryNote !== null) {
-            $lines[] = '- 產業註記：'.$assessment->industryNote;
+        // 沒有這段使用者無從得知規則對此產業有保留——是硬性輸入不是可選補充。
+        // 值沒有英文版本（見上方雙語缺口說明），英文路徑用英文標籤但保留中文原文，
+        // 不能整段丟掉。
+        if ($assessment->industryNote !== null) {
+            $lines[] = ($en ? '- Industry note: ' : '- 產業註記：').$assessment->industryNote;
         }
 
         // 4. 存貨組成訊號，逐字輸出。台股的不確定性前綴綁在句子上，
@@ -92,9 +100,11 @@ class OrderInventoryGuide
             );
         }
 
-        // 6. 固定提示，全部渲染，長度不固定。僅中文（見上方雙語缺口說明）。
-        if (! $en && $assessment->fixedCaveats !== []) {
-            $lines[] = '- 固定提示：'.implode('；', $assessment->fixedCaveats);
+        // 6. 固定提示，全部渲染，長度不固定。系統判斷不了什麼的安全性警語，
+        // 不能因為沒有英文版本就在英文路徑丟掉——值沒有英文版本（見上方雙語缺口
+        // 說明），英文路徑用英文標籤但保留中文原文。
+        if ($assessment->fixedCaveats !== []) {
+            $lines[] = ($en ? '- Caveats: ' : '- 固定提示：').implode('；', $assessment->fixedCaveats);
         }
 
         // 7. 資料時效。框架第 2 條原則：本框架偏驗證工具不是領先指標，
@@ -116,9 +126,10 @@ class OrderInventoryGuide
             ? sprintf('- Peer sample: %d filings in cache (same market and industry).', $assessed['peer_samples'])
             : sprintf('- 同業樣本 %d 檔（同市場同產業，快取內）。', $assessed['peer_samples']);
 
-        // 9. 升到 A 還缺什麼：可執行的人工查證清單。僅中文（見上方雙語缺口說明）。
-        if (! $en && $assessment->missingForA !== []) {
-            $lines[] = '- 升到 A 還缺：'.implode('；', $assessment->missingForA);
+        // 9. 升到 A 還缺什麼：可執行的人工查證清單。值沒有英文版本（見上方雙語
+        // 缺口說明），英文路徑用英文標籤但保留中文原文。
+        if ($assessment->missingForA !== []) {
+            $lines[] = ($en ? '- Missing for grade A: ' : '- 升到 A 還缺：').implode('；', $assessment->missingForA);
         }
 
         // 10. 評級變動。框架第 8 節要求，且無論是否有前次評級都要交代。
