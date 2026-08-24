@@ -343,11 +343,17 @@ class OrderInventoryRadar
      *   依據」。只在「有季報但日期壞掉」時追加——latestPeriod === null（根本
      *   沒有季報）走的是串聯 0 的另一半，那裡已經是 insufficient，不重複判斷。
      *
+     * config 的固定條目走 requireConfigArray()、缺鍵直接拋錯，與下面兩條追加警語
+     * 的 requireNarrative() 同一個待遇：這一組**沒有退路**——不像 translatedList()
+     * 查不到會退回原鍵、ratingChangeLine() 查不到會略過整行，缺了就是「固定提示」
+     * 整行從報告消失，而且不會有任何錯誤訊號。這五條正是「系統判斷不了什麼」的
+     * 清單，少掉它們的報告看起來反而更有信心。
+     *
      * @return list<string>
      */
     private function fixedCaveats(OrderInventoryMetrics $m): array
     {
-        $caveats = array_values((array) config('order_inventory.narrative.fixed_caveats', []));
+        $caveats = array_values($this->requireConfigArray('order_inventory.narrative.fixed_caveats'));
 
         if ($m->revenueGrowthDegraded) {
             $caveats[] = $this->requireNarrative('revenue_basis_degraded');

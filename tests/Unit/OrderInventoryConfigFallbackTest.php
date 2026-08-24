@@ -199,6 +199,35 @@ class OrderInventoryConfigFallbackTest extends TestCase
         ));
     }
 
+    #[Test]
+    public function a_missing_fixed_caveats_group_fails_loudly_instead_of_a_shorter_caveat_list(): void
+    {
+        // fixed_caveats 沒有任何退路：不像 translatedList() 查不到會退回原鍵、
+        // ratingChangeLine() 查不到會略過整行，這一組缺了就是「- 固定提示：」
+        // 整行從報告消失，而且後面兩條追加警語（revenue_basis_degraded／
+        // quarter_end_date_unparseable）走 requireNarrative() 會拋錯，同一個
+        // 方法裡兩種待遇。使用者拿到的是一份警語更少、看起來更有信心的報告，
+        // 而這五條正是「系統判斷不了什麼」的清單。
+        //
+        // 用串聯 0（缺營收）這條最短路徑：fixedCaveats() 在 assess() 的每一條
+        // 回傳路徑都會被 $base 閉包呼叫，不需要先通過門檻判斷。
+        config(['order_inventory.narrative.fixed_caveats' => null]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('order_inventory.narrative.fixed_caveats');
+
+        (new OrderInventoryRadar)->assess(new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(
+                period: '2026Q2',
+                endDate: now()->toDateString(),
+                revenue: null,
+                inventories: 350.0,
+            )],
+            market: 'tw',
+            industry: '半導體業',
+        ));
+    }
+
     /**
      * @param  array<string, mixed>  $overrides
      * @return array{assessment: OrderInventoryAssessment, peer_samples: int}
