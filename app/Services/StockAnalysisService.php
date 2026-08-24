@@ -7,11 +7,14 @@ use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
 use App\Data\MarginFlowData;
+use App\Data\OrderInventoryAssessment;
 use App\Enums\LlmFailureReason;
 use App\Exceptions\LlmRequestException;
+use App\Services\Analysis\OrderInventoryGuide;
 use App\Services\Analysis\SignalFieldGuide;
 use App\Services\Analysis\SopGuide;
 use App\Services\Analysis\SymbolContextService;
+use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\Rates\RatesNarrative;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 
@@ -23,8 +26,8 @@ class StockAnalysisService
     /**
      * 前四個參數保留原樣：既有測試以四個位置參數直接 new 這個 service，改成注入
      * SymbolContextService 會讓它們無法建構。這裡把它們原封不動轉交過去，脈絡
-     * 邏輯本身只有 SymbolContextService 一份。RatesNarrative 走 app() 解析，
-     * 因為它依賴多層 Rates 服務，不是能給常數預設值的零參數類別。
+     * 邏輯本身只有 SymbolContextService 一份。RatesNarrative 與 OrderInventoryAssessor
+     * 走 app() 解析，因為它們各自依賴多層服務，不是能給常數預設值的零參數類別。
      *
      * 後兩個參數同理給預設值，容器仍會照常注入。
      */
@@ -36,8 +39,9 @@ class StockAnalysisService
         private readonly SignalFieldGuide $fieldGuide = new SignalFieldGuide,
         ?SymbolContextService $context = null,
         private readonly SopGuide $sop = new SopGuide,
+        private readonly OrderInventoryGuide $orderInventoryGuide = new OrderInventoryGuide,
     ) {
-        $this->context = $context ?? new SymbolContextService($marketData, $news, $indicators, $signals, app(RatesNarrative::class));
+        $this->context = $context ?? new SymbolContextService($marketData, $news, $indicators, $signals, app(RatesNarrative::class), app(OrderInventoryAssessor::class));
     }
 
     /**
@@ -100,7 +104,7 @@ class StockAnalysisService
             ];
         }
 
-        $prompt = $this->buildPrompt($symbol, $quote, $technicalSnapshot, $ruleSignal, $news, $locale, $fundamentals, $valuation, $context['rates']);
+        $prompt = $this->buildPrompt($symbol, $quote, $technicalSnapshot, $ruleSignal, $news, $locale, $fundamentals, $valuation, $context['rates'], $context['order_inventory']);
 
         try {
             $response = $llm->complete($model, $prompt);
@@ -159,6 +163,7 @@ class StockAnalysisService
 
     /**
      * @param  array{block: string, affected: list<array<string, mixed>>}  $rates
+     * @param  array{assessment: OrderInventoryAssessment, peer_samples: int}|null  $orderInventory
      */
     private function buildPrompt(
         string $symbol,
@@ -170,6 +175,7 @@ class StockAnalysisService
         ?array $fundamentals = null,
         ?array $valuation = null,
         array $rates = [],
+        ?array $orderInventory = null,
     ): string {
         $en = $locale === 'en';
         $technicalSnapshotJson = json_encode($technicalSnapshot, JSON_UNESCAPED_UNICODE);
@@ -190,6 +196,23 @@ class StockAnalysisService
         $noValuation = $en ? '(insufficient data: valuation percentiles not provided)' : '（資料不足：本次未提供估值分位）';
         $fundamentalsJson = is_array($fundamentals) ? json_encode($fundamentals, JSON_UNESCAPED_UNICODE) : $noFundamentals;
         $valuationJson = is_array($valuation) ? json_encode($valuation, JSON_UNESCAPED_UNICODE) : $noValuation;
+
+        // 訂單／庫存判斷區塊與引用紀律。無評級（非台美、缺序列、抓取失敗）時**整段
+        // 不輸出**，連 BEGIN_ORDER_INVENTORY 標頭都不留：空標頭會被 LLM 讀成「這項
+        // 資料查過而且是空的」，比不提供更糟，與 RatesNarrative 抓不到時明說「無法
+        // 取得」的處理方向一致（那邊有話可說，這邊沒有）。
+        // 引用紀律跟著同一個條件：沒有區塊可引用時，那五條規則只會讓模型去猜一個
+        // 不存在的區塊。
+        $orderInventorySection = '';
+        $orderInventoryDiscipline = '';
+
+        if ($orderInventory !== null) {
+            $orderInventoryBlock = $this->orderInventoryGuide->block($orderInventory, $locale);
+            $orderInventorySection = "BEGIN_ORDER_INVENTORY\n{$orderInventoryBlock}\nEND_ORDER_INVENTORY\n";
+
+            $discipline = $this->orderInventoryGuide->discipline($locale);
+            $orderInventoryDiscipline = "BEGIN_ORDER_INVENTORY_DISCIPLINE\n{$discipline}\nEND_ORDER_INVENTORY_DISCIPLINE\n";
+        }
 
         // SOP v2 區塊（依 locale）。nowdoc 承載，內含字面 $ 亦安全。
         $disclaimer = $this->sop->disclaimer($locale);
@@ -241,7 +264,7 @@ END_FUNDAMENTALS
 BEGIN_VALUATION
 {$valuationJson}
 END_VALUATION
-BEGIN_RELATED_NEWS
+{$orderInventorySection}BEGIN_RELATED_NEWS
 {$newsTitles}
 END_RELATED_NEWS
 BEGIN_SCORING_RUBRIC
@@ -259,7 +282,7 @@ END_SOCIAL_SIGNAL
 BEGIN_DATA_SUFFICIENCY
 {$dataSufficiency}
 END_DATA_SUFFICIENCY
-BEGIN_OUTPUT_FORMAT
+{$orderInventoryDiscipline}BEGIN_OUTPUT_FORMAT
 {$outputFormat}
 END_OUTPUT_FORMAT
 PROMPT;

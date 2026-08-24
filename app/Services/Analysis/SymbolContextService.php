@@ -8,6 +8,9 @@ use App\Data\ChipFlowData;
 use App\Data\MarginFlowData;
 use App\Data\MarketQuoteData;
 use App\Data\NewsItemData;
+use App\Data\OrderInventoryAssessment;
+use App\Models\Instrument;
+use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\Rates\RatesNarrative;
 use App\Services\SignalEngine;
 use App\Services\TechnicalIndicatorService;
@@ -20,9 +23,10 @@ use App\Support\MarketResolver;
  * 實作，「空價格如何降級」「取幾根 K 棒」「取幾則新聞」「指標怎麼算」會存在兩份
  * 而必然漂移——問答與分析對同一檔股票給出不同數字，是最難查的那種 bug。
  *
- * 刻意只依賴分析必需的四個服務。基本面、籌碼、融資是呼叫端才需要的加值資料，
- * 疊在外層，避免這裡被撐成無所不包的上帝物件，也讓 analyze() 不必為了組脈絡
- * 而多背三個它用不到的依賴。
+ * 刻意只依賴「兩個消費端都要」的服務。基本面估值、籌碼、融資是呼叫端才需要的
+ * 加值資料，疊在外層，避免這裡被撐成無所不包的上帝物件，也讓 analyze() 不必為了
+ * 組脈絡而多背三個它用不到的依賴。利率敘述與訂單／庫存評級則相反——個股分析與
+ * 個股問答都要，且兩邊都曾經各自漏接過，所以放在這裡由單一來源供給。
  */
 final class SymbolContextService
 {
@@ -37,6 +41,7 @@ final class SymbolContextService
         private readonly TechnicalIndicatorService $indicators,
         private readonly SignalEngine $signals,
         private readonly RatesNarrative $ratesNarrative,
+        private readonly OrderInventoryAssessor $orderInventory,
     ) {}
 
     /**
@@ -64,7 +69,8 @@ final class SymbolContextService
      *     news: list<NewsItemData>,
      *     data_as_of: string,
      *     has_prices: bool,
-     *     rates: array{block: string, affected: list<array<string, mixed>>}
+     *     rates: array{block: string, affected: list<array<string, mixed>>},
+     *     order_inventory: array{assessment: OrderInventoryAssessment, peer_samples: int}|null
      * }
      */
     public function forSymbol(string $symbol, array $chipFlows = [], array $marginFlows = [], ?array $brokerBranch = null, string $locale = 'zh'): array
@@ -73,6 +79,7 @@ final class SymbolContextService
         $prices = $this->marketData->dailyPrices($symbol, self::PRICE_BARS);
         $news = $this->news->relatedNews($symbol, self::NEWS_LIMIT);
         $rates = $this->ratesContext($symbol, $locale);
+        $orderInventory = $this->orderInventoryContext($symbol);
 
         if ($prices === []) {
             return [
@@ -88,6 +95,7 @@ final class SymbolContextService
                 'data_as_of' => $quote->asOf,
                 'has_prices' => false,
                 'rates' => $rates,
+                'order_inventory' => $orderInventory,
             ];
         }
 
@@ -105,7 +113,28 @@ final class SymbolContextService
             'data_as_of' => $quote->asOf,
             'has_prices' => true,
             'rates' => $rates,
+            'order_inventory' => $orderInventory,
         ];
+    }
+
+    /**
+     * 訂單／庫存判斷（best-effort，無資料回 null）。
+     *
+     * 這裡要自己以代號反查 Instrument：`forSymbol()` 的輸入只有代號，而評級的 IO
+     * 邊界吃 `Instrument`——它要用 `instrument_id` 限縮財報列、並把本次評級寫回
+     * 那一列。把 Instrument 加進 `forSymbol()` 的參數不划算（已有五個參數，且兩個
+     * 呼叫端只有一個手上有 model）。
+     *
+     * 查無標的時回 null 而非建檔：搜尋結果頁可能對尚未建檔的代號組脈絡，為了評級
+     * 去寫一筆 instruments 是副作用外溢。
+     *
+     * @return array{assessment: OrderInventoryAssessment, peer_samples: int}|null
+     */
+    private function orderInventoryContext(string $symbol): ?array
+    {
+        $instrument = Instrument::query()->where('symbol', $symbol)->first();
+
+        return $instrument === null ? null : $this->orderInventory->forInstrument($instrument);
     }
 
     /**
