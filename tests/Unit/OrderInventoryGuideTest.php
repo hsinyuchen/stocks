@@ -32,6 +32,17 @@ class OrderInventoryGuideTest extends TestCase
         ];
     }
 
+    /** 取出區塊裡以指定前綴開頭的那一行；斷言要分行做，否則另一行的文字會互相掩護。 */
+    private function lineStartingWith(string $block, string $prefix): string
+    {
+        // 用 /m 逐行比對而不是 explode，避開行尾字元寫死在測試裡。
+        if (preg_match('/^'.preg_quote($prefix, '/').'.*$/mu', $block, $matches) === 1) {
+            return $matches[0];
+        }
+
+        $this->fail("區塊缺少以「$prefix」開頭的行");
+    }
+
     #[Test]
     public function it_states_that_b_plus_is_the_ceiling(): void
     {
@@ -267,6 +278,46 @@ class OrderInventoryGuideTest extends TestCase
                 $condition,
                 $block,
                 '機器鍵不得直接進 prompt——LLM 會照抄給使用者看',
+            );
+        }
+    }
+
+    #[Test]
+    public function it_keeps_the_negative_conditions_out_of_the_conditions_met_line(): void
+    {
+        // C7（應收天數拉長）與 C8（現金流品質不佳）為 true 代表壞事發生。與 C1、C4
+        // 並列在「觸發條件」底下會被 LLM 讀成支持結論的訊號——這兩條要由「判定理由」
+        // 那一行以正確的語氣呈現。
+        $block = (new OrderInventoryGuide)->block($this->assessed([
+            'rating' => OrderInventoryRating::C,
+            'conditions' => ['C1' => false, 'C2' => true, 'C3' => false, 'C4' => true,
+                'C7' => true, 'C8' => true],
+            'negativeSignals' => ['dio_rising', 'dso_rising', 'weak_operating_cash_flow'],
+        ]));
+
+        $conditionsLine = $this->lineStartingWith($block, '- 觸發條件：');
+        $reasonsLine = $this->lineStartingWith($block, '- 判定理由：');
+
+        foreach (['C2', 'C4'] as $supportive) {
+            $this->assertStringContainsString(
+                (string) config("order_inventory.narrative.conditions.$supportive"),
+                $conditionsLine,
+            );
+        }
+
+        foreach (['C7', 'C8'] as $negative) {
+            $this->assertStringNotContainsString(
+                (string) config("order_inventory.narrative.conditions.$negative"),
+                $conditionsLine,
+                "$negative 為 true 是警訊，不得列進「已成立的條件」",
+            );
+        }
+
+        // 負面那半仍由「判定理由」照常呈現，語氣正確。
+        foreach (['dso_rising', 'weak_operating_cash_flow'] as $signal) {
+            $this->assertStringContainsString(
+                (string) config("order_inventory.narrative.negative_signals.$signal"),
+                $reasonsLine,
             );
         }
     }

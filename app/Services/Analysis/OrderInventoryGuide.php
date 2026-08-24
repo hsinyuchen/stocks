@@ -35,6 +35,16 @@ use App\Enums\OrderInventoryRating;
  */
 class OrderInventoryGuide
 {
+    /**
+     * 為 true 即代表壞事發生的條件。
+     *
+     * 這兩條由 negativeSignals 那一行以正確的語氣呈現，不列進「觸發的條件」——
+     * 與 C1（營收連續成長）、C4（存貨明顯增加）並列在「已成立的條件」底下，
+     * 會被讀成支持結論的訊號。其餘條件為 true 時都是支持或中性的觀察
+     * （C3 的語意是「DIO 穩定」，它為 false 才由 dio_rising 報出來）。
+     */
+    private const NEGATIVE_CONDITIONS = ['C7', 'C8'];
+
     private function en(string $locale): bool
     {
         return $locale === 'en';
@@ -73,9 +83,12 @@ class OrderInventoryGuide
 
         // 3. 觸發的條件。只列**明確為 true** 的：false 那半由 negativeSignals 負責，
         // null 是「算不出來」，列出來會被 LLM 讀成否定結論，比不列更糟。
+        // C7／C8 為 true 是警訊不是支持項，見 NEGATIVE_CONDITIONS。
         $triggered = array_keys(array_filter(
             $assessment->conditions,
-            static fn (?bool $value): bool => $value === true,
+            static fn (?bool $value, string $key): bool => $value === true
+                && ! in_array($key, self::NEGATIVE_CONDITIONS, true),
+            ARRAY_FILTER_USE_BOTH,
         ));
 
         if ($triggered !== []) {
