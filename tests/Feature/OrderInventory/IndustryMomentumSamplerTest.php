@@ -451,6 +451,11 @@ class IndustryMomentumSamplerTest extends TestCase
     #[Test]
     public function a_row_fetched_yesterday_still_yields_the_industry(): void
     {
+        // 時間必須凍結在**台北 15:00 之後**：估值那把尺（DailyDataFreshness）問的是
+        // 「今天的盤後資料公佈了沒」，公佈前一律判為新鮮。不凍結的話這條測試會在
+        // 台北時間早上執行時「碰巧」也綠，而那正是它要排除的實作。
+        $this->travelTo(CarbonImmutable::parse('2026-08-24 09:00:00'));   // 台北 17:00
+
         // 昨天抓的列：估值的每日 TTL（盤後公佈時刻）下必定過期，
         // 但同業取樣的新鮮度視窗（30 天）下仍然新鮮。
         $yesterday = CarbonImmutable::now()->subDay();
