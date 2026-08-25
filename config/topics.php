@@ -13,20 +13,24 @@ return [
     /*
      * 外圍候選的新聞視窗與提及下限。
      *
-     * 實測本地 4931 則近 30 日 relevant 新聞，各題材的外圍候選數：
+     * 實測本地 4931 則近 30 日 relevant 新聞，各題材的外圍候選數。
      *
-     *   題材                 >=1  >=3  >=5  >=10
-     *   ai_capex              74   26   19    13
-     *   market_shock          61   17    9     3
-     *   memory_cycle          41   11   10     5
-     *   rate_policy           23   10    8     1
-     *   hormuz_oil            19   12    5     2
-     *   natural_disaster      19    3    2     1
-     *   twd_fx                11    3    1     0
-     *   chip_export_control    8    3    0     0
+     * **兩個口徑都列出來**：外圍層依定義要扣掉已在核心／延伸的標的，
+     * 只看「扣除前」會高估這一層的實際產出（hormuz_oil 有 9 檔核心，
+     * ai_capex 有 7 檔）。驗收時要對的是「扣核心」那一欄。
      *
-     * 取 3：雜訊砍掉約六成，八個題材仍全部有候選（3–26 檔）。提到 5 會讓
-     * chip_export_control 直接歸零。
+     *   題材                 核心  >=1  >=3  >=3扣核心
+     *   ai_capex               7    74   26      19
+     *   market_shock           5    61   17      14
+     *   memory_cycle           4    41   11       9
+     *   rate_policy            5    23   10       9
+     *   hormuz_oil             9    19   12      12
+     *   natural_disaster       5    19    3       2
+     *   twd_fx                 5    11    3       2
+     *   chip_export_control    5     8    3       3
+     *
+     * 取 3：雜訊砍掉約六成，八個題材扣掉核心後仍全部有候選（2–19 檔）。
+     * 提到 5 會讓 chip_export_control 直接歸零。
      *
      * **題材冷清時清單可以是空的**，不做 top-N 保底——保底等於系統對一則
      * 提及的標的宣稱「這檔與這個題材有關」。
