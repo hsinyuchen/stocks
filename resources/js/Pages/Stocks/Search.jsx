@@ -1325,17 +1325,28 @@ function IndustryMomentumPanel({ momentum }) {
                             threshold: socialPercent(momentum.thresholds.industry_accelerating),
                         })}</span>
                     </div>
-                    <div className="fundamentals-cell">
-                        <span>{t('stocks.social.momentumOwn')}</span>
-                        <strong className={changeClass(momentum.own)}>{socialPercent(momentum.own)}</strong>
-                    </div>
-                    <div className="fundamentals-cell">
-                        <span>{t('stocks.social.momentumExcess')}</span>
-                        <strong className={changeClass(momentum.excess)}>{socialPointsFromRatio(momentum.excess)}</strong>
-                        <span>{t('stocks.social.momentumExcessThreshold', {
-                            threshold: socialPointsFromRatio(momentum.thresholds.outperformance),
-                        })}</span>
-                    </div>
+                    {/*
+                      * 算不出來時整格略過，不印破折號——與 prompt 端的
+                      * SocialArbitrageGuide::momentumBlock() 同一個做法：印「無」會被
+                      * 讀成「查過而且沒有」，印 0 更糟（0 是合法的 YoY，也是「與產業
+                      * 同步」這個實質宣稱）。同業中位數算得出來、標的自己算不出來
+                      * （快取過舊或產業別不符）是實際會發生的組合。
+                      */}
+                    {momentum.own === null ? null : (
+                        <div className="fundamentals-cell">
+                            <span>{t('stocks.social.momentumOwn')}</span>
+                            <strong className={changeClass(momentum.own)}>{socialPercent(momentum.own)}</strong>
+                        </div>
+                    )}
+                    {momentum.excess === null ? null : (
+                        <div className="fundamentals-cell">
+                            <span>{t('stocks.social.momentumExcess')}</span>
+                            <strong className={changeClass(momentum.excess)}>{socialPointsFromRatio(momentum.excess)}</strong>
+                            <span>{t('stocks.social.momentumExcessThreshold', {
+                                threshold: socialPointsFromRatio(momentum.thresholds.outperformance),
+                            })}</span>
+                        </div>
+                    )}
                 </div>
             )}
 

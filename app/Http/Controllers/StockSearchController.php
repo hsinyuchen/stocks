@@ -413,7 +413,11 @@ class StockSearchController extends Controller
                 // 前期 0 則時變化率無定義（除以 0），照實送 null——前端據此略過
                 // 那半句，印「變化 0.0%」會把「算不出來」講成「沒有變化」。
                 'change_ratio' => $heat->changeRatio,
-                'evaluable' => $heat->hasEnoughSamples,
+                // 熱度這一列**刻意沒有 evaluable 欄位**（三條腿有）：則數是事實、
+                // 永遠顯示，沒有「不可評估」的渲染分支可切。而「不予判定」已經完整
+                // 編碼在 verdict 上——heatUp 只在 hasEnoughSamples 為 false 時是 null
+                // （見 SocialArbitrageClassifier），對應 heat_unevaluable。多送一個
+                // 同義欄位只會多一份會漂移的真相，前端也從來沒讀過它。
                 'verdict' => SocialArbitrageVerdicts::heat($arbitrage),
                 'min_recent_mentions' => (int) $this->requireNumeric('order_inventory.social.min_recent_mentions'),
                 'rise_ratio' => $this->requireNumeric('order_inventory.social.heat_rise_ratio'),

@@ -107,7 +107,9 @@ class SocialArbitragePanelTest extends TestCase
                     ->has('heat', fn (Assert $heat) => $heat
                         ->where('recent_count', 3)
                         ->where('prior_count', 0)
-                        ->where('evaluable', true)
+                        // 熱度沒有 evaluable 欄位：不予判定完整編碼在 verdict 上
+                        // （heat_unevaluable），見 StockSearchController 的註解。
+                        ->missing('evaluable')
                         ->where('verdict', 'heat_up')
                         ->etc())
                     ->has('legs.price', fn (Assert $leg) => $leg
@@ -427,6 +429,40 @@ class SocialArbitragePanelTest extends TestCase
         // 「樣本不足」的文案要寫出目前檔數，不能寫成「無資料」或「不適用」。
         $this->assertStringContainsString(':count', $copies[2]);
         $this->assertStringNotContainsString('不適用', $copies[2]);
+    }
+
+    /**
+     * 本標的月營收 YoY 與超額算不出來時**整格略過**，不印破折號。
+     *
+     * prompt 端的 SocialArbitrageGuide::momentumBlock() 已經是這樣做的，理由寫在
+     * 那裡：印「無」會被讀成「查過而且沒有」，印 0 更糟（0 是合法的 YoY，也是
+     * 「與產業同步」這個實質宣稱）。面板照樣渲染「本標的月營收 YoY —」與「超額 —」
+     * 的話，同一份資料在兩個呈現層說不同的話。
+     *
+     * `own` 為 null 的情形不罕見：標的自己的快取列過舊、或產業別與同業掃描不符
+     * （見 OrderInventoryIndustrySampler::metricForSubject()），而同業的中位數
+     * 仍然算得出來——也就是本區塊照樣渲染的那一支。
+     */
+    #[Test]
+    public function the_momentum_panel_skips_the_own_and_excess_cells_when_they_cannot_be_computed(): void
+    {
+        $body = $this->functionBody('IndustryMomentumPanel');
+
+        foreach (['own', 'excess'] as $field) {
+            $guard = strpos($body, "momentum.{$field} === null");
+
+            $this->assertNotFalse(
+                $guard,
+                sprintf('momentum.%s 算不出來時整格要略過，與 SocialArbitrageGuide 一致', $field),
+            );
+
+            // 守門必須排在該格的數值之前，否則守的是別的東西。
+            $value = strpos($body, "socialPercent(momentum.{$field})");
+            $value = $value === false ? strpos($body, "socialPointsFromRatio(momentum.{$field})") : $value;
+
+            $this->assertNotFalse($value, sprintf('找不到 momentum.%s 那一格的數值', $field));
+            $this->assertLessThan($value, $guard, sprintf('momentum.%s 的守門要排在數值之前', $field));
+        }
     }
 
     /** 樣本數一律顯示（0 也顯示），且在中位數有無之前就寫出來。 */
