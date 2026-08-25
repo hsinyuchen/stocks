@@ -4,6 +4,7 @@ namespace App\Services\Topics;
 
 use App\Data\TopicBoard;
 use App\Data\TopicCandidate;
+use App\Enums\AssetType;
 use App\Enums\MarketRegion;
 use App\Enums\TopicDirection;
 use App\Enums\TopicTier;
@@ -82,12 +83,16 @@ class TopicCandidateResolver
 
         $now ??= CarbonImmutable::now();
 
+        // 一次查出已知的非個股，三層共用同一份：分三次查會讓三層各自漂移，
+        // 而「哪些標的不是個股」對同一份 board 只能有一個答案。
+        $nonStock = $this->nonStockSymbols();
+
         // 核心先解，因為延伸要用核心的 industry。
-        $core = $this->core($rule);
+        $core = $this->core($rule, $nonStock);
         $extended = $this->extended($core);
 
         $taken = array_merge(array_keys($core), array_keys($extended));
-        $periphery = $this->periphery($topicKey, $taken, $now);
+        $periphery = $this->periphery($topicKey, $taken, $now, $nonStock);
 
         $candidates = array_merge(array_values($core), array_values($extended), $periphery);
 
@@ -127,9 +132,10 @@ class TopicCandidateResolver
      * 作者的敘事順序）。
      *
      * @param  array<string, mixed>  $rule
+     * @param  array<string, true>  $nonStock
      * @return array<string, TopicCandidate> symbol => 候選
      */
-    private function core(array $rule): array
+    private function core(array $rule, array $nonStock): array
     {
         $rows = [];
 
@@ -140,7 +146,7 @@ class TopicCandidateResolver
             foreach ((array) ($sector['symbols'] ?? []) as $symbol) {
                 $symbol = (string) $symbol;
 
-                if ($symbol === '' || isset($rows[$symbol])) {
+                if ($symbol === '' || isset($rows[$symbol]) || isset($nonStock[$symbol])) {
                     continue;
                 }
 
@@ -270,6 +276,7 @@ class TopicCandidateResolver
             ->join('instruments', 'instruments.id', '=', 'fundamentals.instrument_id')
             ->whereNotNull('fundamentals.order_inventory')
             ->where('fundamentals.order_inventory->industry', $industry)
+            ->where('instruments.asset_type', AssetType::Stock->value)
             ->where('fundamentals.fetched_at', '>=', $floor)
             ->whereNotIn('instruments.symbol', $exclude)
             ->orderByDesc('fundamentals.fetched_at')
@@ -310,9 +317,10 @@ class TopicCandidateResolver
      * 宣稱「這檔與這個題材有關」。
      *
      * @param  list<string>  $exclude
+     * @param  array<string, true>  $nonStock
      * @return list<TopicCandidate>
      */
-    private function periphery(string $topicKey, array $exclude, CarbonImmutable $now): array
+    private function periphery(string $topicKey, array $exclude, CarbonImmutable $now, array $nonStock): array
     {
         $min = $this->requireInt('min_mentions');
         $max = $this->requireInt('max_periphery');
@@ -327,7 +335,9 @@ class TopicCandidateResolver
                 break;
             }
 
-            if ($count < $min || isset($skip[$symbol])) {
+            // 非個股在計數上限**之前**就剔除：留到之後再篩，指數會先佔掉一個
+            // 名額，使用者拿到的是一份少一檔的清單而不是同樣長度的乾淨清單。
+            if ($count < $min || isset($skip[$symbol]) || isset($nonStock[$symbol])) {
                 continue;
             }
 
@@ -356,6 +366,30 @@ class TopicCandidateResolver
         }
 
         return $out;
+    }
+
+    /**
+     * 已知**不是個股**的標的：指數與 ETF。
+     *
+     * 大盤指數與任何總體題材共同提及是結構性的，不是訊號——一則談升息的新聞
+     * 幾乎必提 ^GSPC，而那不代表 S&P 500 是這個題材的候選。ETF 同理：使用者
+     * 點進候選要看的是一檔可分析的個股，不是一籃子標的。
+     *
+     * 反向列舉（列出非個股）而不是正向過濾 `asset_type = stock`：傳導表有 30 檔
+     * 而 instruments 表只有 20 檔，**不在表裡的照樣要列出**（建立標的是 ingest
+     * 與搜尋的職責）。正向過濾會把「查無此標的」與「查到了但不是個股」壓成同
+     * 一件事，前者該留、後者該丟。
+     *
+     * @return array<string, true>
+     */
+    private function nonStockSymbols(): array
+    {
+        $symbols = Instrument::query()
+            ->where('asset_type', '!=', AssetType::Stock->value)
+            ->pluck('symbol')
+            ->all();
+
+        return array_fill_keys(array_map('strval', $symbols), true);
     }
 
     /**

@@ -160,6 +160,63 @@ class TopicCandidateResolverTest extends TestCase
         return array_map(fn (TopicCandidate $c): string => $c->symbol, $candidates);
     }
 
+    // ------------------------------------------------------- 非個股標的
+
+    /**
+     * 大盤指數與任何總體題材共同提及是**結構性的**，不是訊號：
+     * 一則談升息的新聞幾乎必提 ^GSPC，而那不代表 S&P 500 是這個題材的
+     * 候選。ETF 同理——使用者點進去看到的是一篮子標的，不是一檔可分析的個股。
+     */
+    #[Test]
+    public function a_non_stock_instrument_never_reaches_the_periphery(): void
+    {
+        Instrument::factory()->create(['symbol' => '^GSPC', 'name' => 'S&P 500', 'asset_type' => 'index']);
+        Instrument::factory()->create(['symbol' => '0050.TW', 'name' => '元大台灣50', 'asset_type' => 'etf']);
+        $this->instrument('9101.TW');
+
+        $min = (int) config('topics.min_mentions');
+
+        for ($i = 1; $i <= $min; $i++) {
+            $this->hormuzNews($i, ['^GSPC', '0050.TW', '9101.TW']);
+        }
+
+        $symbols = $this->symbols($this->tier('hormuz_oil', TopicTier::Periphery));
+
+        $this->assertNotContains('^GSPC', $symbols, '指數不是候選個股');
+        $this->assertNotContains('0050.TW', $symbols, 'ETF 不是候選個股');
+        $this->assertContains('9101.TW', $symbols, '對照組：同一批新聞裡的個股照樣進榜，證明不是整層空掉');
+    }
+
+    /**
+     * 傳導表列名的標的也要過同一條過濾。
+     *
+     * 「不在 instruments 表」與「在表且不是個股」必須分開：前者照樣列出
+     * （建立標的是 ingest 與搜尋的職責），後者是已知的非個股，要拿掉。
+     */
+    #[Test]
+    public function a_core_symbol_that_is_not_a_stock_is_dropped(): void
+    {
+        Instrument::factory()->create(['symbol' => '2603.TW', 'name' => '假指數', 'asset_type' => 'index']);
+
+        $symbols = $this->symbols($this->board('hormuz_oil'));
+
+        $this->assertNotContains('2603.TW', $symbols, '在表且不是個股的核心要拿掉');
+        $this->assertContains('2609.TW', $symbols, '對照組：不在 instruments 表的核心照樣列出');
+    }
+
+    #[Test]
+    public function a_non_stock_peer_never_extends(): void
+    {
+        $this->series($this->instrument('2603.TW'), '航運業');
+        $this->series($this->instrument('5608.TW'), '航運業');
+        $this->series(
+            Instrument::factory()->create(['symbol' => '0056.TW', 'name' => '高股息ETF', 'asset_type' => 'etf']),
+            '航運業',
+        );
+
+        $this->assertSame(['5608.TW'], $this->symbols($this->tier('hormuz_oil', TopicTier::Extended)));
+    }
+
     // ---------------------------------------------------------------- 核心
 
     /**
