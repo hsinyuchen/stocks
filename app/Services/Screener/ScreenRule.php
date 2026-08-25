@@ -25,6 +25,12 @@ interface ScreenRule
     /** 需要訂單／庫存判斷（財報序列 + 評級）。 */
     public const NEEDS_ORDER_INVENTORY = 'order_inventory';
 
+    /** 需要社交套利分類（新聞熱度 + 同視窗股價 + 法人籌碼 + 營收／毛利驗證）。 */
+    public const NEEDS_SOCIAL = 'social';
+
+    /** 需要產業動能（同產業月營收 YoY 中位數與標的超額，僅台股）。 */
+    public const NEEDS_INDUSTRY_MOMENTUM = 'industry_momentum';
+
     public function key(): string;
 
     public function label(): string;

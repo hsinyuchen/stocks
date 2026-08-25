@@ -9,12 +9,14 @@ use App\Models\Instrument;
 use App\Models\User;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
+use App\Services\Fundamentals\IndustryMomentumSampler;
 use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\Futures\MarketFuturesFlipDetector;
 use App\Services\Margin\MarginDataService;
 use App\Services\Market\MarketBearishFlipDetector;
 use App\Services\Screener\ScreenRule;
 use App\Services\Screener\ScreenRuleRegistry;
+use App\Services\Social\SocialArbitrageAssessor;
 use App\Services\TechnicalIndicatorService;
 use Illuminate\Support\Facades\Log;
 
@@ -231,6 +233,14 @@ class AlertEvaluator
                     ScreenRule::NEEDS_FUNDAMENTALS => app(FundamentalsService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_MARGIN => app(MarginDataService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_ORDER_INVENTORY => app(OrderInventoryAssessor::class)->cachedFor($instrument),
+                    // SocialArbitrageAssessor 已經全程只讀（直接讀 DailyPrice／ChipFlow
+                    // model，營收走 OrderInventoryAssessor::cachedFor()），所以這裡就是
+                    // 它唯一的入口——**不要**為了與上一行對稱而「補」一個不存在的
+                    // cachedFor()，那會是一份重複的只讀包裝。
+                    ScreenRule::NEEDS_SOCIAL => app(SocialArbitrageAssessor::class)->forInstrument($instrument),
+                    // 產業動能相反：forInstrument() 需要 industry，而拿到 industry 的
+                    // 那一步才是會抓上游的地方，所以只讀入口在 sampler 這一側。
+                    ScreenRule::NEEDS_INDUSTRY_MOMENTUM => app(IndustryMomentumSampler::class)->cachedFor($instrument),
                     default => null,
                 };
             } catch (\Throwable $exception) {

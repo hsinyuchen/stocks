@@ -3,6 +3,7 @@
 namespace App\Services\Fundamentals;
 
 use App\Data\IndustryMomentum;
+use App\Data\OrderInventoryAssessment;
 use App\Data\OrderInventoryData;
 use App\Enums\IndustryMomentumUnavailableReason;
 use App\Models\Instrument;
@@ -23,6 +24,31 @@ use Carbon\CarbonImmutable;
  */
 class IndustryMomentumSampler extends OrderInventoryIndustrySampler
 {
+    public function __construct(private readonly FundamentalsService $fundamentals) {}
+
+    /**
+     * 只讀入口：industry 自己從快取取，呼叫端不必先弄到一份 OrderInventoryData。
+     *
+     * 為什麼需要它：`forInstrument()` 要 industry，而 industry 只存在於
+     * `fundamentals.order_inventory` 這份快照裡。呼叫端手上通常只有一份
+     * {@see OrderInventoryAssessment}，那上面只有 `industryBucket`
+     * （評級用的粗分類桶）而**沒有**原始 `industry_category`——拿桶去餵是另一種
+     * 東西，比出來的同業根本不同群。
+     *
+     * 為什麼是**只讀**：委派給 {@see FundamentalsService::cachedOrderInventoryFor()}，
+     * 那個方法只讀「帶序列的最新一列」，過期就回 null 而不去抓。真正會抓的入口是
+     * `orderInventoryFor()`：台股走 FinMind、美股打 SEC EDGAR（timeout 40 秒、沒有
+     * FinMindGate 那種斷路器）。本方法的消費端之一是 AlertEvaluator，它跑在首頁的
+     * 同步 web 請求裡，而 PHP 的 max_execution_time 不是例外、try/catch 攔不到，
+     * 那條路徑也沒有掃描預算或 job timeout 可以兜底。
+     * 拿不到就當產業未知（`IndustryUnknown`），等下一次個股分析／選股掃描把序列
+     * 抓進快取即可。命名沿用階段 3 立下的「cachedFor = 只讀入口」慣例。
+     */
+    public function cachedFor(Instrument $subject): IndustryMomentum
+    {
+        return $this->forInstrument($subject, $this->fundamentals->cachedOrderInventoryFor($subject)?->industry);
+    }
+
     public function forInstrument(Instrument $subject, ?string $industry): IndustryMomentum
     {
         if ($this->marketOf($subject->symbol) !== 'tw') {
