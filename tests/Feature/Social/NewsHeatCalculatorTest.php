@@ -275,6 +275,26 @@ class NewsHeatCalculatorTest extends TestCase
     }
 
     #[Test]
+    public function two_populated_segments_out_of_three_cannot_judge_high_water(): void
+    {
+        $window = (int) config('order_inventory.social.heat_window_days');
+
+        // 段數夠（3 整段），但中間那段掛零，真正有則數的只有 2 段——恰好比
+        // 最小段數少 1。這是緊貼常數下方的值：非零段數守門若只弱化 1（例如
+        // 比較式改成 MIN - 1），端點測試（1 段、3 段）都還是綠的，只有這裡會紅。
+        $this->news(0, ['2330.TW']);
+        $this->news($window * 3 - 1, ['2330.TW']);
+
+        $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
+
+        $this->assertNull(
+            $heat->highWaterThreshold,
+            '非零段數恰好比最小段數少 1 仍不給門檻；此斷言釘住非零段數走的是同一個常數',
+        );
+        $this->assertFalse($heat->isHighWater);
+    }
+
+    #[Test]
     public function an_all_zero_distribution_is_not_a_high_water_mark(): void
     {
         // 唯一一則落在被捨棄的殘段裡：比較視窗內每一段都是 0 則。
