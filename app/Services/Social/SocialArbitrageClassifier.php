@@ -106,6 +106,9 @@ class SocialArbitrageClassifier
             insufficientReason: $stage === SocialArbitrageStage::Insufficient
                 ? $this->insufficientReason($heat, $heatUp, $priceChange, $priceFell, $priceInGreyZone)
                 : null,
+            priceChange: $priceChange,
+            foreignVolumeShare: $foreignShare,
+            grossMarginQoqPp: $grossMarginQoqPp,
         );
     }
 

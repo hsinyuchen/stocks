@@ -25,6 +25,34 @@ class SocialArbitrageClassifierTest extends TestCase
         ], $overrides));
     }
 
+    #[Test]
+    public function the_raw_leg_values_ride_through_unchanged(): void
+    {
+        // 三個值刻意互不相等且不等於任何門檻：漏傳、傳錯、或兩兩對調都會紅。
+        $result = $this->classify(
+            priceChange: 0.1234,
+            foreignShare: 0.5678,
+            grossMarginQoqPp: -1.9012,
+        );
+
+        $this->assertSame(0.1234, $result->priceChange);
+        $this->assertSame(0.5678, $result->foreignVolumeShare);
+        $this->assertSame(-1.9012, $result->grossMarginQoqPp);
+    }
+
+    #[Test]
+    public function an_unevaluable_leg_carries_a_null_raw_value_not_a_zero(): void
+    {
+        // 原始值與判定必須同進退：若腿不可評估卻回 0.0，呈現層會印出
+        // 「佔同期成交量 0.0%」——那是「有資料且為零」的說法，與「沒有這種資料」
+        // 是兩回事，正是本功能三個階段一直在消滅的 null／0 混淆。
+        $result = $this->classify(priceChange: null, foreignShare: null, grossMarginQoqPp: null);
+
+        $this->assertNull($result->priceChange);
+        $this->assertNull($result->foreignVolumeShare);
+        $this->assertNull($result->grossMarginQoqPp);
+    }
+
     private function classify(
         ?NewsHeat $heat = null,
         ?float $priceChange = 0.0,

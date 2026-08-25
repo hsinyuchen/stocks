@@ -34,6 +34,16 @@ use App\Services\Social\SocialArbitrageClassifier;
  *
  * `insufficientReason` 只在 `stage === Insufficient` 時為非 null，見
  * {@see SocialArbitrageInsufficientReason}。
+ *
+ * **除了布林判定，三條數值腿的原始值也一併帶出**（`priceChange`、
+ * `foreignVolumeShare`、`grossMarginQoqPp`）。布林是結論，原始值是理由：
+ * 本功能的門檻全都沒做過預測力回測（見 config 各鍵註解），只給「法人買：是」
+ * 等於把一條武斷的線包裝成事實，使用者無從判斷這個結論離門檻有多遠。
+ * 給出「佔同期成交量 22.9%（門檻 10%）」才讓使用者能套自己的判斷。
+ * 營收腿的原始輸入本身就是布林（訂單庫存框架的 C1），已由 `revenueUnverified`
+ * 完整表達，不另設欄位。
+ *
+ * 呈現層可以顯示這些數字，但**仍然不得拿它們重算判定**——理由見上方第一段。
  */
 final readonly class SocialArbitrage
 {
@@ -55,5 +65,8 @@ final readonly class SocialArbitrage
         public bool $marginLegEvaluable = false,
         public bool $priceInGreyZone = false,
         public ?SocialArbitrageInsufficientReason $insufficientReason = null,
+        public ?float $priceChange = null,
+        public ?float $foreignVolumeShare = null,
+        public ?float $grossMarginQoqPp = null,
     ) {}
 }

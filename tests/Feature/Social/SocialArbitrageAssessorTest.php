@@ -12,7 +12,6 @@ use App\Data\MarketQuoteData;
 use App\Data\OrderInventoryAssessment;
 use App\Data\OrderInventoryData;
 use App\Data\OrderInventoryMetrics;
-use App\Data\SocialArbitrage;
 use App\Enums\OrderInventoryRating;
 use App\Enums\SocialArbitrageStage;
 use App\Models\ChipFlow;
@@ -136,28 +135,15 @@ class SocialArbitrageAssessorTest extends TestCase
         $this->price($instrument, 2, 100.0, 5_222_222);
         $this->price($instrument, 3, 100.0, 6_333_333);
 
-        // DTO 只輸出「是否達門檻」而不輸出比值本身（見 SocialArbitrage），
-        // 所以用門檻夾擠來釘住實際算出的數字：門檻壓在 0.2285262 時成立、
-        // 抬到 0.2285264 時不成立，等於把比值鎖在 2e-7 的區間內。
-        $below = $this->classifyWithForeignThresholds($instrument, 0.2285262);
-        $above = $this->classifyWithForeignThresholds($instrument, 0.2285264);
+        $result = $this->assessor()->forInstrument($instrument, $this->now);
 
-        $this->assertTrue($below->foreignLegEvaluable, '台股有籌碼資料時法人腿必須可評估');
-        $this->assertTrue($below->foreignBuying, '比值必須 >= 0.2285262');
-        $this->assertTrue($below->foreignBuyingHeavy);
-        $this->assertFalse($above->foreignBuying, '比值必須 < 0.2285264');
-        $this->assertFalse($above->foreignBuyingHeavy);
-    }
-
-    /** 兩個法人門檻同時設為 $threshold，再跑一次分類。 */
-    private function classifyWithForeignThresholds(Instrument $instrument, float $threshold): SocialArbitrage
-    {
-        config([
-            'order_inventory.social.foreign_net_buy_volume_share' => $threshold,
-            'order_inventory.social.foreign_net_buy_volume_share_heavy' => $threshold,
-        ]);
-
-        return $this->assessor()->forInstrument($instrument, $this->now);
+        $this->assertTrue($result->foreignLegEvaluable, '台股有籌碼資料時法人腿必須可評估');
+        $this->assertEqualsWithDelta(
+            3_580_245 / 15_666_666,
+            $result->foreignVolumeShare,
+            1e-9,
+            '分母是同視窗成交量合計，不是股本、不是筆數、不是任一單日的比值',
+        );
     }
 
     #[Test]
