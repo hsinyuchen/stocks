@@ -7,6 +7,7 @@ use App\Contracts\FundamentalsProvider;
 use App\Data\FundamentalsData;
 use App\Data\OrderInventoryData;
 use App\Data\QuarterlyFinancials;
+use App\Enums\RevenueUnknownReason;
 use App\Models\Fundamental;
 use App\Models\Instrument;
 use App\Services\Fundamentals\OrderInventoryAssessor;
@@ -51,6 +52,121 @@ class OrderInventoryAssessorTest extends TestCase
      * 日期，凍結後是 2026-08-24）刻意不同：同名不同語意正是修正 1 的坑，fixture
      * 若讓兩者相等，拿錯欄位的實作照樣全綠。
      */
+    /**
+     * 直接把序列寫進 fundamentals，繞開 provider。
+     *
+     * 不走 bindProvider()＋forInstrument()：`OrderInventoryAssessor` 在解析時就
+     * 把 `FundamentalsService`（連同它當下綁的 provider）收進建構子，先 resolve
+     * 再 bind 會讓它用到預設的 fake provider——那是一個很安靜的順序陷阱。
+     * 這條測試要驗的是「產業別怎麼影響窄回傳」，序列從哪來無關。
+     */
+    private function writeSeries(string $symbol, OrderInventoryData $data): Instrument
+    {
+        $instrument = Instrument::factory()->create(['symbol' => $symbol]);
+
+        Fundamental::query()->create([
+            'instrument_id' => $instrument->id,
+            'data_as_of' => '2026-06-30',
+            'fetched_at' => now(),
+            'per' => 10.0,
+            'order_inventory' => $data->toArray(),
+        ]);
+
+        return $instrument;
+    }
+
+    private function withIndustry(string $industry): OrderInventoryData
+    {
+        $series = $this->ratableSeries();
+
+        return new OrderInventoryData(
+            quarters: $series->quarters,
+            market: 'tw',
+            industry: $industry,
+            dataAsOf: '2026-06-30',
+        );
+    }
+
+    /**
+     * 窄回傳要說得出**為什麼**沒有結論，不是只說「適不適用」。
+     *
+     * 三種「沒有結論」對使用者是三種不同的行動：序列還沒累積等分析跑過就
+     * 可能有答案；序列過舊要等下一次財報，再跑幾次掃描也不會變；產業不適用
+     * 永遠不會有答案。一個布林分不出後兩者，而 hormuz_oil 的核心正好同時
+     * 踩到「航運不適用」與「季末日再也不會往前走」兩種。
+     */
+    #[Test]
+    public function the_narrow_signals_name_why_there_is_no_revenue_answer(): void
+    {
+        $assessor = app(OrderInventoryAssessor::class);
+
+        // 序列拿不到：還不知道產業是什麼，不得宣稱本框架不適用。
+        $missing = $assessor->seriesSignalsFor(Instrument::factory()->create(['symbol' => '9999.TW']));
+
+        $this->assertNull($missing['revenue_verified']);
+        $this->assertSame(
+            RevenueUnknownReason::NotYet,
+            $missing['revenue_unknown_reason'],
+            '沒讀到產業別就宣稱不適用，等於在沒有證據的情況下下結論',
+        );
+
+        // 序列完整但產業不適用（航運在 order_inventory.industry.not_applicable 裡）：
+        // C1 恆為 null，而且這是永久的，不是還沒累積。
+        $unsuited = $assessor->seriesSignalsFor($this->writeSeries('2603.TW', $this->withIndustry('航運業')));
+
+        $this->assertNull($unsuited['revenue_verified']);
+        $this->assertSame(
+            RevenueUnknownReason::NotApplicable,
+            $unsuited['revenue_unknown_reason'],
+            '航運屬 not_applicable，說「無資料」會讓使用者等一個不會來的答案',
+        );
+
+        // 序列完整落地但季末日太舊：assess() 走串聯 0 短路成 insufficient，
+        // C1 一樣是 null——但這不是「產業不適用」，也不是「還沒累積」。
+        $stale = $assessor->seriesSignalsFor($this->writeSeries('2317.TW', $this->staleSeries()));
+
+        $this->assertNull($stale['revenue_verified']);
+        $this->assertSame(
+            RevenueUnknownReason::Stale,
+            $stale['revenue_unknown_reason'],
+            '序列累積完整了、只是太舊，再跑一百次掃描季末日也不會往前走',
+        );
+
+        // 對照組：同一份序列換成適用的產業就取得結論，證明上面那些 null 是
+        // 產業或時效造成的，不是序列本身有問題。
+        $suited = $assessor->seriesSignalsFor($this->writeSeries('2330.TW', $this->withIndustry('半導體業')));
+
+        $this->assertNull($suited['revenue_unknown_reason'], '有結論就不該再給原因');
+        $this->assertNotNull($suited['revenue_verified'], '適用產業必須得到 true 或 false，不是 null');
+    }
+
+    /**
+     * 季末日超過 max_quarter_age_days 的一份完整序列。
+     */
+    private function staleSeries(): OrderInventoryData
+    {
+        $recent = $this->ratableSeries();
+        $shift = fn (QuarterlyFinancials $q, string $period, string $endDate): QuarterlyFinancials => new QuarterlyFinancials(
+            period: $period,
+            endDate: $endDate,
+            revenue: $q->revenue,
+            costOfGoodsSold: $q->costOfGoodsSold,
+            grossProfit: $q->grossProfit,
+            inventories: $q->inventories,
+        );
+
+        return new OrderInventoryData(
+            quarters: [
+                $shift($recent->quarters[0], '2023Q2', '2023-06-30'),
+                $shift($recent->quarters[1], '2024Q1', '2024-03-31'),
+                $shift($recent->quarters[2], '2024Q2', '2024-06-30'),
+            ],
+            market: 'tw',
+            industry: '半導體業',
+            dataAsOf: '2024-06-30',
+        );
+    }
+
     private function ratableSeries(): OrderInventoryData
     {
         return new OrderInventoryData(

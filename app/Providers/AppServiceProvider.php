@@ -47,6 +47,7 @@ use App\Services\News\ProcessYoutubeWorkerRunner;
 use App\Services\Rates\YahooYieldCurveProvider;
 use App\Services\Search\FinMindStockSearchProvider;
 use App\Services\Social\NewsHeatCalculator;
+use App\Services\Topics\TopicCandidateResolver;
 use App\Support\FinMindTokenResolver;
 use Illuminate\Support\ServiceProvider;
 
@@ -73,6 +74,12 @@ class AppServiceProvider extends ServiceProvider
         // 同一次掃描要共用同一次 news_items 查詢；但常駐 worker 不該跨日沿用
         // 同一份新聞快照。
         $this->app->scoped(NewsHeatCalculator::class);
+
+        // 候選解析：解析本身不持有任何快照，但它注入的 OrderInventoryAssessor
+        // 會在**解析當下**把 FundamentalsService 連同那一刻綁定的 provider 收進
+        // 建構子。singleton 會讓常駐 worker 跨請求沿用那一份 provider 綁定，
+        // scoped 則讓同一次請求共用、跨請求重建。
+        $this->app->scoped(TopicCandidateResolver::class);
 
         $this->app->bind(NewsProvider::class, function ($app): NewsProvider {
             return config('services.news.driver') === 'fake'

@@ -16,6 +16,7 @@ import {
     UserCog,
     Users,
     Wallet,
+    Waypoints,
 } from 'lucide-react';
 import BusyOverlay from '../Components/BusyOverlay';
 import HamburgerButton from '../Components/HamburgerButton';
@@ -31,6 +32,8 @@ const baseMenuItems = [
     { href: '/watchlists/analysis', labelKey: 'nav.watchlistAnalysis', icon: Moon },
     { href: '/stocks/search', labelKey: 'nav.stockSearch', icon: Search },
     { href: '/screener', labelKey: 'nav.screener', icon: ScanSearch },
+    // 題材候選與選股器都是「找股票」的入口，放在一起。
+    { href: '/topics', labelKey: 'nav.topics', icon: Waypoints },
     { href: '/portfolio', labelKey: 'nav.portfolio', icon: Wallet },
     { href: '/alerts', labelKey: 'nav.alerts', icon: Bell },
     { href: '/analyses', labelKey: 'nav.analyses', icon: Bot },
