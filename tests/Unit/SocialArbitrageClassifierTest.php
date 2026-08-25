@@ -551,6 +551,71 @@ class SocialArbitrageClassifierTest extends TestCase
     }
 
     #[Test]
+    public function the_threshold_ordering_the_rules_depend_on_is_intact(): void
+    {
+        // 階段 2 的 threshold_values_are_pinned_to_the_framework_spec 把期望值寫死成
+        // 常數比對 config；這裡刻意不那樣做——門檻值本來就允許依產業與個股歷史校準，
+        // **不允許被破壞的是門檻之間的大小關係**。關係破了不會有任何錯誤訊號，只會讓
+        // 分類默默宣稱一件沒發生的事，所以由測試擋住而不是加執行期檢查（這個類別是
+        // 零 IO 的熱路徑，不該為部署層的錯誤每次分類都多跑一輪比較）。
+        $risen = $this->threshold('social.price_risen');
+        $surged = $this->threshold('social.price_surged');
+        $flat = $this->threshold('social.price_flat');
+        $fell = $this->threshold('social.price_fell');
+        $buying = $this->threshold('social.foreign_net_buy_share');
+        $heavy = $this->threshold('social.foreign_net_buy_share_heavy');
+        $heatRise = $this->threshold('social.heat_rise_ratio');
+
+        $this->assertGreaterThanOrEqual(
+            $risen,
+            $surged,
+            'price_surged 必須 >= price_risen：規則 3（已高度反映）的股價腿是規則 4（已部分反映）的嚴格加強版，關係反過來會出現「大漲但未已漲」的標的，兩桶的先後順序就失去意義',
+        );
+
+        $this->assertGreaterThanOrEqual(
+            $buying,
+            $heavy,
+            'foreign_net_buy_share_heavy 必須 >= foreign_net_buy_share：理由同 price_surged，規則 3 的籌碼腿必須是規則 4 的嚴格加強版',
+        );
+
+        $this->assertLessThanOrEqual(
+            0.0,
+            $fell,
+            'price_fell 必須 <= 0：它是跌幅下界，訂成正值會讓「上漲」的標的被判成「反向大跌」',
+        );
+
+        $this->assertGreaterThan(
+            0.0,
+            $flat,
+            'price_flat 必須 > 0：它是「未顯著漲」的上界且判準是嚴格小於，訂成 0 會讓持平（0%）的標的不算持平，Early 幾乎不可能成立',
+        );
+
+        $this->assertLessThan(
+            $flat,
+            $fell,
+            'price_fell 必須 < price_flat：兩者夾出「未顯著漲」的區間，反過來這個區間是空的，Early 永遠不成立',
+        );
+
+        $this->assertLessThanOrEqual(
+            $risen,
+            $flat,
+            'price_flat 必須 <= price_risen：兩者夾出灰帶，反過來灰帶是負區間，而且「未顯著漲」與「已漲」會有重疊區',
+        );
+
+        $this->assertGreaterThan(
+            0.0,
+            $buying,
+            'foreign_net_buy_share 必須 > 0：判準是 >=，訂成 0 或負值會讓淨賣超也算「法人買」',
+        );
+
+        $this->assertGreaterThan(
+            0.0,
+            $heatRise,
+            'heat_rise_ratio 必須 > 0：判準是 >=，訂成 0 會讓則數持平也算「熱度升溫」',
+        );
+    }
+
+    #[Test]
     public function a_missing_threshold_throws_instead_of_silently_widening_the_claim(): void
     {
         $paths = [
