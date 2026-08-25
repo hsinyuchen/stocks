@@ -4134,3 +4134,242 @@ select:focus-visible {
 .alert-rule-notes {
     margin-top: 6px;
 }
+
+/* ---------------------------------------------------------------
+   題材候選（/topics）
+   --------------------------------------------------------------- */
+
+.topic-page__subtitle {
+    color: var(--muted);
+    font-size: 0.88rem;
+    margin: 6px 0 0;
+}
+
+/* 必要說明放在題材選擇「之前」：使用者要在決定點哪個題材之前就讀到它們。 */
+.topic-notes {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-top: 14px;
+    padding: 12px 14px;
+}
+
+.topic-notes__heading {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin: 0 0 8px;
+}
+
+.topic-notes ul {
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    margin: 0;
+    padding-left: 18px;
+}
+
+.topic-chooser {
+    margin-top: 18px;
+}
+
+.topic-chooser__heading {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin: 0 0 8px;
+}
+
+.topic-chooser__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.topic-chip {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 0.85rem;
+    padding: 6px 14px;
+    text-decoration: none;
+}
+
+.topic-chip--active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    font-weight: 600;
+}
+
+.topic-board {
+    margin-top: 20px;
+}
+
+.topic-board__title {
+    font-size: 1.05rem;
+    margin: 0 0 10px;
+}
+
+.topic-chain {
+    background: var(--neutral-soft);
+    border-radius: 10px;
+    padding: 10px 14px;
+}
+
+.topic-chain__heading {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin: 0 0 6px;
+}
+
+.topic-chain ol {
+    font-size: 0.85rem;
+    line-height: 1.6;
+    margin: 0;
+    padding-left: 20px;
+}
+
+.topic-threshold {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin: 10px 0 0;
+}
+
+.topic-group {
+    margin-top: 18px;
+}
+
+.topic-group__heading {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    gap: 8px;
+    margin: 0 0 8px;
+}
+
+.topic-tier {
+    font-weight: 700;
+}
+
+/* 三個層級的證據強度不同，底色跟著遞減，避免外圍看起來跟核心一樣硬。 */
+.topic-tier--core {
+    color: var(--accent-strong);
+}
+
+.topic-tier--extended {
+    color: var(--text);
+}
+
+.topic-tier--periphery {
+    color: var(--muted);
+}
+
+.topic-way {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 10px;
+}
+
+.topic-way--benefits {
+    background: var(--pos-soft);
+}
+
+.topic-way--harmed {
+    background: var(--neg-soft);
+}
+
+/* 「傳導表沒標方向」不是第三種方向，所以走中性底色不走紅綠。 */
+.topic-way--none {
+    background: var(--neutral-soft);
+    color: var(--muted);
+}
+
+.topic-group__count {
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+.topic-candidates {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.topic-candidate {
+    align-items: center;
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: space-between;
+    padding: 8px 12px;
+}
+
+.topic-candidate__id {
+    align-items: baseline;
+    display: flex;
+    gap: 8px;
+}
+
+.topic-candidate__symbol {
+    color: var(--text);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.topic-candidate__name {
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
+.topic-candidate__meta {
+    align-items: center;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.75rem;
+    gap: 8px;
+}
+
+.topic-badge {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.72rem;
+    padding: 2px 10px;
+    white-space: nowrap;
+}
+
+.topic-badge--verified {
+    background: var(--pos-soft);
+    color: var(--text);
+}
+
+.topic-badge--refuted {
+    background: var(--neg-soft);
+    color: var(--text);
+}
+
+/* 「尚未累積」與「本框架不適用」必須一眼分得開：前者虛線（等得到答案），
+   後者實線灰底（永遠不會有答案）。同一種灰會讓航運股的使用者一直等下去。 */
+.topic-badge--unknown {
+    background: transparent;
+    border-style: dashed;
+    color: var(--muted);
+}
+
+.topic-badge--not-applicable {
+    background: var(--neutral-soft);
+    border-color: transparent;
+    color: var(--muted);
+    font-style: italic;
+}

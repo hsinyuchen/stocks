@@ -36,11 +36,7 @@ class TopicEndpointTest extends TestCase
             ->get('/topics')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                // 第二個參數關掉「頁面檔案必須存在」的檢查：頁面元件是 Task 5
-                // 的產出，這條測試釘的是 controller 選了哪個元件名稱，不是前端
-                // 檔案有沒有落地。Task 5 落地後這裡不需要改（存在檢查只是額外
-                // 保障，元件名稱本身仍然被斷言）。
-                ->component('Topics/Index', false)
+                ->component('Topics/Index')
                 ->where('board', null)
                 ->where('selected', null)
                 ->has('topics', 8)
