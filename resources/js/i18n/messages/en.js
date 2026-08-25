@@ -78,7 +78,7 @@ export default {
         "noteDirectionIsAnnotation": "Benefits / hurt is the transmission table's annotation for that sector, not a forecast of the stock's subsequent price move.",
         "notePeripheryIsCoMention": "Periphery only means the stock and this topic were mentioned together in the news; it does not imply any fundamental linkage.",
         "noteExtensionTaiwanOnly": "The extended (same-industry) tier applies to Taiwan listings only; US listings have no industry data, so they produce no extensions.",
-        "noteRevenueUnknown": "Revenue verification comes from criterion C1 of the order-inventory framework. “No revenue data” means the series has not accumulated yet and an answer will arrive once an analysis or scan runs; “not applicable to this industry” means the industry (financials, brokers, banks, shipping, tourism and other service sectors) has no ordinary order-to-inventory cycle, so an answer will never arrive."
+        "noteRevenueUnknown": "Revenue verification comes from criterion C1 of the order-inventory framework; when there is no conclusion the badge states why. “Revenue series not accumulated yet” and “Not enough revenue data to judge” may get an answer once an analysis or scan runs; “Revenue series too old or missing key line items” waits on the next earnings report, and re-running a scan will not change it; “Symbol not in the instrument list yet” needs someone to search for or ingest the symbol first, which this page never does; “Revenue check not applicable to this industry” means the industry (financials, brokers, banks, shipping, tourism and other service sectors) has no ordinary order-to-inventory cycle, so an answer will never arrive."
     },
     "appShell": {
         "brandName": "Stock Analysis Platform",

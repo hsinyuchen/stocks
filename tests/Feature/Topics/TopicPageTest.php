@@ -152,23 +152,50 @@ class TopicPageTest extends TestCase
     }
 
     /**
-     * 第五則必須把「尚未累積」與「本框架不適用」兩種「沒有答案」分開講清楚。
+     * 第五則必須把**每一種**「沒有答案」分開講，並且兩側都要說到。
      *
-     * 只寫「尚未累積時顯示無資料」會讓航運股（規格頭號範例題材 hormuz_oil 的核心）
-     * 的使用者一直等一個永遠不會來的答案。
+     * 原本這條測試整條只斷言 `mb_strlen($note) > 40`：方法名宣稱驗證「兩種沒有
+     * 答案分開講」，實際只驗長度——換成任何 41 字以上、完全不提「不適用」的句子
+     * 都照樣綠。這是本專案累積過 20 次以上的形狀。
+     *
+     * 改成兩件事一起釘：
+     *
+     * 1. 五個徽章文案都要在說明裡**逐字出現**——使用者看到徽章，要能在同一頁
+     *    找到它是什麼意思。少講一種就紅。
+     * 2. 「永遠不會有答案」與「可能會有答案」兩側各要有自己的措辭。只講其中
+     *    一側（正是舊文案的毛病：宣稱等掃描跑過就會有答案）就紅。
      */
     #[Test]
-    public function the_revenue_note_distinguishes_never_from_not_yet(): void
+    public function the_revenue_note_names_every_reason_and_both_sides(): void
     {
-        foreach (['zh', 'en'] as $locale) {
-            $note = $this->dictionary($locale)['topics']['noteRevenueUnknown'] ?? '';
+        $sides = [
+            'zh' => ['永遠不會有', '可能有答案'],
+            'en' => ['never arrive', 'may get an answer'],
+        ];
 
-            $this->assertIsString($note);
-            $this->assertGreaterThan(
-                40,
-                mb_strlen($note),
-                "{$locale} 的 noteRevenueUnknown 太短，不可能同時說明「尚未累積」與「本框架不適用」兩種情形。",
-            );
+        foreach ($sides as $locale => $keywords) {
+            $topics = $this->dictionary($locale)['topics'];
+            $note = (string) ($topics['noteRevenueUnknown'] ?? '');
+
+            foreach (RevenueUnknownReason::cases() as $reason) {
+                $key = 'revenue'.str_replace('_', '', ucwords($reason->value, '_'));
+                $label = (string) ($topics[$key] ?? '');
+
+                $this->assertNotSame('', $label, "{$locale} 字典缺少徽章文案 topics.{$key}。");
+                $this->assertStringContainsString(
+                    $label,
+                    $note,
+                    "{$locale} 的 noteRevenueUnknown 沒有說明徽章「{$label}」，使用者看到它會不知道要不要等。",
+                );
+            }
+
+            foreach ($keywords as $keyword) {
+                $this->assertStringContainsString(
+                    $keyword,
+                    $note,
+                    "{$locale} 的 noteRevenueUnknown 少了「{$keyword}」那一側——只講一側等於沒有分開講。",
+                );
+            }
         }
     }
 
