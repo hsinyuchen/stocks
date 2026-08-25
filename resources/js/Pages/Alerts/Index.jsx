@@ -29,6 +29,37 @@ const MARKET_HINT_KEY = {
     market_bearish_flip: 'alerts.marketHintBearish',
 };
 
+/**
+ * 規則的必要說明。
+ *
+ * 建立表單與既有警報清單兩處都要出：**選的當下**要看得到更正，而警報觸發後
+ * 使用者回頭看清單、據以動作的那一刻同樣需要。這兩條規則的名字會讓人推論出
+ * 系統沒有驗證過的事（「社交」套利實際只有新聞熱度、「產業加速」是回顧性指標
+ * 且只對台股有效），而警報端原本只拿得到 label，沒有任何更正機會。
+ *
+ * 文案來自 i18n 鍵而不是後端字串：硬性揭露漏一邊會在英文介面露出中文。
+ */
+function RuleNotes({ rule }) {
+    const { t } = useI18n();
+    const notes = rule?.notes ?? [];
+
+    if (notes.length === 0) {
+        return null;
+    }
+
+    return (
+        <ul className="alert-rule-notes">
+            {notes.map((note) => (
+                <li key={note}>{t(note)}</li>
+            ))}
+        </ul>
+    );
+}
+
+function findSignalRule(signalRules, signalKey) {
+    return signalRules.find((entry) => entry.key === signalKey) ?? null;
+}
+
 function describe(alert, signalRules, t) {
     if (alert.type === 'market_futures_flip') {
         return t('alerts.describeFuturesFlip');
@@ -39,7 +70,7 @@ function describe(alert, signalRules, t) {
     }
 
     if (alert.type === 'signal') {
-        const rule = signalRules.find((entry) => entry.key === alert.signal_key);
+        const rule = findSignalRule(signalRules, alert.signal_key);
 
         return t('alerts.describeSignal', { name: rule ? rule.label : alert.signal_key });
     }
@@ -127,6 +158,7 @@ function AddAlertForm({ signalRules }) {
                         ))}
                     </select>
                     {form.errors.signal_key ? <p className="field-error">{form.errors.signal_key}</p> : null}
+                    <RuleNotes rule={findSignalRule(signalRules, form.data.signal_key)} />
                 </label>
             ) : (
                 <label className="form-field">
@@ -180,6 +212,7 @@ function AlertCard({ alert, signalRules, triggered }) {
                     </Link>
                 )}
                 <span className="alert-card__desc">{describe(alert, signalRules, t)}</span>
+                {alert.type === 'signal' ? <RuleNotes rule={findSignalRule(signalRules, alert.signal_key)} /> : null}
                 {alert.note ? <small>{alert.note}</small> : null}
                 {triggered ? (
                     <small className="alert-card__meta">

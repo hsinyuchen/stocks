@@ -5,6 +5,43 @@ import { ListChecks, Loader2, ScanSearch } from 'lucide-react';
 import AppShell from '../../Layouts/AppShell';
 import { useI18n } from '../../i18n';
 
+/**
+ * 規則的必要說明。
+ *
+ * **無條件渲染、不隨勾選出現、不可摺疊。** 這兩條規則的名字會讓使用者推論出
+ * 系統沒有驗證過的事（「社交」套利實際只有新聞熱度、「產業加速」是回顧性指標
+ * 且只對台股有效），而選股器原本只拿得到 label，沒有任何更正機會。
+ * 25 條規則裡只有 2 條帶說明，所以全部攤開也只有幾行——用「選了才顯示」換那
+ * 幾行版面，代價是使用者在**決定要不要選**的當下看不到更正。
+ *
+ * 文案來自 i18n 鍵而不是後端字串：這是硬性揭露，英文介面漏掉會變成中文露出。
+ */
+function RuleNotes({ rules }) {
+    const { t } = useI18n();
+    const annotated = rules.filter((rule) => (rule.notes ?? []).length > 0);
+
+    if (annotated.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="screener-rule-notes">
+            <p className="screener-rule-notes__heading">{t('screener.ruleNotesLabel')}</p>
+            {annotated.map((rule) => (
+                <div className="screener-rule-notes__item" key={rule.key}>
+                    <strong>{rule.label}</strong>
+                    <ul>
+                        {rule.notes.map((note) => (
+                            <li key={note}>{t(note)}</li>
+                        ))}
+                    </ul>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+
 function formatPrice(value) {
     if (typeof value !== 'number' || Number.isNaN(value)) {
         return '-';
@@ -258,6 +295,8 @@ export default function ScreenerIndex({
                         );
                     })}
                 </div>
+
+                <RuleNotes rules={rules} />
 
                 <div className="screener__actions">
                     <button

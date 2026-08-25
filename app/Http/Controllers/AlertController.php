@@ -40,9 +40,7 @@ class AlertController extends Controller
         return Inertia::render('Alerts/Index', [
             'active' => $alerts->where('status', 'active')->values()->all(),
             'triggered' => $alerts->where('status', 'triggered')->values()->all(),
-            'signalRules' => collect($registry->all())
-                ->map(fn ($rule) => ['key' => $rule->key(), 'label' => $rule->label()])
-                ->values()->all(),
+            'signalRules' => $registry->listing(),
         ]);
     }
 

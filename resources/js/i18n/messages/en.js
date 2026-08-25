@@ -653,6 +653,12 @@ export default {
         "emptyReport": "No evening briefing yet. Configure a model and click the button above to start."
     },
     "screener": {
+        "noteSocialCoverage": "Covers news heat only, not social-media sentiment: none of the sources listed in SOP 2.3 (YouTube, X, Reddit, Threads, PTT, Dcard, e-commerce channels) are connected to this platform.",
+        "noteSocialNoBacktest": "The classification thresholds have never been backtested; the result is a descriptive label, not a prediction of hit rate, return, or subsequent price action.",
+        "noteMomentumRetrospective": "A retrospective measure: it compares monthly revenue that has already been reported, not a forecast of revenue or price.",
+        "noteMomentumTaiwanOnly": "TW listings only: US listings have no monthly revenue (the SEC does not publish it) and never match.",
+        "noteMomentumNoBacktest": "Both thresholds (industry accelerating, subject outperforming) are initial estimates that have never been backtested.",
+        "ruleNotesLabel": "Required notes for this rule",
         "createWatchlistFirst": "Create a watchlist first",
         "addFailed": "Failed to add",
         "selectWatchlistFor": "Select a watchlist to add :symbol to",

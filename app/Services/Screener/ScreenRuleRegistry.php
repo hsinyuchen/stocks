@@ -67,6 +67,35 @@ class ScreenRuleRegistry
         return $out;
     }
 
+    /**
+     * 呈現用的規則清單：選股器與警報兩個消費端**共用這一份**。
+     *
+     * 形狀原本各自寫在 ScreenerController 與 AlertController 裡。兩份一樣的
+     * `['key' => ..., 'label' => ...]` 意味著加欄位時只改到一邊——而這裡要加的
+     * 正是「不說就會讓使用者推論出系統沒驗證過的事」的硬性揭露
+     * （見 {@see ScreenRuleNote}），漏一邊等於那個消費端繼續騙人。
+     * 收攏成一個方法之後，漏不掉。
+     *
+     * `notes` 對沒有附註的規則是空陣列而不是 null：呈現層一律 map，
+     * 不必先判斷型別。
+     *
+     * @return list<array{key: string, label: string, notes: list<string>}>
+     */
+    public function listing(): array
+    {
+        $out = [];
+
+        foreach ($this->all() as $rule) {
+            $out[] = [
+                'key' => $rule->key(),
+                'label' => $rule->label(),
+                'notes' => $rule instanceof ScreenRuleNote ? $rule->noteKeys() : [],
+            ];
+        }
+
+        return $out;
+    }
+
     /** @return list<string> */
     public function keys(): array
     {

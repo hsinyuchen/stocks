@@ -5,6 +5,7 @@ namespace App\Services\Screener\Rules;
 use App\Data\SocialArbitrage;
 use App\Enums\SocialArbitrageStage;
 use App\Services\Screener\ScreenRule;
+use App\Services\Screener\ScreenRuleNote;
 use App\Services\Social\SocialArbitrageClassifier;
 
 /**
@@ -20,7 +21,7 @@ use App\Services\Social\SocialArbitrageClassifier;
  * 基本面反證，資料不足代表連熱度樣本都還不夠。把它們任何一個算成命中，都會
  * 讓這條規則的名字與它篩出來的東西對不上。
  */
-final class EarlySocialArbitrage implements ScreenRule
+final class EarlySocialArbitrage implements ScreenRule, ScreenRuleNote
 {
     public function key(): string
     {
@@ -30,6 +31,17 @@ final class EarlySocialArbitrage implements ScreenRule
     public function label(): string
     {
         return '早期社交套利';
+    }
+
+    /**
+     * 「社交」兩個字會讓使用者以為涵蓋 YouTube／X／Reddit／PTT 等來源，
+     * 本平台一個都沒有接入。門檻同樣未經回測。兩則都不得省略。
+     *
+     * @return non-empty-list<string>
+     */
+    public function noteKeys(): array
+    {
+        return ['screener.noteSocialCoverage', 'screener.noteSocialNoBacktest'];
     }
 
     /** @return list<string> */

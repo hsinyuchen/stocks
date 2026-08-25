@@ -654,6 +654,12 @@ export default {
         "emptyReport": "尚未產生任何晚間快報。設定模型後按上方按鈕即可開始。"
     },
     "screener": {
+        "noteSocialCoverage": "只涵蓋新聞熱度，不含社群輿情：SOP 2.3 列的 YouTube、X、Reddit、Threads、PTT、Dcard 與電商通路，本平台一個都沒有接入。",
+        "noteSocialNoBacktest": "分類門檻未經回測，結果只是描述性標籤，不是勝率、報酬或後續走勢的預測。",
+        "noteMomentumRetrospective": "回顧性指標：比的是已經公布的月營收，不是對未來營收或股價的預測。",
+        "noteMomentumTaiwanOnly": "僅台股有效：美股沒有月營收（SEC 不提供），一律不命中。",
+        "noteMomentumNoBacktest": "產業加速與個股跑贏兩個門檻皆為未經回測的初始估計值。",
+        "ruleNotesLabel": "此規則的必要說明",
         "createWatchlistFirst": "先建立自選清單",
         "addFailed": "加入失敗",
         "selectWatchlistFor": "選擇要加入 :symbol 的自選清單",

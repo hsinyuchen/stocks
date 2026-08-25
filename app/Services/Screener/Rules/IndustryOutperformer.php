@@ -4,6 +4,7 @@ namespace App\Services\Screener\Rules;
 
 use App\Data\IndustryMomentum;
 use App\Services\Screener\ScreenRule;
+use App\Services\Screener\ScreenRuleNote;
 
 /**
  * 找「所處產業正在加速，且自己還跑贏產業」的標的（僅台股，見 IndustryMomentum）。
@@ -21,7 +22,7 @@ use App\Services\Screener\ScreenRule;
  * 一律不命中——不是命中、也不是例外。`null >= 0.1` 在 PHP 會靜默成立，所以
  * 必須先擋 null 再比較。
  */
-final class IndustryOutperformer implements ScreenRule
+final class IndustryOutperformer implements ScreenRule, ScreenRuleNote
 {
     public function key(): string
     {
@@ -31,6 +32,21 @@ final class IndustryOutperformer implements ScreenRule
     public function label(): string
     {
         return '產業加速且個股跑贏';
+    }
+
+    /**
+     * 「加速」聽起來像前瞻判斷，實際比的是**已經公布**的月營收；名字也沒說它
+     * 只對台股有意義。門檻同樣未經回測。三則都不得省略。
+     *
+     * @return non-empty-list<string>
+     */
+    public function noteKeys(): array
+    {
+        return [
+            'screener.noteMomentumRetrospective',
+            'screener.noteMomentumTaiwanOnly',
+            'screener.noteMomentumNoBacktest',
+        ];
     }
 
     /** @return list<string> */

@@ -25,10 +25,7 @@ class ScreenerController extends Controller
         $pool = $screener->poolBreakdown($request->user());
 
         return Inertia::render('Screener/Index', [
-            'rules' => collect($registry->all())
-                ->map(fn ($rule) => ['key' => $rule->key(), 'label' => $rule->label()])
-                ->values()
-                ->all(),
+            'rules' => $registry->listing(),
             'watchlists' => $request->user()->watchlists()
                 ->orderBy('name')
                 ->get(['id', 'name'])

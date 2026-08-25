@@ -4090,3 +4090,47 @@ select:focus-visible {
     line-height: 1.6;
     margin: 10px 0 0;
 }
+
+/*
+ * 規則的必要說明（選股器與警報）。
+ *
+ * 刻意不做成摺疊或 tooltip：這兩則是硬性揭露——不說的話「社交套利」會讓使用者
+ * 以為涵蓋 PTT／X 等來源、「產業加速」會被讀成前瞻判斷。藏起來等於沒說。
+ * 樣式壓低對比讓它讀起來像附註而不是警告，但**永遠在版面上**。
+ */
+.screener-rule-notes {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-top: 12px;
+    padding: 12px 14px;
+}
+
+.screener-rule-notes__heading {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin: 0 0 8px;
+    text-transform: none;
+}
+
+.screener-rule-notes__item + .screener-rule-notes__item {
+    margin-top: 10px;
+}
+
+.screener-rule-notes__item strong {
+    font-size: 0.85rem;
+}
+
+.screener-rule-notes ul,
+.alert-rule-notes {
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    margin: 4px 0 0;
+    padding-left: 18px;
+}
+
+.alert-rule-notes {
+    margin-top: 6px;
+}
