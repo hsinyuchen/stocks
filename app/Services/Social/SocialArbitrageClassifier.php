@@ -13,7 +13,7 @@ use App\Services\Fundamentals\OrderInventoryRadar;
  * {@see OrderInventoryRadar} 同一模式——為了能用
  * 注入的假輸入精確測每個分支。
  *
- * 四條輸入腿（股價漲幅、法人淨買超佔股本比、營收驗證、毛利率 QoQ）皆為可為 null
+ * 四條輸入腿（股價漲幅、法人淨買超佔同期成交量比、營收驗證、毛利率 QoQ）皆為可為 null
  * 的型別，`null` 一律代表**這條腿算不出來**而非「不成立」。美股沒有三大法人資料，
  * 分類規則因此寫成「可評估的腿都成立」而非「四條腿都成立」，否則美股標的
  * 永遠分不出階段。
@@ -38,10 +38,10 @@ class SocialArbitrageClassifier
 
         $foreignLegEvaluable = $foreignShare !== null;
         $foreignBuying = $foreignLegEvaluable
-            ? $foreignShare >= $this->requireFloat('order_inventory.social.foreign_net_buy_share')
+            ? $foreignShare >= $this->requireFloat('order_inventory.social.foreign_net_buy_volume_share')
             : null;
         $foreignBuyingHeavy = $foreignLegEvaluable
-            ? $foreignShare >= $this->requireFloat('order_inventory.social.foreign_net_buy_share_heavy')
+            ? $foreignShare >= $this->requireFloat('order_inventory.social.foreign_net_buy_volume_share_heavy')
             : null;
 
         $revenueUnverified = $revenueVerified === null ? null : ! $revenueVerified;
@@ -181,7 +181,7 @@ class SocialArbitrageClassifier
      *
      * 這裡的失效模式**會放寬面向使用者的分類宣稱**，而不是安全地失效：
      * `(float) null === 0.0`，`price_risen` 靜默變成 0 會讓**任何非負漲幅都算「已漲」**，
-     * `foreign_net_buy_share` 變成 0 會讓**任何非負淨買超都算「法人買」**——一檔沒漲、
+     * `foreign_net_buy_volume_share` 變成 0 會讓**任何非負淨買超都算「法人買」**——一檔沒漲、
      * 法人也沒買的標的因此被推上 `PartlyPriced`／`FullyPriced`，而且不會有任何錯誤
      * 訊號可供察覺。`price_fell` 更糟：它是負值，變成 0 會讓所有沒漲的標的都被當成
      * 「反向大跌」而完全消滅 `Early`。

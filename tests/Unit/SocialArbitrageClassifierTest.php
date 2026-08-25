@@ -94,7 +94,7 @@ class SocialArbitrageClassifierTest extends TestCase
         $result = $this->classify(
             heat: $this->heat(['hasEnoughSamples' => false, 'recentCount' => 2, 'isHighWater' => true]),
             priceChange: $this->threshold('social.price_surged') + 0.10,
-            foreignShare: $this->threshold('social.foreign_net_buy_share_heavy') + 0.01,
+            foreignShare: $this->threshold('social.foreign_net_buy_volume_share_heavy') + 0.01,
         );
 
         $this->assertSame(SocialArbitrageStage::Insufficient, $result->stage);
@@ -190,8 +190,11 @@ class SocialArbitrageClassifierTest extends TestCase
 
         $this->assertNotSame(
             SocialArbitrageStage::Early,
-            $this->classify(priceChange: 0.0, foreignShare: 0.05)->stage,
-            '法人已在大買就不是「早期」——這條腿必須真的參與判定',
+            $this->classify(
+                priceChange: 0.0,
+                foreignShare: $this->threshold('social.foreign_net_buy_volume_share') + 0.01,
+            )->stage,
+            '法人已在買就不是「早期」——這條腿必須真的參與判定',
         );
     }
 
@@ -238,7 +241,10 @@ class SocialArbitrageClassifierTest extends TestCase
     {
         $risen = $this->threshold('social.price_risen');
 
-        $result = $this->classify(priceChange: $risen, foreignShare: 0.01);
+        $result = $this->classify(
+            priceChange: $risen,
+            foreignShare: $this->threshold('social.foreign_net_buy_volume_share'),
+        );
 
         $this->assertSame(SocialArbitrageStage::PartlyPriced, $result->stage);
     }
@@ -250,7 +256,10 @@ class SocialArbitrageClassifierTest extends TestCase
 
         $this->assertSame(
             SocialArbitrageStage::PartlyPriced,
-            $this->classify(priceChange: $risen, foreignShare: 0.01)->stage,
+            $this->classify(
+                priceChange: $risen,
+                foreignShare: $this->threshold('social.foreign_net_buy_volume_share'),
+            )->stage,
             '恰好等於門檻算已漲；釘住 >= 與 > 的差別',
         );
     }
@@ -279,7 +288,7 @@ class SocialArbitrageClassifierTest extends TestCase
     public function the_foreign_net_buy_boundary_is_inclusive(): void
     {
         $risen = $this->threshold('social.price_risen');
-        $buying = $this->threshold('social.foreign_net_buy_share');
+        $buying = $this->threshold('social.foreign_net_buy_volume_share');
 
         $this->assertSame(
             SocialArbitrageStage::PartlyPriced,
@@ -298,7 +307,7 @@ class SocialArbitrageClassifierTest extends TestCase
     public function fully_priced_requires_high_water_heat(): void
     {
         $surged = $this->threshold('social.price_surged');
-        $heavy = $this->threshold('social.foreign_net_buy_share_heavy');
+        $heavy = $this->threshold('social.foreign_net_buy_volume_share_heavy');
 
         $result = $this->classify(
             heat: $this->heat(['isHighWater' => true]),
@@ -323,8 +332,8 @@ class SocialArbitrageClassifierTest extends TestCase
     {
         $risen = $this->threshold('social.price_risen');
         $surged = $this->threshold('social.price_surged');
-        $buying = $this->threshold('social.foreign_net_buy_share');
-        $heavy = $this->threshold('social.foreign_net_buy_share_heavy');
+        $buying = $this->threshold('social.foreign_net_buy_volume_share');
+        $heavy = $this->threshold('social.foreign_net_buy_volume_share_heavy');
 
         // 「已部分反映」與「已高度反映」的差別應該是市場已經反應了多少——那是價格
         // 與籌碼的事。兩腿若共用同一組門檻，唯一的差別會退化成新聞量，而新聞熱度高
@@ -359,7 +368,7 @@ class SocialArbitrageClassifierTest extends TestCase
                 priceChange: $surged,
                 foreignShare: $buying,
             )->stage,
-            '股價大漲但法人只是開始買——籌碼腿必須用 foreign_net_buy_share_heavy',
+            '股價大漲但法人只是開始買——籌碼腿必須用 foreign_net_buy_volume_share_heavy',
         );
 
         $this->assertSame(
@@ -520,7 +529,7 @@ class SocialArbitrageClassifierTest extends TestCase
     public function every_leg_verdict_is_reported_so_the_presentation_layer_never_recomputes(): void
     {
         $risen = $this->threshold('social.price_risen');
-        $heavy = $this->threshold('social.foreign_net_buy_share_heavy');
+        $heavy = $this->threshold('social.foreign_net_buy_volume_share_heavy');
 
         $result = $this->classify(
             priceChange: $risen + 0.01,
@@ -562,8 +571,8 @@ class SocialArbitrageClassifierTest extends TestCase
         $surged = $this->threshold('social.price_surged');
         $flat = $this->threshold('social.price_flat');
         $fell = $this->threshold('social.price_fell');
-        $buying = $this->threshold('social.foreign_net_buy_share');
-        $heavy = $this->threshold('social.foreign_net_buy_share_heavy');
+        $buying = $this->threshold('social.foreign_net_buy_volume_share');
+        $heavy = $this->threshold('social.foreign_net_buy_volume_share_heavy');
         $heatRise = $this->threshold('social.heat_rise_ratio');
 
         $this->assertGreaterThanOrEqual(
@@ -575,7 +584,7 @@ class SocialArbitrageClassifierTest extends TestCase
         $this->assertGreaterThanOrEqual(
             $buying,
             $heavy,
-            'foreign_net_buy_share_heavy 必須 >= foreign_net_buy_share：理由同 price_surged，規則 3 的籌碼腿必須是規則 4 的嚴格加強版',
+            'foreign_net_buy_volume_share_heavy 必須 >= foreign_net_buy_volume_share：理由同 price_surged，規則 3 的籌碼腿必須是規則 4 的嚴格加強版',
         );
 
         $this->assertLessThanOrEqual(
@@ -605,7 +614,7 @@ class SocialArbitrageClassifierTest extends TestCase
         $this->assertGreaterThan(
             0.0,
             $buying,
-            'foreign_net_buy_share 必須 > 0：判準是 >=，訂成 0 或負值會讓淨賣超也算「法人買」',
+            'foreign_net_buy_volume_share 必須 > 0：判準是 >=，訂成 0 或負值會讓淨賣超也算「法人買」',
         );
 
         $this->assertGreaterThan(
@@ -624,8 +633,8 @@ class SocialArbitrageClassifierTest extends TestCase
             'order_inventory.social.price_surged',
             'order_inventory.social.price_flat',
             'order_inventory.social.price_fell',
-            'order_inventory.social.foreign_net_buy_share',
-            'order_inventory.social.foreign_net_buy_share_heavy',
+            'order_inventory.social.foreign_net_buy_volume_share',
+            'order_inventory.social.foreign_net_buy_volume_share_heavy',
             'order_inventory.thresholds.gross_margin_stable_pp',
         ];
 

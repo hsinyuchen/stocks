@@ -17,12 +17,12 @@ enum SocialArbitrageStage: string
      */
     case Early = 'early';
 
-    /** 熱度升溫，股價已漲（達 `price_risen`），法人開始買（達 `foreign_net_buy_share`，或法人腿不可評估）。 */
+    /** 熱度升溫，股價已漲（達 `price_risen`），法人開始買（達 `foreign_net_buy_volume_share`，或法人腿不可評估）。 */
     case PartlyPriced = 'partly_priced';
 
     /**
      * 熱度處於近期歷史高檔，股價**大漲**（達 `price_surged`），法人**已大買**
-     * （達 `foreign_net_buy_share_heavy`，或法人腿不可評估）。
+     * （達 `foreign_net_buy_volume_share_heavy`，或法人腿不可評估）。
      *
      * 股價與籌碼兩腿刻意用比 {@see self::PartlyPriced} 更高的門檻：兩者的差別是
      * 「市場已經反應了多少」，那是價格與籌碼的事；若兩腿共用同一組門檻，唯一的
