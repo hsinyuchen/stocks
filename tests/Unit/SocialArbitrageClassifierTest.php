@@ -74,8 +74,21 @@ class SocialArbitrageClassifierTest extends TestCase
         return (float) config("order_inventory.$key");
     }
 
+    /**
+     * 樣本不足時：`heatUp` 不予判定、細分原因指名「樣本不足」、則數照傳。
+     *
+     * **這條測試釘的不是守門的排序**（原本的名字 short_circuit_everything 是誤導）：
+     * `$heatUp` 在樣本不足時本來就是 null，三個 heatUp 桶因此不可達，把
+     * `! $heat->hasEnoughSamples => Insufficient` 整條刪掉這裡照樣綠。排序只有
+     * FullyPriced 看得出來（它刻意不看 heatUp），由
+     * {@see self::insufficient_samples_outrank_high_water_heat()} 釘住。
+     *
+     * 這兩件事（heatUp 的 null 化、細分原因）本來就是本測試唯一的內容，加上準確的
+     * 名字之後不再有人會以為它在釘守門排序。細分原因的分支由
+     * {@see self::legs_that_match_no_bucket_get_their_own_reason()} 涵蓋，這裡不重複。
+     */
     #[Test]
-    public function insufficient_samples_short_circuit_everything(): void
+    public function insufficient_samples_leave_heat_up_unjudged_and_name_the_reason(): void
     {
         $result = $this->classify(
             heat: $this->heat(['hasEnoughSamples' => false, 'recentCount' => 2]),
@@ -92,11 +105,22 @@ class SocialArbitrageClassifierTest extends TestCase
         );
     }
 
+    /**
+     * 假訊號的證據全部齊全，但只有 2 則新聞——heat_rise_ratio 在這種基數上不可信
+     * （config 註解：避免 1→2 則被算成 +100%），所以不得判假訊號。
+     *
+     * **樣本不足是怎麼壓過假訊號的，這裡釘的就是那個機制**：`$heatUp` 被 null 化，
+     * 而 FalseSignal 那一條要求 `$heatUp === true`。把
+     * `$heatUp = $heat->hasEnoughSamples ? … : null` 的三元拿掉（改成無條件計算），
+     * 只斷言 stage 的版本照樣綠——因為 `! $heat->hasEnoughSamples => Insufficient`
+     * 會接住；只有 `assertNull($result->heatUp)` 抓得到。
+     *
+     * 對照組（同一組腿、樣本足夠）確認這組輸入真的是完整的假訊號，否則「壓過」
+     * 二字沒有對象。
+     */
     #[Test]
     public function insufficient_samples_outrank_a_complete_false_signal(): void
     {
-        // 假訊號的證據全部齊全，但只有 2 則新聞——heat_rise_ratio 在這種基數上
-        // 不可信（config 註解：避免 1→2 則被算成 +100%），樣本守門必須排在最前面。
         $result = $this->classify(
             heat: $this->heat(['hasEnoughSamples' => false, 'recentCount' => 2]),
             priceChange: 0.0,
@@ -111,6 +135,23 @@ class SocialArbitrageClassifierTest extends TestCase
             '樣本不足時不得判假訊號——那個「熱度升溫」本身就是雜訊',
         );
         $this->assertSame(SocialArbitrageInsufficientReason::NotEnoughSamples, $result->insufficientReason);
+        $this->assertNull(
+            $result->heatUp,
+            '樣本不足時 heatUp 必須是 null——那是三個 heatUp 桶（含假訊號）不可達的唯一機制',
+        );
+
+        $enoughSamples = $this->classify(
+            priceChange: 0.0,
+            foreignShare: 0.0,
+            revenueVerified: false,
+            grossMarginQoqPp: -2.0,
+        );
+
+        $this->assertSame(
+            SocialArbitrageStage::FalseSignal,
+            $enoughSamples->stage,
+            '同一組腿在樣本足夠時必須真的是假訊號，否則「樣本不足壓過假訊號」沒有對象',
+        );
     }
 
     #[Test]

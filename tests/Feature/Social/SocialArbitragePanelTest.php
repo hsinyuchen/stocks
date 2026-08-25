@@ -269,8 +269,17 @@ class SocialArbitragePanelTest extends TestCase
 
         // 不可評估那支不得碰原始值或門檻：印「佔同期成交量 0.0%」等於把
         // 「沒有這種資料」講成「有資料且為零」。
-        $this->assertStringNotContainsString('leg.value', $unevaluable);
-        $this->assertStringNotContainsString('social-leg__value', $unevaluable);
+        //
+        // 斷言的是**整個 `value` 字樣**而不是 `leg.value`：原始值是 SocialLeg 的
+        // `value` prop（不是 `leg` 上的欄位），`leg.value` 這個字串在 Search.jsx
+        // 根本不存在，那樣寫恆真。裸 `{value}`、`{socialPercent(value)}`、
+        // 或整個 `social-leg__value` 節點都會被這一條擋下來；`unevaluable`／
+        // `evaluable` 兩個既有字樣都不含 `value`，不會誤擋。
+        $this->assertStringNotContainsString(
+            'value',
+            $unevaluable,
+            '不可評估那支一個 value 都不准碰——包含裸 {value} 與任何包過一層的格式化',
+        );
         $this->assertStringNotContainsString('thresholds', $unevaluable);
     }
 

@@ -282,7 +282,39 @@ class SocialScreenRulesTest extends TestCase
             $this->assertNotSame('', trim($all[$key]->label()));
         }
 
-        $this->assertSame(count($keys), count(array_unique($keys)), 'key 重複會讓規則互相覆蓋');
+        // `array_keys()` 的結果本來就不可能有重複，拿它比 array_unique() 恆真。
+        // 真正的失效是 ScreenRuleRegistry::all() 用 `$out[$rule->key()] = $rule`
+        // **互相覆蓋**：兩條規則撞 key 時筆數會少一筆，使用者選得到的那一條會被
+        // 另一條吃掉。所以改成比「註冊表筆數 vs 具體規則類別數」——同一條斷言
+        // 順便擋住「新增了規則類別卻忘了註冊」。
+        $this->assertSame(
+            $this->concreteRuleClassCount(),
+            count($all),
+            'key 撞號會讓規則在註冊表裡互相覆蓋，筆數因此少於規則類別數',
+        );
+    }
+
+    /** app/Services/Screener/Rules 下的**具體**規則類別數（抽象基底不算）。 */
+    private function concreteRuleClassCount(): int
+    {
+        $count = 0;
+
+        foreach (glob(app_path('Services/Screener/Rules/*.php')) as $file) {
+            // 從一個已知規則的 FQCN 換掉短名以取得命名空間，避免在這裡再寫死一次。
+            $class = str_replace('EarlySocialArbitrage', basename($file, '.php'), EarlySocialArbitrage::class);
+
+            if (! class_exists($class)) {
+                continue;
+            }
+
+            $reflection = new \ReflectionClass($class);
+
+            if (! $reflection->isAbstract() && $reflection->implementsInterface(ScreenRule::class)) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     // --- 真實鏈路：資料列 → contextFor() → 規則 ---

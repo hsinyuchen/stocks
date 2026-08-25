@@ -294,6 +294,18 @@ class NewsHeatCalculatorTest extends TestCase
         $this->assertFalse($heat->isHighWater);
     }
 
+    /**
+     * 全零分佈**在任何百分位下**都不是高檔。
+     *
+     * 這個 fixture 的 `nonZeroSegments` 是 0，所以實際接住它的是非零段數那道守門，
+     * `$threshold <= 0` 那道走不到——兩道互為backstop，只刪一道這條測試不會紅
+     * （非零段數那道由 two_populated_segments_out_of_three… 與
+     * a_lone_recent_mention… 釘住，`$threshold <= 0` 那道由
+     * a_threshold_landing_on_an_empty_segment… 與
+     * a_low_percentile_on_three_segments… 釘住）。本條釘的是**兩道一起拿掉**的
+     * 情形，並且把「與百分位無關」寫成斷言：掃過整個百分位範圍，包含會讓
+     * nearest-rank 落到最低段的那些值。
+     */
     #[Test]
     public function an_all_zero_distribution_is_not_a_high_water_mark(): void
     {
@@ -301,16 +313,31 @@ class NewsHeatCalculatorTest extends TestCase
         // 門檻若照算會是 0.0，而 0 >= 0 會讓「零則新聞」被宣告為熱度高檔。
         $this->news(45, ['2330.TW']);
 
-        $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
+        foreach ([1.0, 20.0, 50.0, 80.0, 100.0] as $percentile) {
+            config(['order_inventory.social.high_water_percentile' => $percentile]);
 
-        $this->assertSame(0, $heat->recentCount);
-        $this->assertNull(
-            $heat->highWaterThreshold,
-            '全零分佈沒有門檻可言，0.0 不是門檻；null 才代表「算不出來」',
-        );
-        $this->assertFalse($heat->isHighWater, '零則新聞不可能是熱度高檔');
+            $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
+
+            $this->assertSame(0, $heat->recentCount);
+            $this->assertNull(
+                $heat->highWaterThreshold,
+                sprintf('全零分佈沒有門檻可言（p%s），0.0 不是門檻；null 才代表「算不出來」', $percentile),
+            );
+            $this->assertFalse($heat->isHighWater, '零則新聞不可能是熱度高檔');
+        }
     }
 
+    /**
+     * **這是唯一走得到 `$threshold <= 0` 那道守門的 fixture，而且非調低百分位不可。**
+     *
+     * 走到那道守門的條件是「nearest-rank 落在一個 0 則的段上，且非零段數仍達 3」。
+     * 段數只可能是 3 或 4（high_water_window_days / heat_window_days = 60 / 14，
+     * 且 MIN_SEGMENTS_FOR_PERCENTILE = 3）：3 段時三段都得非零，沒有空白段可落；
+     * 4 段時必須恰有一段為零，而出貨設定的 p80 一律指向**最大**段——最大段為 0
+     * 就代表全零分佈，會先被非零段數那道接住。所以在 p80 下這道守門不可達，
+     * 得把百分位調到 ≤25（4 段時 rank 才會是 1）才逼得出來。
+     * 詳見 config/order_inventory.php 的 high_water_percentile 註解。
+     */
     #[Test]
     public function a_threshold_landing_on_an_empty_segment_is_not_a_high_water_mark(): void
     {

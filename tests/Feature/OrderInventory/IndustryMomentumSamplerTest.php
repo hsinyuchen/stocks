@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\OrderInventory;
 
-use App\Data\IndustryMomentum;
 use App\Data\OrderInventoryData;
 use App\Enums\IndustryMomentumUnavailableReason;
 use App\Models\Fundamental;
@@ -486,8 +485,11 @@ class IndustryMomentumSamplerTest extends TestCase
 
         $result = $this->sampler()->forInstrument($us, '半導體業');
 
-        $this->assertInstanceOf(IndustryMomentum::class, $result);
         $this->assertFalse($result->applicable);
+        // 原本這裡是 assertInstanceOf(IndustryMomentum::class)，被回傳型別保證、恆真。
+        // 換成 reason：「這個市場沒有這個功能」與「產業別抓不到」是兩種不同的處境，
+        // 呈現層的文案也不同，指名哪一種才是這條測試該釘的東西。
+        $this->assertSame(IndustryMomentumUnavailableReason::NotTaiwan, $result->reason);
         $this->assertNull($result->industry);
         $this->assertNull($result->median);
         $this->assertNull($result->own);
