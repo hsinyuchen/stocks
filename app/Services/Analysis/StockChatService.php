@@ -63,6 +63,7 @@ final class StockChatService
         private readonly LlmJsonParser $json = new LlmJsonParser,
         private readonly SopGuide $sop = new SopGuide,
         private readonly OrderInventoryGuide $orderInventoryGuide = new OrderInventoryGuide,
+        private readonly SocialArbitrageGuide $socialGuide = new SocialArbitrageGuide,
     ) {}
 
     /**
@@ -102,6 +103,7 @@ final class StockChatService
             'rule_signal' => $base['rule_signal'],
             'rates' => $base['rates'],
             'order_inventory' => $base['order_inventory'],
+            'social' => $base['social'],
             'fundamentals' => $fundamentals === null ? null : [
                 'per' => $fundamentals->per,
                 'pbr' => $fundamentals->pbr,
@@ -174,6 +176,13 @@ final class StockChatService
             ? ''
             : $this->orderInventoryGuide->discipline($locale)."\n";
 
+        // 社交套利與產業動能的引用紀律同樣屬於規則，因此也走 system role；兩個資料
+        // 區塊本身是資料，走 user message（見 buildUserPrompt）。查無 Instrument 時
+        // 整段不輸出——沒有區塊可引用時，那五條規則只會讓模型去猜一個不存在的區塊。
+        $socialDiscipline = ($context['social'] ?? null) === null
+            ? ''
+            : $this->socialGuide->discipline($locale)."\n";
+
         if ($locale === 'en') {
             return <<<SYSTEM
 You are the dedicated AI investment advisor for the single stock "{$symbol}　{$name}", and you serve only this stock.
@@ -207,7 +216,7 @@ BEGIN_SOP_DISCIPLINE
 {$dataSufficiency}
 {$antiManipulation}
 {$ratingLine}
-{$orderInventoryDiscipline}END_SOP_DISCIPLINE
+{$orderInventoryDiscipline}{$socialDiscipline}END_SOP_DISCIPLINE
 BEGIN_OUTPUT_CONTRACT
 Return only one JSON object, with no other text before or after and no code fences:
 {"decision":"answer","answer":"your answer"}
@@ -253,7 +262,7 @@ BEGIN_SOP_DISCIPLINE
 {$dataSufficiency}
 {$antiManipulation}
 {$ratingLine}
-{$orderInventoryDiscipline}END_SOP_DISCIPLINE
+{$orderInventoryDiscipline}{$socialDiscipline}END_SOP_DISCIPLINE
 BEGIN_OUTPUT_CONTRACT
 只回傳一個 JSON 物件，前後不要有任何其他文字，也不要包程式碼圍欄：
 {"decision":"answer","answer":"回答內容"}
@@ -312,6 +321,18 @@ SYSTEM;
             ? ''
             : "BEGIN_ORDER_INVENTORY\n".$this->orderInventoryGuide->block($orderInventory, $locale)."\nEND_ORDER_INVENTORY\n";
 
+        // 社交套利與產業動能兩個資料區塊。無分類時**整段不輸出**，連標頭都不留，
+        // 理由與訂單／庫存同一條：空標頭會被 LLM 讀成「這項資料查過而且是空的」。
+        // 兩個區塊分開包，理由見 SocialArbitrageGuide 的 docblock。
+        $social = $context['social'] ?? null;
+        $socialSection = $social === null
+            ? ''
+            : "BEGIN_SOCIAL_ARBITRAGE\n"
+                .$this->socialGuide->arbitrageBlock($social['arbitrage'], $locale)
+                ."\nEND_SOCIAL_ARBITRAGE\nBEGIN_INDUSTRY_MOMENTUM\n"
+                .$this->socialGuide->momentumBlock($social['momentum'], $locale)
+                ."\nEND_INDUSTRY_MOMENTUM\n";
+
         $newsBlock = $this->newsBlock($context['news'] ?? []);
         $historyBlock = $this->historyBlock($history);
         $safeQuestion = $this->sanitize($question);
@@ -340,7 +361,7 @@ END_FUNDAMENTALS
 BEGIN_VALUATION_PERCENTILE
 {$valuationJson}
 END_VALUATION_PERCENTILE
-{$orderInventorySection}BEGIN_CHIP_FLOWS
+{$orderInventorySection}{$socialSection}BEGIN_CHIP_FLOWS
 {$chipJson}
 END_CHIP_FLOWS
 BEGIN_MARGIN_FLOWS

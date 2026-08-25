@@ -29,7 +29,8 @@ class ScreenerEndpointTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Screener/Index')
                 // 8 條技術面 + 3 條籌碼面 + 3 條基本面 + 5 條融資融券 + 4 條訂單庫存
-                ->has('rules', 23)
+                // + 1 條社交套利 + 1 條產業動能
+                ->has('rules', 25)
                 ->where('rules.0.key', 'kd_golden_cross')
                 ->has('watchlists', 1)
                 ->where('watchlists.0.name', '核心')

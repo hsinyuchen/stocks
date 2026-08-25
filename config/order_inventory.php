@@ -36,6 +36,23 @@ return [
     'us_ttl_hours' => (int) env('ORDER_INVENTORY_US_TTL_HOURS', 24),
 
     /*
+     * 序列快取的新鮮度視窗（天）。
+     *
+     * 給 FundamentalsService::orderInventorySeriesFor() 用，**與估值的每日 TTL
+     * 無關**。估值（PER／PBR／EPS）每個交易日盤後公佈，所以那條路問的是「今天
+     * 的公佈了沒」；但 order_inventory 是**季財報＋月營收**——季報約在季末後 45 天
+     * 送件、月營收每月 10 日前公告，一天不會有新東西。拿每日 TTL 去量它，會讓
+     * 昨天抓的整條序列在今天盤後被判「沒有」，而只讀快取的消費端（社交套利的
+     * 營收與毛利兩條腿）於是恆為不可評估。
+     *
+     * 30 天與 peer／industry_momentum 兩個取樣區的 freshness_days 同值，**理由也
+     * 相同**：比的是「現在」的營運狀況，超過一個月的快取列不該再拿來下判斷。
+     * 三者刻意各自成鍵而不共用一個：取樣是跨公司比較、這裡是單一標的的讀取，
+     * 兩種用途的視窗將來可能要分開調。
+     */
+    'series_freshness_days' => 30,
+
+    /*
      * SEC EDGAR 設定。
      *
      * SEC 要求 User-Agent 必須可識別並帶聯絡方式，否則會被封鎖；
@@ -440,6 +457,153 @@ return [
             'upgraded' => 'Grade raised from the previous assessment.',
             'downgraded' => 'Grade lowered from the previous assessment.',
         ],
+
+        /*
+         * 社交套利區塊的文案（{@see App\Services\Analysis\SocialArbitrageGuide}）。
+         *
+         * 這裡只放**語意危險**的三類字串，其餘格式性散文留在 Guide 裡（與
+         * OrderInventoryGuide 同一分工）：
+         *   1. 機器鍵對照：`stage_*`、`reason_*` 直接進 prompt 會被 LLM 照抄給使用者
+         *      看，`partly_priced` 這種字不是給人讀的。
+         *   2. 硬性聲明：`coverage_note`（只有新聞、沒有社群）與 `no_backtest_note`
+         *      （門檻未經回測）不得省略、不得改寫成模糊說法。
+         *   3. 各腿的判定詞與「不可評估」說明：`*_unevaluable` 與否定判定
+         *      （`foreign_below` 等）必須長得不一樣——「沒有法人資料」被讀成
+         *      「法人沒買」是本區塊的頭號風險。
+         *
+         * `social` 與 `social_en` 的鍵必須完全一致，由
+         * SocialArbitragePromptTest 的 parity 測試常駐驗證；缺鍵時 Guide 直接拋錯
+         * 而不是靜默少一行（純量 config 缺鍵會回 null，`(string) null === ''`）。
+         */
+        'social' => [
+            /*
+             * 分類名稱**只放名稱，不帶「（熱度升溫、股價未顯著漲、法人未明顯買超）」
+             * 這種條件括號**。括號是靜態文案，會對每一檔標的說同一句話，但條件成不成立
+             * 是逐檔判定的：美股沒有三大法人資料，法人腿回 null，區塊的逐腿行會寫
+             * 「本項無法評估」，而括號卻在上一行斷言「法人未明顯買超」——同一份輸出
+             * 自相矛盾，且正好違反本區塊自己第 3 條引用紀律（不可評估的腿不得當成
+             * 否定來推論）。
+             *
+             * 拿掉括號沒有損失資訊：逐腿行本來就逐條輸出「原始值＋門檻＋判定」，
+             * 那比括號精確，而且永遠是真的。
+             */
+            'stage_early' => '早期',
+            'stage_partly_priced' => '已部分反映',
+            'stage_fully_priced' => '已高度反映',
+            'stage_false_signal' => '疑似假訊號',
+            'stage_insufficient' => '資料不足，無法歸入任何分類',
+
+            'reason_not_enough_samples' => '新期新聞則數低於樣本下限，熱度變化率在這種基數上不可信',
+            'reason_heat_not_rising' => '新聞熱度未升溫，也不在近期高檔，沒有可談的套利階段',
+            'reason_price_unavailable' => '同視窗股價漲幅算不出來（缺行情資料）',
+            'reason_price_in_grey_zone' => '股價漲幅落在「未顯著漲」與「已漲」之間的灰帶，兩邊都不歸',
+            'reason_price_fell' => '同視窗股價反向大跌，屬反向反映而非尚未反映',
+            'reason_no_bucket_matched' => '各腿的判定組合湊不成任何一個分類桶',
+
+            'coverage_note' => '本分類只涵蓋新聞熱度，不含社群輿情——SOP 2.3 列的 YouTube、X、Reddit、Threads、PTT、Dcard 與電商通路，本平台一個都沒有接入。',
+            'no_backtest_note' => '本分類的門檻未經回測，分類結果只是描述性標籤，不是勝率、報酬或後續走勢的預測；法人腿的兩個門檻雖取自本地 21 檔台股的實測分位數，量到的也只是「多罕見」而不是「多有效」。',
+
+            'heat_up' => '升溫',
+            'heat_flat' => '未升溫',
+            'heat_unevaluable' => '新期則數未達樣本下限，熱度變化不予判定',
+
+            'high_water_yes' => '本期已達近期歷史高檔',
+            'high_water_no' => '本期未達近期歷史高檔',
+
+            'price_surged' => '大漲',
+            'price_risen' => '已漲',
+            'price_flat' => '未顯著漲',
+            'price_fell' => '反向大跌',
+            'price_grey_zone' => '落在灰帶，不歸「未顯著漲」也不歸「已漲」',
+            'price_unevaluable' => '無同視窗股價資料，本項無法評估',
+
+            'foreign_heavy' => '已大買（達大買門檻）',
+            'foreign_buying' => '已買超（達買超門檻）',
+            'foreign_below' => '未達買超門檻',
+            'foreign_unevaluable' => '本標的無法人籌碼資料（三大法人買賣超僅台股提供），本項無法評估，不可據此推論法人的進出方向',
+
+            'revenue_verified' => '營收已獲驗證（訂單庫存框架 C1 成立）',
+            'revenue_unverified' => '營收未獲驗證（訂單庫存框架 C1 不成立）',
+            'revenue_unevaluable' => '無訂單庫存框架的財報序列，營收驗證無法評估',
+
+            'margin_declining' => '下滑',
+            'margin_stable' => '未跌破持平帶',
+            'margin_unevaluable' => '無毛利率季變動資料，本項無法評估',
+        ],
+        'social_en' => [
+            'stage_early' => 'Early',
+            'stage_partly_priced' => 'Partly priced in',
+            'stage_fully_priced' => 'Largely priced in',
+            'stage_false_signal' => 'Possible false signal',
+            'stage_insufficient' => 'Insufficient data; no category assigned',
+
+            'reason_not_enough_samples' => 'Recent-window mentions fall below the sample floor; a heat change ratio on that base is not trustworthy',
+            'reason_heat_not_rising' => 'News heat is neither rising nor at a recent high-water mark, so there is no arbitrage stage to speak of',
+            'reason_price_unavailable' => 'The same-window price change cannot be computed (no price history)',
+            'reason_price_in_grey_zone' => 'The price change sits in the grey zone between "not materially up" and "already up" and is assigned to neither side',
+            'reason_price_fell' => 'The price fell sharply over the same window, which is an inverse reaction rather than "not yet priced in"',
+            'reason_no_bucket_matched' => 'The combination of leg verdicts does not match any category',
+
+            'coverage_note' => 'this classification covers news heat only and does not cover social-media sentiment — none of the sources listed in SOP 2.3 (YouTube, X, Reddit, Threads, PTT, Dcard, e-commerce channels) are connected to this platform.',
+            'no_backtest_note' => 'the thresholds behind this classification have never been backtested; the resulting label is descriptive only and is not a prediction of hit rate, return, or subsequent price action. The two institutional-flow thresholds do come from measured percentiles over 21 local TW symbols, but that measures how rare a reading is, not how predictive it is.',
+
+            'heat_up' => 'rising',
+            'heat_flat' => 'not rising',
+            'heat_unevaluable' => 'recent-window mentions below the sample floor; heat change not judged',
+
+            'high_water_yes' => 'this window is at the recent high-water mark',
+            'high_water_no' => 'this window is below the recent high-water mark',
+
+            'price_surged' => 'up sharply',
+            'price_risen' => 'already up',
+            'price_flat' => 'not materially up',
+            'price_fell' => 'down sharply (inverse reaction)',
+            'price_grey_zone' => 'in the grey zone; assigned to neither "not materially up" nor "already up"',
+            'price_unevaluable' => 'no same-window price history; this leg cannot be evaluated',
+
+            'foreign_heavy' => 'heavy buying (at the heavy-buying threshold)',
+            'foreign_buying' => 'net buying (at the net-buying threshold)',
+            'foreign_below' => 'below the net-buying threshold',
+            'foreign_unevaluable' => 'no institutional-flow data for this symbol (three-major-institution flows are published for TW listings only); this leg cannot be evaluated and nothing may be inferred about institutional positioning',
+
+            'revenue_verified' => 'revenue is verified (order/inventory framework condition C1 holds)',
+            'revenue_unverified' => 'revenue is unverified (order/inventory framework condition C1 does not hold)',
+            'revenue_unevaluable' => 'no order/inventory financial series available; revenue verification cannot be evaluated',
+
+            'margin_declining' => 'declining',
+            'margin_stable' => 'within or above the stable band',
+            'margin_unevaluable' => 'no quarter-over-quarter gross-margin change available; this leg cannot be evaluated',
+        ],
+
+        /*
+         * 產業動能區塊的文案。
+         *
+         * `unavailable_*` 兩則與 `insufficient_samples` **必須是三句不同的話**：
+         * 「這個市場沒有這個功能」「這檔的產業別抓不到」「有功能但樣本還不夠」
+         * 是三種不同的處境，寫成同一句會讓使用者以為只是資料還沒到。
+         *
+         * `unavailable_industry_unknown` 不可寫成「快取中沒有 industry_category」：
+         * 快取裡可能有，只是那一列已經超出 industry_momentum.freshness_days 的視窗
+         * （見 OrderInventoryIndustrySampler::subjectData()）。兩種成因都要講到，
+         * 否則使用者會以為系統從沒抓過這一檔。
+         *
+         * `retrospective_note` 不是可選補充：本指標比的是**已經公布**的月營收，
+         * 名字（動能）容易被讀成前瞻，不寫就是放任過度宣稱。
+         */
+        'industry_momentum' => [
+            'unavailable_not_taiwan' => '本標的非台股。產業動能定義為同產業月營收 YoY 的中位數，而美股沒有月營收（SEC 不提供）、產業別亦未取得。',
+            'unavailable_industry_unknown' => '本標的為台股，但產業別未知（快取中沒有可用的 industry_category：未曾抓取，或已超出新鮮度視窗），沒有「同業」可比。',
+            'insufficient_samples' => '同業樣本未達中位數所需的最低檔數',
+            'retrospective_note' => '產業動能是回顧性指標：比的是已經公布的月營收，不是對未來營收或股價的預測。',
+            'no_backtest_note' => '產業加速與個股跑贏兩個門檻皆為未經回測的初始估計值。',
+        ],
+        'industry_momentum_en' => [
+            'unavailable_not_taiwan' => 'this symbol is not a TW listing. Industry momentum is defined as the median monthly-revenue YoY of the same industry, and US listings have no monthly revenue (the SEC does not publish it) and no industry category was obtained.',
+            'unavailable_industry_unknown' => 'this symbol is a TW listing, but its industry is unknown (no usable industry_category in cache: never fetched, or past the freshness window), so there are no peers to compare against.',
+            'insufficient_samples' => 'peer samples fall below the minimum count required for a median',
+            'retrospective_note' => 'industry momentum is a backward-looking measure: it compares monthly revenue that has already been published and is not a forecast of future revenue or price.',
+            'no_backtest_note' => 'both thresholds (industry acceleration and single-name outperformance) are initial estimates that have never been backtested.',
+        ],
     ],
 
     /*
@@ -475,6 +639,170 @@ return [
          * 0 檔。`fetched_at` 兩個市場一致，都是抓取時戳。
          */
         'freshness_days' => 30,
+    ],
+
+    /*
+     * 產業動能。
+     *
+     * **命名一律「產業動能」，不叫「未來潛力」**——這是回顧性指標（比的是已公布的
+     * 月營收），用前瞻性名稱是過度宣稱。
+     *
+     * **台股限定**：spec 定義為「同 industry_category 的月營收 YoY 中位數」，
+     * 而美股沒有月營收（SEC 不提供）、industry 也恆為 null（階段 1 決定不抓 SIC）。
+     * 非台股一律回 applicable = false，與「有功能但沒樣本」語意不同。
+     *
+     * **樣本一開始必然是 0**：本 sampler 只讀已快取的 fundamentals.order_inventory，
+     * 那個欄位 2026-08-22 才 migrate 進來，本地 51 列 fundamentals 的 fetched_at
+     * 都在 2026-08-05 之前，**沒有任何一列有 order_inventory**。覆蓋率隨個股分析與
+     * 選股掃描累積，不是一開始就完整——這是機會性計算的固有性質，不是缺陷，
+     * 但呈現層必須把「0 檔樣本（尚未累積）」與「不適用（美股）」分開講。
+     *
+     * 門檻是初始估計值，**未經回測**——與本檔 social 區塊的
+     * foreign_net_buy_volume_share 那兩個實測值來源不同，不要混為一談。
+     */
+    'industry_momentum' => [
+        'min_samples' => 5,
+        'max_samples' => 60,
+        'freshness_days' => 30,
+
+        /* 產業加速：產業中位數 YoY 達此值。 */
+        'industry_accelerating' => 0.10,
+
+        /* 個股跑贏：超額（自身 YoY − 產業中位數）達此值。 */
+        'outperformance' => 0.05,
+    ],
+
+    /*
+     * 社交套利分桶。
+     *
+     * **除了法人腿的兩個鍵（foreign_net_buy_volume_share 與
+     * foreign_net_buy_volume_share_heavy）之外，本區門檻都是初始估計值、未經回測
+     * 或統計量測**——與本專案美債利率功能的門檻性質不同（那組取自 400 根實測樣本
+     * 的中位數）。調整前不要以為有實證基礎。
+     *
+     * 那兩個例外取自本地 chip_flows 的 349 個視窗實測（見各自的註解），量的是
+     * 「多罕見」而不是「多有效」——**實測不等於經過驗證**，它們一樣沒有回測。
+     *
+     * **涵蓋面只有新聞熱度。** SOP 2.3 列的 YouTube、X、Reddit、Threads、PTT、
+     * Dcard、電商通路，本專案一個都沒有（YouTube worker 是骨架，回 fake payload）。
+     * 呈現層必須寫明這件事，不得讓使用者以為涵蓋了社群。
+     */
+    'social' => [
+        /*
+         * 熱度視窗（**日曆日**，不是交易日）。
+         *
+         * spec 原文寫「近 10 個交易日」，但新聞在週末照樣發布——用交易日切新聞計數
+         * 會讓兩段視窗涵蓋的日曆長度不同（遇連假差更多），比較基準就歪了。
+         * 14 個日曆日約等於 10 個交易日，且前後兩期等長。
+         */
+        'heat_window_days' => 14,
+
+        /* 熱度升溫：新期則數較前期成長達此比率。 */
+        'heat_rise_ratio' => 0.5,
+
+        /*
+         * 新期則數下限。低於此一律「資料不足」，不進其他四類。
+         * 絕對下限的用意是避免 1→2 則被算成 +100%。
+         */
+        'min_recent_mentions' => 3,
+
+        /*
+         * 熱度高檔的比較視窗（日曆日）與百分位。
+         *
+         * **實際涵蓋 56 天而不是 60**：NewsHeatCalculator 把視窗切成整數個
+         * heat_window_days 段，不足一整段的殘餘天數會拉低該段則數、讓百分位失真，
+         * 所以直接捨棄——60 天只切得出 4 段共 56 天。鍵名保留 60 是因為它同時
+         * 界定查詢範圍。
+         *
+         * **與 news.retention_days 有耦合，但耦合方式不是「安全地失效」**：
+         * 段數是由「該標的最舊一則提及距今的天數 + 1」除以 heat_window_days 算出來的
+         * （見 NewsHeatCalculator::forSymbol()），資料有多深就切幾段，與這個鍵無關。
+         * 所以把 `NEWS_RETENTION_DAYS` 從 90 調到 60 並不會讓判準失效，而是**悄悄把
+         * 比較基準換成更窄、更容易觸發高檔的視窗**——比失效更危險。
+         * 真正回 null（判準失效）的臨界是保留天數低於
+         * `heat_window_days * 3 - 1 = 41` 天：此時任何標的都湊不滿百分位所需的 3 段。
+         * 41 到 60 之間：照算，但基準變窄。
+         */
+        'high_water_window_days' => 60,
+
+        /*
+         * 高檔門檻的百分位。**在現行視窗設定下這是個退化旋鈕，實際永遠取最大段。**
+         *
+         * 段數 = high_water_window_days / heat_window_days = 60 / 14 → 最多 4 段，
+         * 而 NewsHeatCalculator::MIN_SEGMENTS_FOR_PERCENTILE 要求至少 3 段（且至少
+         * 3 段非零），所以段數只可能是 3 或 4。nearest-rank 下：3 段時 p67–p100
+         * 都指向第 3 段（最大），4 段時 p76–p100 都指向第 4 段（最大）。80 落在
+         * 兩者的交集裡。
+         *
+         * 因此 `isHighWater` 的**真正語意是「本期是近 3–4 個視窗中最高的（含並列）」**，
+         * 不是「達到 80 百分位」。呈現層的文案照這個語意寫。
+         *
+         * 這個旋鈕實際只有 3–4 個有效檔位：≤33 / ≤50(3段) 或 ≤25 / ≤50 / ≤75(4段)
+         * 各對應一個較低的段，其餘一律是最大段。**調小會踩到空白段**——門檻變 0，
+         * NewsHeatCalculator 那道 `$threshold <= 0` 守門會把整項判成算不出來
+         * （見 NewsHeatCalculatorTest 的 a_threshold_landing_on_an_empty_segment...）。
+         *
+         * 維持 80 不動：沒有任何資料支持另一個切法，改成 100 只是把同一件事寫得更
+         * 直白、卻讓「將來把視窗拉長後想要真的百分位」失去空間。p80 與 p100 在現行
+         * 設定下等價這件事由 NewsHeatCalculatorTest 釘住，免得後人當成 bug 亂改。
+         */
+        'high_water_percentile' => 80,
+
+        /* 股價：同視窗漲幅達此值視為「已漲」，低於另一值視為「未顯著漲」，兩者之間是灰帶。 */
+        'price_risen' => 0.08,
+        'price_flat' => 0.03,
+
+        /*
+         * 「已高度反映」專用的**大漲**門檻，必須明顯高於 price_risen。
+         *
+         * 「已部分反映」與「已高度反映」的差別應該是**市場已經反應了多少**，而那是
+         * 價格與籌碼的事。兩者若共用同一組股價／籌碼門檻，唯一的差別會退化成新聞量
+         * （is_high_water）——**新聞熱度高不等於已被反映**，那樣的分桶根本沒在量它
+         * 名字說的東西。
+         *
+         * **初始估計值、未經回測**，與本區其他門檻同一來源，應依產業與個股歷史校準。
+         */
+        'price_surged' => 0.20,
+
+        /*
+         * 股價下跌的下界（負值）。跌幅到達此值就不歸「早期」，改判資料不足並標記
+         * SocialArbitrageInsufficientReason::PriceFell。
+         *
+         * spec 的「股價未顯著漲」字面涵蓋下跌，但「早期」在套利語境宣稱的是
+         * 「熱度起來了、價格還沒反應，機會還在」。一檔熱度升溫、同期大跌的標的
+         * 是**反向反映**而不是尚未反映，貼「早期」等於對使用者宣稱一個不存在的機會。
+         *
+         * **初始估計值、未經回測。**
+         */
+        'price_fell' => -0.08,
+
+        /*
+         * 法人明顯買：外資近 heat_window_days 內淨買超為正，且達**同期成交量**此比例。
+         * 台股限定（美股無三大法人資料，該腿回 null）。
+         *
+         * **分母是同期成交量，不是股本。** spec 原文寫「佔股本比」，但本專案沒有任何
+         * 流通股數來源——instruments 表沒有、fundamentals 沒有、FinMind 與 SEC 的
+         * 既有抓取路徑也沒有，而階段 4 的全域約束是不新增上游抓取。改用同期成交量
+         * 另有一個設計上的好處：熱度、股價、籌碼三條腿因此落在**同一段日曆視窗**上，
+         * 「同視窗」三個字才是真的。單位一致（FinMind 的 Trading_Volume 與三大法人
+         * 買賣超皆以「股」計），不需換算。
+         *
+         * **這兩個值是實測值，與本區其他門檻的來源不同**（其餘皆為未經回測的估計值，
+         * 見上方各鍵註解）。取本地 chip_flows 21 檔台股、2025-03 ～ 2026-08 共 349 個
+         * 14 日曆日視窗：淨買超為正的佔 48%，其比率中位數 7.4%、p70 11.7%、p90 21.3%。
+         * 0.10 落在正值視窗的 p65 上下、0.20 落在 p88 上下。
+         *
+         * **但「實測」不等於「經過驗證」**：樣本只有 21 檔且偏台股大型權值股，
+         * 未涵蓋中小型股（成交量小，同額買超的比率會明顯偏高），也**沒有做過任何
+         * 「這個門檻能不能預測後續報酬」的回測**。它量的是「多罕見」，不是「多有效」。
+         */
+        'foreign_net_buy_volume_share' => 0.10,
+
+        /*
+         * 「已高度反映」專用的**大買**門檻，必須明顯高於 foreign_net_buy_volume_share。
+         * 理由同 price_surged。實測來源與抽樣限制同上。
+         */
+        'foreign_net_buy_volume_share_heavy' => 0.20,
     ],
 
 ];

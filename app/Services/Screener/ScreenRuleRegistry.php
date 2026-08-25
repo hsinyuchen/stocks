@@ -5,11 +5,13 @@ namespace App\Services\Screener;
 use App\Services\Screener\Rules\AboveMa20;
 use App\Services\Screener\Rules\BelowMa20;
 use App\Services\Screener\Rules\CashFlowDiverging;
+use App\Services\Screener\Rules\EarlySocialArbitrage;
 use App\Services\Screener\Rules\ForeignBuyingStreak;
 use App\Services\Screener\Rules\ForeignSellingStreak;
 use App\Services\Screener\Rules\HighMarginUsage;
 use App\Services\Screener\Rules\HighReturnOnEquity;
 use App\Services\Screener\Rules\HighShortRatio;
+use App\Services\Screener\Rules\IndustryOutperformer;
 use App\Services\Screener\Rules\InstitutionalAccumulation;
 use App\Services\Screener\Rules\InventoryDeteriorating;
 use App\Services\Screener\Rules\KdDeathCross;
@@ -50,6 +52,11 @@ class ScreenRuleRegistry
             // 單一指標規則正交——後者看單一時點的價格/籌碼/基本面快照，這裡看的是
             // 訂單庫存框架跨季串聯後的評級與條件組合。
             new RatedBPlus, new StockingUpStarted, new InventoryDeteriorating, new CashFlowDiverging,
+            // 社交套利與產業動能：兩者都不是價格／籌碼的衍生量，與上列全部正交。
+            // 前者的輸入是新聞熱度（本專案唯一的輿情訊號），後者比的是同產業月營收
+            // YoY 的相對位置——兩條都在問「這檔相對於外部環境如何」，而不是「這檔
+            // 自己的數字如何」。
+            new EarlySocialArbitrage, new IndustryOutperformer,
         ];
 
         $out = [];

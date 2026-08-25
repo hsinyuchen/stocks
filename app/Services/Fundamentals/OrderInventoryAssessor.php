@@ -63,6 +63,48 @@ class OrderInventoryAssessor
     }
 
     /**
+     * 社交套利需要的兩個序列訊號，**只讀、不寫、不取樣、一次上游都不打**。
+     *
+     * 與 cachedFor() 的差別在新鮮度那把尺：這裡走
+     * {@see FundamentalsService::orderInventorySeriesFor()}（序列自己的 30 天視窗），
+     * cachedFor() 走 cachedOrderInventoryFor()（估值的每日 TTL）。後者對評級是對的
+     * ——「回 null」等價於「正常路徑此刻會去抓上游」——但拿來量季財報＋月營收會讓
+     * 昨天抓的序列在今天盤後憑空消失，理由見那個方法的 docblock。
+     *
+     * **刻意不回一份 `OrderInventoryAssessment`**：這條路徑不做同業取樣（peer
+     * median 為 null，C10 因此恆為 null），算出來的 `rating` 會與其他消費端看到的
+     * 不一樣。回一份看起來完整、實際上是另一套輸入算出來的 assessment，等於發一個
+     * 隨時會被誤用的陷阱。C1 是 revenueStreakMet、毛利率 QoQ 在 metrics 上，兩者
+     * 都不依賴同業中位數，所以窄回傳沒有任何損失。
+     *
+     * **不得呼叫 persistRating()**：本方法的消費端（社交套利）宣稱全程只讀，而它
+     * 跑在個股頁每次開頁、選股器每掃一檔、首頁每次載入的路徑上。這裡算出的評級
+     * 缺同業腿、也不屬於任何一次完整評級，寫回去只會污染評級軌跡。
+     *
+     * 拿不到序列時兩個值都是 null（「算不出來」），不得以 false／0 頂替。
+     *
+     * @return array{revenue_verified: ?bool, gross_margin_qoq_pp: ?float}
+     */
+    public function seriesSignalsFor(Instrument $instrument): array
+    {
+        $data = $this->fundamentals->orderInventorySeriesFor($instrument);
+
+        if ($data === null || ! $data->hasAny()) {
+            return ['revenue_verified' => null, 'gross_margin_qoq_pp' => null];
+        }
+
+        // 走完整的 assess() 而不是直接呼叫 conditions()：資料過舊／產業不適用時
+        // assess() 會短路，條件表整個空掉（C1 於是為 null）。跳過那兩道短路等於
+        // 用一份已被判定不可評級的序列去宣稱「營收已驗證」。
+        $assessment = $this->radar->assess($data);
+
+        return [
+            'revenue_verified' => $assessment->conditions['C1'] ?? null,
+            'gross_margin_qoq_pp' => $assessment->metrics->grossMarginQoqPp,
+        ];
+    }
+
+    /**
      * 取得序列之後的共同流程：同業取樣、前次評級、評級、寫回。
      *
      * 兩個入口的差別**只在序列從哪裡來**，評級與寫回一律相同——警報路徑同樣要

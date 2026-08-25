@@ -108,7 +108,7 @@ class BacktestServiceTest extends TestCase
     }
 
     /**
-     * 籌碼、基本面、訂單庫存規則不支援回放，必須明確回報。
+     * 籌碼、基本面、訂單庫存、社交套利、產業動能規則不支援回放，必須明確回報。
      *
      * 它們的 matchesAt() 永遠回 false（用當下資料評估過去是前視偏誤），
      * 混進必要條件會讓命中數直接歸零——不回報的話使用者會誤以為「這組規則
@@ -119,6 +119,9 @@ class BacktestServiceTest extends TestCase
      * 永遠不會被收集到 $needs——但那道過濾器一旦被放寬（例如日後有人想讓訂單
      * 庫存規則也支援時點截斷），unsupportedRules() 的判準（requires() 非空
      * 且非 MarginRule）仍會正確把它列為不支援，不會因為過濾器變動而漏判。
+     *
+     * 社交套利與產業動能兩條規則同理，且各自另有不能回放的理由：news_items 只保留
+     * 90 天，而產業中位數的歷史從未被保存過（每檔只留最新一列）。
      */
     public function test_rules_requiring_extra_data_are_reported_as_unsupported(): void
     {
@@ -126,14 +129,20 @@ class BacktestServiceTest extends TestCase
 
         $result = $this->service()->run(
             ['AAA' => 'A'],
-            ['above_ma20', 'foreign_buying_streak', 'order_inventory_b_plus'],
+            ['above_ma20', 'foreign_buying_streak', 'order_inventory_b_plus', 'early_social_arbitrage', 'industry_outperformer'],
             [],
             200,
             [5],
         );
 
-        $this->assertContains('foreign_buying_streak', $result['unsupported_rules']);
-        $this->assertContains('order_inventory_b_plus', $result['unsupported_rules']);
+        // 用「完整清單」而不是逐條 assertContains：後者少列一條規則仍會通過，
+        // 而少列一條的後果正是這條測試要防的——使用者拿到一份看似有效、實則
+        // 該規則從未命中的回測結果。整份比對才釘得住「每一條都要在清單上」。
+        $this->assertEqualsCanonicalizing(
+            ['foreign_buying_streak', 'order_inventory_b_plus', 'early_social_arbitrage', 'industry_outperformer'],
+            $result['unsupported_rules'],
+            '需要額外資料的規則全部都要被列為不支援回測，一條都不能漏。',
+        );
         $this->assertSame(0, $result['signals'], '含不支援的規則時不得產生訊號。');
     }
 
