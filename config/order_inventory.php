@@ -524,7 +524,14 @@ return [
 
             'revenue_verified' => '營收已獲驗證（訂單庫存框架 C1 成立）',
             'revenue_unverified' => '營收未獲驗證（訂單庫存框架 C1 不成立）',
-            'revenue_unevaluable' => '無訂單庫存框架的財報序列，營收驗證無法評估',
+            /*
+             * **不寫「無財報序列」**：null 有兩個成因，而這句話只對其中一個成立。
+             * 序列可能完整落地，但該產業在 order_inventory.industry.not_applicable
+             * 裡（航運、金融保險、證券、觀光餐旅等服務業不具備一般進銷存循環），
+             * assess() 直接短路、條件表整個空掉。對那種標的說「無財報序列」是假的。
+             * 只陳述「沒有結論」，不宣稱原因。
+             */
+            'revenue_unevaluable' => '訂單庫存框架未給出營收驗證結論，本項無法評估',
 
             'margin_declining' => '下滑',
             'margin_stable' => '未跌破持平帶',
@@ -568,7 +575,7 @@ return [
 
             'revenue_verified' => 'revenue is verified (order/inventory framework condition C1 holds)',
             'revenue_unverified' => 'revenue is unverified (order/inventory framework condition C1 does not hold)',
-            'revenue_unevaluable' => 'no order/inventory financial series available; revenue verification cannot be evaluated',
+            'revenue_unevaluable' => 'the order/inventory framework returned no revenue verdict; this leg cannot be evaluated',
 
             'margin_declining' => 'declining',
             'margin_stable' => 'within or above the stable band',
