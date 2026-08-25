@@ -721,6 +721,29 @@ class TopicCandidateResolverTest extends TestCase
         Http::assertNothingSent();
     }
 
+    /**
+     * `revenueSignals()` 前原本有**兩個連續 docblock**，PHP 只把最後一個綁到
+     * 方法上，前面那段（不合併兩次序列讀取的 31ms 取捨論證）成了孤兒——
+     * reflection 與 IDE 都看不到，下一個人量到 31ms 就會順手把它合併掉。
+     */
+    #[Test]
+    public function the_revenue_signals_rationale_is_attached_to_the_method(): void
+    {
+        $doc = (new \ReflectionMethod(TopicCandidateResolver::class, 'revenueSignals'))->getDocComment();
+
+        $this->assertIsString($doc, 'revenueSignals() 必須有 docblock');
+        $this->assertStringContainsString(
+            '31ms',
+            $doc,
+            '不合併兩次序列讀取的取捨論證要綁在方法上；拆成兩個 docblock 只有最後一個綁得到',
+        );
+        $this->assertStringContainsString(
+            'NotInUniverse',
+            $doc,
+            '「標的不在 instruments 表回什麼」要與取捨論證在同一個 docblock 裡',
+        );
+    }
+
     // ---------------------------------------------------------------- 入口
 
     /** 未知題材回 null（不是空 board、不是例外）：呼叫端要能回到題材選擇畫面。 */

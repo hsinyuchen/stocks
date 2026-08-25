@@ -358,6 +358,22 @@ class SocialArbitrageAssessorTest extends TestCase
         );
         $this->assertSame(0, $spy->fetchingCalls, 'forInstrument() 會就地抓上游，這條路徑不得走');
 
+        // spy 的回傳形狀要與真品一致。少一個鍵時本類別今天不讀所以不會炸，
+        // 但契約已經漂移，下一個消費端讀到的會是 undefined index——而那時
+        // 出錯的會是正式程式碼，不是這裡。
+        // 真品要自己 new：容器裡的那個已經被換成 spy 了。
+        $real = new OrderInventoryAssessor(
+            app(FundamentalsService::class),
+            app(OrderInventoryRadar::class),
+            app(OrderInventoryPeerSampler::class),
+        );
+
+        $this->assertSame(
+            array_keys($real->seriesSignalsFor($this->instrument('9999.TW'))),
+            array_keys($spy->seriesSignalsFor($instrument)),
+            'spy 的 seriesSignalsFor() 回傳鍵與真品不一致，契約已經漂移',
+        );
+
         $this->assertTrue($result->revenueLegEvaluable);
         $this->assertFalse($result->revenueUnverified, 'revenue_verified 為 true 代表營收已驗證');
         $this->assertTrue($result->marginLegEvaluable);
