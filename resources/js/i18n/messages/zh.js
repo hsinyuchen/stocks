@@ -70,7 +70,7 @@ export default {
         "revenueRefuted": "營收未獲驗證",
         "revenueUnknown": "營收無資料",
         "revenueNotApplicable": "營收驗證不適用此產業",
-        "emptyCandidates": "這個題材近 :days 日沒有達門檻的共同提及，傳導表列名的個股也還沒有可列的資料。",
+        "emptyCandidates": "這個題材目前沒有候選：近 :days 日沒有達門檻的新聞共同提及，傳導表也沒有列出任何個股。",
         "requiredNotesLabel": "使用前必讀",
         "noteChainIsCurated": "傳導鏈是人工策展的因果假設，不是回測過的因果關係。",
         "noteDirectionIsAnnotation": "受惠／受衝擊是傳導表對該族群的方向標註，不是對個股後續走勢的預測。",

@@ -383,12 +383,48 @@ class TopicPageTest extends TestCase
     }
 
     /**
-     * 清單為空時要說明原因，不是一片空白。
+     * 清單為空時要說明原因，不是一片空白——而且**只能說真的會發生的原因**。
+     *
+     * 舊文案寫「傳導表列名的個股也還沒有可列的資料」，描述的是一個不存在的
+     * 過濾行為：`core()` 對傳導表列名的標的無條件列出，缺序列也照樣是一列。
+     * 空 board 真正的兩個成因是「共同提及都沒到門檻」與「傳導表沒有列出任何
+     * 個股」（沒列，或列的全是指數／ETF）。裸的 assertStringContainsString
+     * 對這件事完全無感，所以逐個關鍵詞比對。
      */
     #[Test]
-    public function an_empty_board_explains_itself(): void
+    public function the_empty_state_only_describes_what_can_actually_happen(): void
     {
         $this->assertStringContainsString('topics.emptyCandidates', $this->jsx());
+
+        $required = [
+            'zh' => ['共同提及', '傳導表', '個股'],
+            'en' => ['co-mention', 'transmission table', 'stock'],
+        ];
+
+        foreach ($required as $locale => $keywords) {
+            $copy = $this->dictionary($locale)['topics']['emptyCandidates'] ?? '';
+
+            $this->assertIsString($copy);
+
+            foreach ($keywords as $keyword) {
+                $this->assertStringContainsString(
+                    $keyword,
+                    $copy,
+                    "{$locale} 的 emptyCandidates 必須寫出空清單的兩個真實成因，「{$keyword}」缺一不可。",
+                );
+            }
+        }
+
+        $this->assertStringNotContainsString(
+            '可列的資料',
+            (string) $this->dictionary('zh')['topics']['emptyCandidates'],
+            '傳導表列名的標的不會因為「沒有資料」而被過濾掉，文案不得描述這個不存在的行為。',
+        );
+        $this->assertStringNotContainsString(
+            'listable data',
+            (string) $this->dictionary('en')['topics']['emptyCandidates'],
+            '傳導表列名的標的不會因為「沒有資料」而被過濾掉，文案不得描述這個不存在的行為。',
+        );
     }
 
     // ------------------------------------------------------------------

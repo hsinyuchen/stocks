@@ -69,7 +69,7 @@ export default {
         "revenueRefuted": "Revenue not verified",
         "revenueNotApplicable": "Revenue check not applicable to this industry",
         "revenueUnknown": "No revenue data",
-        "emptyCandidates": "This topic has no co-mentions above the threshold in the past :days days, and the stocks named in the transmission table have no listable data yet.",
+        "emptyCandidates": "This topic has no candidates right now: no news co-mention reached the threshold in the past :days days, and the transmission table names no individual stock.",
         "requiredNotesLabel": "Read before you use this",
         "noteChainIsCurated": "The transmission chain is a hand-curated causal hypothesis, not a backtested causal relationship.",
         "noteDirectionIsAnnotation": "Benefits / hurt is the transmission table's annotation for that sector, not a forecast of the stock's subsequent price move.",

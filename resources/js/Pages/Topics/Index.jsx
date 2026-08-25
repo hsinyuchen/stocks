@@ -224,6 +224,9 @@ function TopicBoardView({ board, groups }) {
                 {t('topics.thresholdNote', { days: board.window_days, min: board.min_mentions })}
             </p>
 
+            {/* 空清單走得到：傳導表列名的標的可能全是指數／ETF，而非個股一律不列
+                （見 TopicCandidateResolver::nonStockSymbols），共同提及又都沒到門檻。
+                文案只講這兩個真實成因——列名的標的不會因為「沒有資料」被過濾掉。 */}
             {groups.length === 0 ? (
                 <p className="dashboard-empty">{t('topics.emptyCandidates', { days: board.window_days })}</p>
             ) : (

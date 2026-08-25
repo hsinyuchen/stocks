@@ -217,6 +217,30 @@ class TopicCandidateResolverTest extends TestCase
         $this->assertSame(['5608.TW'], $this->symbols($this->tier('hormuz_oil', TopicTier::Extended)));
     }
 
+    /**
+     * 空 board 不是不可達的分支。
+     *
+     * 過濾非個股之前，`core()` 對傳導表列名的標的無條件列出，八個題材各有
+     * 4–9 檔，`groups.length === 0` 於是永遠不成立——空清單的文案與分支
+     * 都是死的。過濾之後，「列名的標的全是指數／ETF」是一個真的走得到的
+     * 狀態，這條測試把它走一次。
+     */
+    #[Test]
+    public function a_topic_whose_named_symbols_are_all_non_stock_yields_an_empty_board(): void
+    {
+        $rule = collect((array) config('news.transmission'))->firstWhere('key', 'hormuz_oil');
+
+        $this->assertIsArray($rule);
+
+        foreach ((array) $rule['sectors'] as $sector) {
+            foreach ((array) $sector['symbols'] as $symbol) {
+                Instrument::factory()->create(['symbol' => (string) $symbol, 'asset_type' => 'index']);
+            }
+        }
+
+        $this->assertSame([], $this->board('hormuz_oil'), '傳導表列名的標的全不是個股時，board 是空的');
+    }
+
     // ---------------------------------------------------------------- 核心
 
     /**
