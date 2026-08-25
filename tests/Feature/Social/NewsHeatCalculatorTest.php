@@ -22,7 +22,7 @@ class NewsHeatCalculatorTest extends TestCase
     }
 
     /** 在距今 $daysAgo 日發佈一則提及 $symbols 的新聞。 */
-    private function news(int $daysAgo, array $symbols): void
+    private function news(int $daysAgo, array $symbols, bool $relevant = true): void
     {
         NewsItem::query()->create([
             'title' => "news-{$daysAgo}-".implode('-', $symbols),
@@ -30,7 +30,7 @@ class NewsHeatCalculatorTest extends TestCase
             'source' => 'test',
             'published_at' => $this->now->subDays($daysAgo),
             'related_symbols' => $symbols,
-            'relevant' => true,
+            'relevant' => $relevant,
         ]);
     }
 
@@ -60,18 +60,56 @@ class NewsHeatCalculatorTest extends TestCase
     }
 
     #[Test]
+    public function it_counts_news_published_today_in_the_recent_window(): void
+    {
+        // 新期從 daysAgo = 0 起算：突發新聞正是熱度訊號最強的時候，
+        // 若從 1 起算，生產環境（真實 now）最近 0–24 小時的新聞永遠不算熱度。
+        $this->news(0, ['2330.TW']);
+        $this->news(0, ['2330.TW']);
+        $this->news(1, ['2330.TW']);
+
+        $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
+
+        $this->assertSame(3, $heat->recentCount, '當天發布的新聞要算進新期');
+        $this->assertTrue($heat->hasEnoughSamples);
+    }
+
+    #[Test]
     public function the_window_boundary_is_inclusive_of_the_window_length(): void
     {
         $window = (int) config('order_inventory.social.heat_window_days');
 
-        // 恰好落在視窗邊界上那一天要算進新期。
+        // 新期涵蓋 daysAgo 0 到 $window - 1；恰好落在最後一天要算進新期，
+        // 再舊一天則落入前期。
+        $this->news($window - 1, ['2330.TW']);
         $this->news($window, ['2330.TW']);
-        $this->news($window + 1, ['2330.TW']);
 
         $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
 
-        $this->assertSame(1, $heat->recentCount, '恰好 N 日前算新期；此斷言釘住 <= 與 < 的差別');
+        $this->assertSame(1, $heat->recentCount, '恰好第 N-1 日算新期；此斷言釘住 <= 與 < 的差別');
         $this->assertSame(1, $heat->priorCount);
+    }
+
+    #[Test]
+    public function the_injected_now_determines_which_news_falls_in_the_recent_window(): void
+    {
+        // 同一批資料、兩個不同的 $now 各算一次。斷言刻意不依賴「凍結日與執行日不同」
+        // ——若實作內部改用 now()，兩次呼叫會得到同一個答案，這裡就會紅。
+        foreach ([0, 1, 2, 3] as $d) {
+            $this->news($d, ['2330.TW']);
+        }
+
+        $calculator = $this->calculator();
+        $atNow = $calculator->forSymbol('2330.TW', $this->now)->recentCount;
+        $aMonthEarlier = $calculator->forSymbol('2330.TW', $this->now->subDays(30))->recentCount;
+
+        $this->assertNotSame(
+            $atNow,
+            $aMonthEarlier,
+            '傳入的 now 必須決定視窗位置；相同資料在不同基準日不可能得到相同則數',
+        );
+        $this->assertSame(4, $atNow);
+        $this->assertSame(0, $aMonthEarlier, '基準日之後才發布的新聞不算數');
     }
 
     #[Test]
@@ -134,6 +172,20 @@ class NewsHeatCalculatorTest extends TestCase
     }
 
     #[Test]
+    public function it_ignores_news_marked_irrelevant(): void
+    {
+        // relevant = false 是「美食、社會案件、生活理財」那類雜訊，
+        // 算進熱度會讓一檔標的因為非投資新聞被誤判升溫。
+        $this->news(1, ['2330.TW']);
+        $this->news(2, ['2330.TW'], relevant: false);
+        $this->news(3, ['2330.TW'], relevant: false);
+
+        $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
+
+        $this->assertSame(1, $heat->recentCount, '只有 relevant 的新聞算熱度');
+    }
+
+    #[Test]
     public function one_article_mentioning_several_symbols_counts_for_each(): void
     {
         foreach ([1, 2, 3] as $d) {
@@ -187,6 +239,102 @@ class NewsHeatCalculatorTest extends TestCase
     }
 
     #[Test]
+    public function two_full_segments_of_history_cannot_judge_high_water(): void
+    {
+        $window = (int) config('order_inventory.social.heat_window_days');
+
+        // 最舊一則在 $window * 2 - 1 日前：資料恰好涵蓋 2 整段，且兩段都有則數。
+        $this->news(0, ['2330.TW']);
+        $this->news($window * 2 - 1, ['2330.TW']);
+
+        $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
+
+        $this->assertNull(
+            $heat->highWaterThreshold,
+            '恰好 2 段仍低於百分位所需的最小段數；此斷言釘住該常數的實際值',
+        );
+        $this->assertFalse($heat->isHighWater);
+    }
+
+    #[Test]
+    public function three_full_segments_of_history_can_judge_high_water(): void
+    {
+        $window = (int) config('order_inventory.social.heat_window_days');
+
+        // 最舊一則在 $window * 3 - 1 日前：資料恰好涵蓋 3 整段，且每段都有則數。
+        $this->news(0, ['2330.TW']);
+        $this->news($window + 6, ['2330.TW']);
+        $this->news($window * 3 - 1, ['2330.TW']);
+
+        $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
+
+        $this->assertNotNull(
+            $heat->highWaterThreshold,
+            '恰好 3 段就足以算百分位；與上一支測試合起來釘住最小段數正好是 3',
+        );
+    }
+
+    #[Test]
+    public function an_all_zero_distribution_is_not_a_high_water_mark(): void
+    {
+        // 唯一一則落在被捨棄的殘段裡：比較視窗內每一段都是 0 則。
+        // 門檻若照算會是 0.0，而 0 >= 0 會讓「零則新聞」被宣告為熱度高檔。
+        $this->news(45, ['2330.TW']);
+
+        $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
+
+        $this->assertSame(0, $heat->recentCount);
+        $this->assertNull(
+            $heat->highWaterThreshold,
+            '全零分佈沒有門檻可言，0.0 不是門檻；null 才代表「算不出來」',
+        );
+        $this->assertFalse($heat->isHighWater, '零則新聞不可能是熱度高檔');
+    }
+
+    #[Test]
+    public function a_threshold_landing_on_an_empty_segment_is_not_a_high_water_mark(): void
+    {
+        $window = (int) config('order_inventory.social.heat_window_days');
+        // 低百分位會讓 nearest-rank 落在分佈最低的那一段上。該段是 0 則時，
+        // 門檻會是 0.0，於是 0 >= 0 又把空白宣告成高檔——與全零分佈同一個坑，
+        // 只是預設的 80 百分位剛好踩不到，所以要用設定值把它逼出來。
+        config(['order_inventory.social.high_water_percentile' => 20]);
+
+        // 前 3 段各 1 則、第 4 段（$window * 3 到 $window * 4 - 1）掛零；
+        // 最舊一則落在第 4 段之後被捨棄的殘段裡，只用來把可用段數推到 4。
+        $this->news(0, ['2330.TW']);
+        $this->news($window, ['2330.TW']);
+        $this->news($window * 2, ['2330.TW']);
+        $this->news($window * 4, ['2330.TW']);
+
+        $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
+
+        $this->assertNull(
+            $heat->highWaterThreshold,
+            '百分位落在空白段上時沒有門檻可言；0.0 不是門檻',
+        );
+        $this->assertFalse($heat->isHighWater);
+    }
+
+    #[Test]
+    public function a_lone_recent_mention_is_not_a_high_water_mark(): void
+    {
+        // 分佈只有一段非零（就是新期自己）：門檻等於拿自己跟自己比，
+        // 剛被報導的標的會立刻變成「高檔」。
+        $this->news(50, ['2330.TW']);
+        $this->news(1, ['2330.TW']);
+
+        $heat = $this->calculator()->forSymbol('2330.TW', $this->now);
+
+        $this->assertSame(1, $heat->recentCount);
+        $this->assertNull(
+            $heat->highWaterThreshold,
+            '非零段數不足時不給門檻，否則單一則新聞會自我認證為高檔',
+        );
+        $this->assertFalse($heat->isHighWater);
+    }
+
+    #[Test]
     public function it_queries_the_database_only_once_per_request(): void
     {
         foreach ([1, 2, 3] as $d) {
@@ -194,15 +342,17 @@ class NewsHeatCalculatorTest extends TestCase
         }
 
         $calculator = $this->calculator();
-        $calculator->forSymbol('2330.TW', $this->now);
 
+        // 查詢記錄要從「第一次呼叫之前」就開始，否則只驗到第二次是 0 次，
+        // 第一次打了幾次（例如 per-symbol 查詢）根本不在斷言範圍內。
         \DB::enableQueryLog();
+        $calculator->forSymbol('2330.TW', $this->now);
         $calculator->forSymbol('2317.TW', $this->now);
         $queries = \DB::getQueryLog();
         \DB::disableQueryLog();
 
-        $this->assertSame(
-            [],
+        $this->assertCount(
+            1,
             $queries,
             '選股器逐檔呼叫，同一次掃描必須共用同一次查詢——否則 100 檔會打 100 次',
         );
