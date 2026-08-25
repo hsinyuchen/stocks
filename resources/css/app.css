@@ -4231,12 +4231,6 @@ select:focus-visible {
     padding-left: 20px;
 }
 
-.topic-threshold {
-    color: var(--muted);
-    font-size: 0.8rem;
-    margin: 10px 0 0;
-}
-
 .topic-group {
     margin-top: 18px;
 }
@@ -4254,17 +4248,13 @@ select:focus-visible {
     font-weight: 700;
 }
 
-/* 三個層級的證據強度不同，底色跟著遞減，避免外圍看起來跟核心一樣硬。 */
+/* 兩個層級的證據強度不同，底色跟著遞減，避免延伸看起來跟核心一樣硬。 */
 .topic-tier--core {
     color: var(--accent-strong);
 }
 
 .topic-tier--extended {
     color: var(--text);
-}
-
-.topic-tier--periphery {
-    color: var(--muted);
 }
 
 .topic-way {

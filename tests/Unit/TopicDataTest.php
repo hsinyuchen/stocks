@@ -24,13 +24,12 @@ class TopicDataTest extends TestCase
         $this->assertSame('harmed', TopicDirection::Harmed->value);
         $this->assertSame('core', TopicTier::Core->value);
         $this->assertSame('extended', TopicTier::Extended->value);
-        $this->assertSame('periphery', TopicTier::Periphery->value);
     }
 
     /**
-     * rate_policy 的兩個 sector 都宣告 neutral，所以「無方向」不是外圍專屬狀態，
-     * 核心與延伸也會出現。config 打錯字時同樣回 null——猜一個方向等於對使用者
-     * 宣稱一件系統其實不知道的事。
+     * rate_policy 的兩個 sector 都宣告 neutral，所以核心與延伸都會出現「無方向」
+     * ——那是傳導表沒標，不是某一層的專屬狀態。config 打錯字時同樣回 null
+     * ——猜一個方向等於對使用者宣稱一件系統其實不知道的事。
      */
     #[Test]
     public function a_neutral_or_unknown_declaration_has_no_direction(): void
@@ -105,35 +104,33 @@ class TopicDataTest extends TestCase
     #[Test]
     public function a_candidate_without_a_direction_serialises_as_null(): void
     {
-        $candidate = new TopicCandidate('2882.TW', '國泰金', TopicTier::Periphery, mentionCount: 7);
+        $candidate = new TopicCandidate('2882.TW', '國泰金', TopicTier::Extended);
 
         $this->assertArrayHasKey('direction', $candidate->toArray());
         $this->assertNull($candidate->toArray()['direction']);
-        $this->assertSame('periphery', $candidate->toArray()['tier']);
-        $this->assertSame(7, $candidate->toArray()['mention_count']);
+        $this->assertSame('extended', $candidate->toArray()['tier']);
     }
 
+    /**
+     * board 只帶題材本身的敘述與一份平坦的候選清單。`candidates` 要真的被逐一
+     * 序列化——`array_map` 漏掉時 `assertCount` 之外的斷言都還會通過。
+     */
     #[Test]
-    public function a_board_serialises_its_thresholds_so_the_page_can_state_them(): void
+    public function a_board_serialises_its_chain_and_candidates(): void
     {
         $board = new TopicBoard(
             key: 'hormuz_oil',
             label: '中東衝突／荷莫茲海峽',
             chain: ['油運咽喉受威脅'],
             candidates: [new TopicCandidate('2603.TW', '長榮', TopicTier::Core, TopicDirection::Benefits)],
-            windowDays: 30,
-            minMentions: 3,
         );
 
         $array = $board->toArray();
 
-        // 門檻是呈現層寫出「近 30 日共同提及達 3 則」那句話的唯一來源：
-        // 鍵不見了會讓那句話悄悄變成空白，而不是報錯。
-        $this->assertArrayHasKey('window_days', $array);
-        $this->assertArrayHasKey('min_mentions', $array);
-        $this->assertSame(30, $array['window_days']);
-        $this->assertSame(3, $array['min_mentions']);
+        $this->assertSame('hormuz_oil', $array['key']);
+        $this->assertSame(['油運咽喉受威脅'], $array['chain']);
         $this->assertCount(1, $array['candidates']);
         $this->assertSame('benefits', $array['candidates'][0]['direction']);
+        $this->assertSame('core', $array['candidates'][0]['tier']);
     }
 }

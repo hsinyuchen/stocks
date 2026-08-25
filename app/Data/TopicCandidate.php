@@ -9,6 +9,10 @@ use App\Enums\TopicTier;
 /**
  * 題材下的單一候選個股。
  *
+ * `tier` **沒有預設值**（`name` 因此也不能有）：兩個層級沒有一個是「安全的預設」
+ * ——猜錯是把策展過的核心講成同產業推導，或反過來。呼叫端本來就每一處都指定，
+ * 留一個預設只是替未來的漏填準備一個無聲的錯答案。
+ *
  * `revenueVerified` 是**三態**：`true`／`false` 是訂單庫存框架的 C1 有結論，
  * `null` 是沒有結論。呈現層必須把 `null` 顯示成「沒有結論」而非「未驗證」——
  * 把「沒查到」講成「查過而且不成立」是本框架前四個階段的審查反覆抓到的同一類錯。
@@ -35,13 +39,12 @@ final readonly class TopicCandidate
 {
     public function __construct(
         public string $symbol,
-        public ?string $name = null,
-        public TopicTier $tier = TopicTier::Periphery,
+        public ?string $name,
+        public TopicTier $tier,
         public ?TopicDirection $direction = null,
         public ?bool $revenueVerified = null,
         public ?RevenueUnknownReason $revenueUnknownReason = null,
         public ?string $industry = null,
-        public int $mentionCount = 0,
         public ?string $sectorName = null,
     ) {}
 
@@ -56,7 +59,6 @@ final readonly class TopicCandidate
             'revenue_verified' => $this->revenueVerified,
             'revenue_unknown_reason' => $this->revenueUnknownReason?->value,
             'industry' => $this->industry,
-            'mention_count' => $this->mentionCount,
             'sector_name' => $this->sectorName,
         ];
     }

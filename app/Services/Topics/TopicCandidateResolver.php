@@ -18,8 +18,11 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
 /**
- * 把三個來源合成一份題材候選清單：人工策展的傳導表（核心）、同產業的已快取
- * 標的（延伸）、新聞共同提及（外圍）。
+ * 把兩個來源合成一份題材候選清單：人工策展的傳導表（核心）與同產業的已快取
+ * 標的（延伸）。
+ *
+ * 曾經有第三層「外圍」（新聞共同提及），已整層移除——實測證明它的前提對事件型
+ * 題材不成立，完整依據與「什麼條件下值得重做」見 {@see TopicTier}。
  *
  * **全程只讀已快取資料，一次上游都不打。** 營收驗證走
  * {@see OrderInventoryAssessor::seriesSignalsFor()}、產業別走
@@ -35,14 +38,13 @@ use Illuminate\Support\Collection;
  * 又會寫回評級（三態測試與「不寫回評級」那條會紅）。
  *
  * **層級不含營收驗證。** 層級講「關聯有多硬」，營收驗證講「有沒有財務佐證」，
- * 見 {@see TopicTier}。「僅新聞提及且查無任何佐證」不是第四個層級，而是外圍層
- * 裡 `industry` 與 `revenueVerified` 都是 null 的那些列——硬立成一個桶等於把
- * 同一件事編碼兩次，桶名與徽章遲早漂移。
+ * 見 {@see TopicTier}。「查無任何佐證」不是第三個層級，而是某一列的 `industry`
+ * 與 `revenueVerified` 都是 null——硬立成一個桶等於把同一件事編碼兩次，
+ * 桶名與徽章遲早漂移。
  */
 class TopicCandidateResolver
 {
     public function __construct(
-        private readonly TopicNewsMentions $mentions,
         private readonly OrderInventoryAssessor $orderInventory,
         private readonly FundamentalsService $fundamentals,
     ) {}
@@ -84,18 +86,9 @@ class TopicCandidateResolver
 
         $now ??= CarbonImmutable::now();
 
-        // 一次查出已知的非個股，三層共用同一份：分三次查會讓三層各自漂移，
-        // 而「哪些標的不是個股」對同一份 board 只能有一個答案。
-        $nonStock = $this->nonStockSymbols();
-
         // 核心先解，因為延伸要用核心的 industry。
-        $core = $this->core($rule, $nonStock);
+        $core = $this->core($rule, $this->nonStockSymbols());
         $extended = $this->extended($core, $now);
-
-        $taken = array_merge(array_keys($core), array_keys($extended));
-        $periphery = $this->periphery($topicKey, $taken, $now, $nonStock);
-
-        $candidates = array_merge(array_values($core), array_values($extended), $periphery);
 
         return new TopicBoard(
             key: $topicKey,
@@ -103,9 +96,7 @@ class TopicCandidateResolver
             // chain 逐句照 config 原文，不改寫也不截斷：那是這個題材的因果假設，
             // 使用者要看得出它長什麼樣才能判斷要不要信。
             chain: array_values(array_map('strval', (array) ($rule['chain'] ?? []))),
-            candidates: $candidates,
-            windowDays: $this->requireInt('window_days'),
-            minMentions: $this->requireInt('min_mentions'),
+            candidates: array_merge(array_values($core), array_values($extended)),
         );
     }
 
@@ -264,9 +255,9 @@ class TopicCandidateResolver
      * FundamentalsService::orderInventorySeriesFor() **同一把尺**：同一份
      * order_inventory 用兩把尺會出現「標的自己看得到、同業看不到」的不對稱。
      *
-     * 基準時刻用注入的 `$now`，不自己讀 `CarbonImmutable::now()`：同一份 board
-     * 的三層必須量在同一個時間基準上，否則外圍層與延伸層各量各的，而那個分岔
-     * 在有凍結時間的測試底下完全看不出來。
+     * 基準時刻用注入的 `$now`，不自己讀 `CarbonImmutable::now()`：`resolve()` 的
+     * 呼叫端可以指定基準，層內自己讀 now() 會讓 board 的內容與呼叫端宣告的基準
+     * 不一致，而那個分岔在有凍結時間的測試底下完全看不出來。
      *
      * @param  list<string>  $exclude
      * @return array<string, Instrument>
@@ -316,69 +307,10 @@ class TopicCandidateResolver
     }
 
     /**
-     * 新聞共同提及達門檻的標的，扣掉已在核心與延伸的。
-     *
-     * **不做 top-N 保底**：達不到門檻就是空的。保底等於系統對一則提及的標的
-     * 宣稱「這檔與這個題材有關」。
-     *
-     * @param  list<string>  $exclude
-     * @param  array<string, true>  $nonStock
-     * @return list<TopicCandidate>
-     */
-    private function periphery(string $topicKey, array $exclude, CarbonImmutable $now, array $nonStock): array
-    {
-        $min = $this->requireInt('min_mentions');
-        $max = $this->requireInt('max_periphery');
-        $skip = array_flip($exclude);
-
-        // forTopic() 已依次數遞減排序，這裡不再排。
-        $counts = $this->mentions->forTopic($topicKey, $now);
-        $picked = [];
-
-        foreach ($counts as $symbol => $count) {
-            if (count($picked) >= $max) {
-                break;
-            }
-
-            // 非個股在計數上限**之前**就剔除：留到之後再篩，指數會先佔掉一個
-            // 名額，使用者拿到的是一份少一檔的清單而不是同樣長度的乾淨清單。
-            if ($count < $min || isset($skip[$symbol]) || isset($nonStock[$symbol])) {
-                continue;
-            }
-
-            $picked[$symbol] = $count;
-        }
-
-        $instruments = $this->instruments(array_keys($picked));
-        $out = [];
-
-        foreach ($picked as $symbol => $count) {
-            $instrument = $instruments->get($symbol);
-            [$revenueVerified, $revenueUnknownReason] = $this->revenueSignals($instrument);
-
-            $out[] = new TopicCandidate(
-                symbol: (string) $symbol,
-                name: $instrument?->name,
-                tier: TopicTier::Periphery,
-                // 外圍不在傳導表內，系統不知道方向。不給方向不是資料缺漏，
-                // 是這個層級本來就沒有這個資訊。
-                direction: null,
-                revenueVerified: $revenueVerified,
-                revenueUnknownReason: $revenueUnknownReason,
-                industry: $this->industryOf($instrument),
-                mentionCount: $count,
-            );
-        }
-
-        return $out;
-    }
-
-    /**
      * 已知**不是個股**的標的：指數與 ETF。
      *
-     * 大盤指數與任何總體題材共同提及是結構性的，不是訊號——一則談升息的新聞
-     * 幾乎必提 ^GSPC，而那不代表 S&P 500 是這個題材的候選。ETF 同理：使用者
-     * 點進候選要看的是一檔可分析的個股，不是一籃子標的。
+     * 傳導表列的是「這個題材會傳到哪些標的」，其中可能含指數與 ETF，而使用者
+     * 點進候選要看的是一檔可分析的個股，不是一籃子標的或一個大盤讀數。
      *
      * 反向列舉（列出非個股）而不是正向過濾 `asset_type = stock`：傳導表有 30 檔
      * 而 instruments 表只有 20 檔，**不在表裡的照樣要列出**（建立標的是 ingest
@@ -425,11 +357,12 @@ class TopicCandidateResolver
      * 本方法與 {@see industryOf()} 對同一檔各取一次序列（seriesSignalsFor()
      * 內部也會呼叫 orderInventorySeriesFor()），刻意**不合併**。量測（本機、
      * sqlite、生產尺寸的序列＝10 季 + 30 個月營收點）：重複那一次是 1.06ms，
-     * seriesSignalsFor() 自己是 3.92ms，整份滿額 board（9 核心 + 20 延伸 +
-     * 20 外圍）多付約 31ms，而 SQL 只佔 79 次點查合計 5.6ms——成本幾乎全在
-     * DTO hydrate，不在資料庫。要省掉它，就得在這裡自己呼叫 OrderInventoryRadar
-     * 並複製 seriesSignalsFor() 那段「必須走完整 assess() 才不會用一份已被判定
-     * 不可評級的序列宣稱營收已驗證」的短路判斷，等於製造第二份必然漂移的副本。
+     * seriesSignalsFor() 自己是 3.92ms，量測當時的滿額 board（9 核心 + 20 延伸 +
+     * 20 外圍共 49 檔；外圍層之後被整層移除，上限降到 29 檔）多付約 31ms，而
+     * SQL 只佔 79 次點查合計 5.6ms——成本幾乎全在 DTO hydrate，不在資料庫。
+     * 要省掉它，就得在這裡自己呼叫 OrderInventoryRadar 並複製 seriesSignalsFor()
+     * 那段「必須走完整 assess() 才不會用一份已被判定不可評級的序列宣稱營收
+     * 已驗證」的短路判斷，等於製造第二份必然漂移的副本。
      * 31ms 換不到那個風險。
      *
      * @return array{0: ?bool, 1: ?RevenueUnknownReason}
@@ -455,9 +388,9 @@ class TopicCandidateResolver
     }
 
     /**
-     * 嚴格取值。裸 `(int) config(...)` 缺鍵時會靜默變 0，而這幾個鍵的 0 都會
-     * 無聲改變清單內容：`min_mentions` 為 0 讓一則提及也進榜、`max_*` 為 0
-     * 讓整層空掉。三者都沒有任何錯誤訊號可供察覺。
+     * 嚴格取值。裸 `(int) config(...)` 缺鍵時會靜默變 0，而 `max_extended` 為 0
+     * 會讓延伸層整層空掉，且沒有任何錯誤訊號可供察覺——空的延伸層與「同產業
+     * 沒有其他已快取標的」長得一模一樣。
      */
     private function requireInt(string $key): int
     {

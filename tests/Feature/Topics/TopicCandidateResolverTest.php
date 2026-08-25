@@ -16,7 +16,6 @@ use App\Enums\TopicDirection;
 use App\Enums\TopicTier;
 use App\Models\Fundamental;
 use App\Models\Instrument;
-use App\Models\NewsItem;
 use App\Services\Topics\TopicCandidateResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -26,10 +25,10 @@ use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 /**
- * 三層判定、方向、營收標記、上限，以及「全程只讀」。
+ * 兩層判定、方向、營收標記、上限，以及「全程只讀」。
  *
- * 時間凍結：序列的新鮮度視窗（order_inventory.series_freshness_days）、C1 的
- * 資料時效判定與新聞視窗全部比 now()，不凍結的話這些斷言會隨執行日期漂移
+ * 時間凍結：序列的新鮮度視窗（order_inventory.series_freshness_days）與 C1 的
+ * 資料時效判定都比 now()，不凍結的話這些斷言會隨執行日期漂移
  * ——測試不會壞在程式碼改動上，而是壞在日曆上。
  */
 class TopicCandidateResolverTest extends TestCase
@@ -104,27 +103,6 @@ class TopicCandidateResolverTest extends TestCase
         ], $extra));
     }
 
-    /**
-     * 一則會觸發 hormuz_oil 的新聞。
-     *
-     * 關鍵字取自 config 實際列的詞、domains 照實填：自己編一個詞若剛好不觸發，
-     * 整份外圍測試會在「沒有任何題材命中」的狀態下全綠。
-     *
-     * @param  list<string>  $symbols
-     */
-    private function hormuzNews(int $daysAgo, array $symbols): void
-    {
-        NewsItem::query()->create([
-            'title' => '荷莫茲海峽情勢升溫 '.$daysAgo.'-'.implode('-', $symbols),
-            'url' => 'https://example.com/'.uniqid(),
-            'source' => 'test',
-            'published_at' => $this->now->subDays($daysAgo),
-            'related_symbols' => $symbols,
-            'domains' => ['geopolitics'],
-            'relevant' => true,
-        ]);
-    }
-
     /** @return list<TopicCandidate> */
     private function board(string $topic): array
     {
@@ -159,33 +137,6 @@ class TopicCandidateResolverTest extends TestCase
     private function symbols(array $candidates): array
     {
         return array_map(fn (TopicCandidate $c): string => $c->symbol, $candidates);
-    }
-
-    // ------------------------------------------------------- 非個股標的
-
-    /**
-     * 大盤指數與任何總體題材共同提及是**結構性的**，不是訊號：
-     * 一則談升息的新聞幾乎必提 ^GSPC，而那不代表 S&P 500 是這個題材的
-     * 候選。ETF 同理——使用者點進去看到的是一篮子標的，不是一檔可分析的個股。
-     */
-    #[Test]
-    public function a_non_stock_instrument_never_reaches_the_periphery(): void
-    {
-        Instrument::factory()->create(['symbol' => '^GSPC', 'name' => 'S&P 500', 'asset_type' => 'index']);
-        Instrument::factory()->create(['symbol' => '0050.TW', 'name' => '元大台灣50', 'asset_type' => 'etf']);
-        $this->instrument('9101.TW');
-
-        $min = (int) config('topics.min_mentions');
-
-        for ($i = 1; $i <= $min; $i++) {
-            $this->hormuzNews($i, ['^GSPC', '0050.TW', '9101.TW']);
-        }
-
-        $symbols = $this->symbols($this->tier('hormuz_oil', TopicTier::Periphery));
-
-        $this->assertNotContains('^GSPC', $symbols, '指數不是候選個股');
-        $this->assertNotContains('0050.TW', $symbols, 'ETF 不是候選個股');
-        $this->assertContains('9101.TW', $symbols, '對照組：同一批新聞裡的個股照樣進榜，證明不是整層空掉');
     }
 
     /**
@@ -358,9 +309,9 @@ class TopicCandidateResolverTest extends TestCase
     /**
      * 延伸層的新鮮度視窗要跟著**注入的** `$now` 走。
      *
-     * `sameIndustry()` 原本自己讀 `CarbonImmutable::now()`，而 `resolve()` 的
-     * `$now` 只傳給 `periphery()`——同一份 board 的兩層因此可能量在兩個不同的
-     * 時間基準上。這件事被本類別 setUp 的 travelTo() 完全遮住，所以是無聲的。
+     * `sameIndustry()` 原本自己讀 `CarbonImmutable::now()`，於是 board 的內容
+     * 與 `resolve()` 呼叫端宣告的基準可能對不上。這件事被本類別 setUp 的
+     * travelTo() 完全遮住，所以是無聲的。
      *
      * 這條測試**刻意不用 travelTo()**：先退回真實時間，再傳一個與真實時間差
      * 兩年的 `$now`。9001 只對注入的基準新鮮、9002 只對真實時間新鮮，
@@ -440,101 +391,18 @@ class TopicCandidateResolverTest extends TestCase
         $this->assertCount(1, $scans, '同產業掃描必須是每個產業一次的 SQL 述詞查詢，不是全表載入也不是逐檔點查');
     }
 
-    // ---------------------------------------------------------------- 外圍
-
-    #[Test]
-    public function periphery_candidates_come_from_news_mentions(): void
-    {
-        $min = (int) config('topics.min_mentions');
-
-        for ($i = 1; $i <= $min; $i++) {
-            $this->hormuzNews($i, ['9101.TW']);
-        }
-
-        $candidate = $this->candidate('hormuz_oil', '9101.TW');
-
-        $this->assertNotNull($candidate);
-        $this->assertSame(TopicTier::Periphery, $candidate->tier);
-        $this->assertSame($min, $candidate->mentionCount);
-        $this->assertNull($candidate->direction, '外圍不在傳導表內，系統不知道方向');
-        $this->assertNull($candidate->sectorName);
-    }
-
-    /** 門檻含等於：從 config 取值再構造測資，寫死 3 的話調整設定後測試會與實作一起錯。 */
-    #[Test]
-    public function the_mention_threshold_is_inclusive(): void
-    {
-        $min = (int) config('topics.min_mentions');
-
-        for ($i = 1; $i <= $min; $i++) {
-            $this->hormuzNews($i, ['9101.TW']);
-        }
-
-        for ($i = 1; $i <= $min - 1; $i++) {
-            $this->hormuzNews($i, ['9102.TW']);
-        }
-
-        $symbols = $this->symbols($this->tier('hormuz_oil', TopicTier::Periphery));
-
-        $this->assertContains('9101.TW', $symbols, '恰好達門檻要進榜');
-        $this->assertNotContains('9102.TW', $symbols, '差一則就不進榜');
-    }
-
-    /** 外圍要扣掉已在核心與延伸的標的，否則同一檔會出現兩次、且較弱的那層蓋掉較強的。 */
-    #[Test]
-    public function the_periphery_excludes_symbols_already_in_core_or_extended(): void
-    {
-        $this->series($this->instrument('2603.TW'), '航運業');
-        $this->series($this->instrument('5608.TW'), '航運業');
-
-        $min = (int) config('topics.min_mentions');
-
-        for ($i = 1; $i <= $min + 2; $i++) {
-            $this->hormuzNews($i, ['2603.TW', '5608.TW', '9101.TW']);
-        }
-
-        $periphery = $this->symbols($this->tier('hormuz_oil', TopicTier::Periphery));
-
-        $this->assertSame(['9101.TW'], $periphery);
-        $this->assertSame(TopicTier::Core, $this->candidate('hormuz_oil', '2603.TW')?->tier);
-        $this->assertSame(TopicTier::Extended, $this->candidate('hormuz_oil', '5608.TW')?->tier);
-    }
-
-    /** 上限生效，且截斷後留下的是提及次數最高的那幾檔。 */
-    #[Test]
-    public function the_periphery_cap_keeps_the_most_mentioned(): void
-    {
-        config(['topics.max_periphery' => 3]);
-
-        // 9101 → 7 則、9102 → 6 則……9105 → 3 則（min_mentions 為 3）。
-        $counts = ['9101.TW' => 7, '9102.TW' => 6, '9103.TW' => 5, '9104.TW' => 4, '9105.TW' => 3];
-
-        for ($day = 1; $day <= 7; $day++) {
-            $symbols = array_keys(array_filter($counts, fn (int $count): bool => $count >= $day));
-
-            if ($symbols !== []) {
-                $this->hormuzNews($day, $symbols);
-            }
-        }
-
-        $this->assertSame(
-            ['9101.TW', '9102.TW', '9103.TW'],
-            $this->symbols($this->tier('hormuz_oil', TopicTier::Periphery)),
-        );
-    }
-
     // ---------------------------------------------------- 營收驗證與只讀
 
     /**
-     * 「本框架不適用此產業」要真的從 resolver 一路走到 board——**三層都要**。
+     * 「本框架不適用此產業」要真的從 resolver 一路走到 board——**兩層都要**。
      *
      * 原本 `revenueApplicable` 在 resolver → board 這一段零覆蓋：測試只碰過
      * `seriesSignalsFor()` 的直接回傳、手工建構的 TopicCandidate、以及對 JSX
-     * 原始碼的字串斷言。把 resolver 裡三個 `revenueUnknownReason:` 參數任一
+     * 原始碼的字串斷言。把 resolver 裡任一個 `revenueUnknownReason:` 參數
      * 寫死 null，整個題材測試套件都會全綠，而那一態從此永遠走不到。
-     * 所以核心、延伸、外圍各放一檔航運股。
+     * 所以核心與延伸各放一檔航運股。
      *
-     * 對照組不可省：全部寫死成 NotApplicable 一樣會讓上面三條斷言通過。
+     * 對照組不可省：全部寫死成 NotApplicable 一樣會讓上面兩條斷言通過。
      *
      * **注意一個安靜的順序陷阱**：`OrderInventoryAssessor` 在解析時就把
      * `FundamentalsService`（連同當下綁的 provider）收進建構子，先 resolve
@@ -546,19 +414,11 @@ class TopicCandidateResolverTest extends TestCase
     {
         $this->series($this->instrument('2603.TW'), '航運業');   // 核心（傳導表列名）
         $this->series($this->instrument('5608.TW'), '航運業');   // 延伸（同產業）
-        // 外圍那檔的產業要與核心不同，否則它會先被延伸層收走（觀光餐旅同樣在
-        // order_inventory.industry.not_applicable 名單上）。
-        $this->series($this->instrument('9101.TW'), '觀光餐旅');
         $this->series($this->instrument('1301.TW'), '塑膠工業');  // 對照組：適用產業
-
-        for ($i = 1; $i <= (int) config('topics.min_mentions'); $i++) {
-            $this->hormuzNews($i, ['9101.TW']);
-        }
 
         $tiers = [
             '2603.TW' => TopicTier::Core,
             '5608.TW' => TopicTier::Extended,
-            '9101.TW' => TopicTier::Periphery,
         ];
 
         foreach ($tiers as $symbol => $tier) {
@@ -704,16 +564,9 @@ class TopicCandidateResolverTest extends TestCase
         $this->series($this->instrument('XOM'), null, market: 'us', revenueGrowing: null);
         $this->instrument('CVX');
 
-        $min = (int) config('topics.min_mentions');
-
-        for ($i = 1; $i <= $min; $i++) {
-            $this->hormuzNews($i, ['9101.TW']);
-        }
-
-        // 先確認真的走過三層，否則「零上游」是空話。
+        // 先確認真的走過兩層，否則「零上游」是空話。
         $this->assertNotEmpty($this->tier('hormuz_oil', TopicTier::Core));
         $this->assertNotEmpty($this->tier('hormuz_oil', TopicTier::Extended));
-        $this->assertNotEmpty($this->tier('hormuz_oil', TopicTier::Periphery));
 
         $this->assertSame(0, $market->calls, '行情不得抓取');
         $this->assertSame(0, $fundamentals->calls, '台股基本面不得抓取（FinMind）');
@@ -769,7 +622,7 @@ class TopicCandidateResolverTest extends TestCase
     }
 
     #[Test]
-    public function the_board_carries_the_chain_and_the_thresholds(): void
+    public function the_board_carries_the_key_label_and_chain(): void
     {
         $board = $this->resolver()->resolve('hormuz_oil', $this->now);
 
@@ -777,8 +630,6 @@ class TopicCandidateResolverTest extends TestCase
         $this->assertSame('hormuz_oil', $board->key);
         $this->assertSame('中東衝突／荷莫茲海峽', $board->label);
         $this->assertSame((array) config('news.transmission.0.chain'), $board->chain, 'chain 逐句照 config 原文');
-        $this->assertSame((int) config('topics.window_days'), $board->windowDays);
-        $this->assertSame((int) config('topics.min_mentions'), $board->minMentions);
     }
 
     /**

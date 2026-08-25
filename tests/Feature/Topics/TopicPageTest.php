@@ -23,12 +23,11 @@ class TopicPageTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * 五則必要說明。順序與規格一致，內容不得少於這五則。
+     * 四則必要說明。順序與規格一致，內容不得少於這四則。
      */
     private const REQUIRED_NOTE_KEYS = [
         'topics.noteChainIsCurated',
         'topics.noteDirectionIsAnnotation',
-        'topics.notePeripheryIsCoMention',
         'topics.noteExtensionTaiwanOnly',
         'topics.noteRevenueUnknown',
     ];
@@ -135,10 +134,10 @@ class TopicPageTest extends TestCase
     }
 
     /**
-     * 五則必要說明缺一不可，且兩本字典都要有。
+     * 四則必要說明缺一不可，且兩本字典都要有。
      */
     #[Test]
-    public function the_five_required_notes_are_referenced_and_translated(): void
+    public function the_four_required_notes_are_referenced_and_translated(): void
     {
         $source = $this->jsx();
         $zh = $this->dictionaryKeys('zh');
@@ -152,7 +151,7 @@ class TopicPageTest extends TestCase
     }
 
     /**
-     * 第五則必須把**每一種**「沒有答案」分開講，並且兩側都要說到。
+     * 第四則必須把**每一種**「沒有答案」分開講，並且兩側都要說到。
      *
      * 原本這條測試整條只斷言 `mb_strlen($note) > 40`：方法名宣稱驗證「兩種沒有
      * 答案分開講」，實際只驗長度——換成任何 41 字以上、完全不提「不適用」的句子
@@ -390,19 +389,18 @@ class TopicPageTest extends TestCase
     /**
      * 分組只用 `tier` 與 `direction` 兩個欄位，**不重算任何判定**。
      *
-     * 前端自己再篩一次門檻，會與後端的判定各自漂移——階段 4 的最終審查抓到過
-     * 同一份資料被兩把尺量出互相矛盾分類的案例。門檻與方向只准顯示，不准比較。
+     * 前端自己再判一次層級或方向，會與後端的判定各自漂移——階段 4 的最終審查
+     * 抓到過同一份資料被兩把尺量出互相矛盾分類的案例。兩個欄位只准當分組用的
+     * 鍵與顯示用的值，不准比較。
      */
     #[Test]
-    public function the_page_never_recomputes_the_thresholds(): void
+    public function the_page_never_recomputes_the_grouping_fields(): void
     {
         $source = $this->jsx();
 
         $forbidden = [
-            '/mention_count\s*(>=|<=|>|<|===|!==|==|!=)/' => '前端不得拿 mention_count 做比較——門檻是後端 min_mentions 的事。',
-            '/(>=|<=|>|<)\s*[\w.\[\]]*min_mentions/' => '前端不得拿 min_mentions 做比較，只准顯示。',
-            '/min_mentions\s*(>=|<=|>|<|===|!==)/' => '前端不得拿 min_mentions 做比較，只准顯示。',
             '/direction\s*(>=|<=|>|<|===|!==|==|!=)/' => '方向只准當分組用的欄位鍵，不得在前端做判定。',
+            '/tier\s*(>=|<=|>|<|===|!==|==|!=)/' => '層級只准當分組用的欄位鍵，不得在前端做判定。',
         ];
 
         foreach ($forbidden as $pattern => $message) {
@@ -417,39 +415,6 @@ class TopicPageTest extends TestCase
     // ------------------------------------------------------------------
     // 必須呈現的內容
     // ------------------------------------------------------------------
-
-    /**
-     * 外圍層唯一的依據就是「被提及幾次」。拿掉它，那一層就變成一份沒有理由的清單。
-     */
-    #[Test]
-    public function periphery_rows_show_the_mention_count(): void
-    {
-        $row = $this->componentBody($this->jsx(), 'CandidateRow');
-
-        $this->assertStringContainsString(
-            'mention_count',
-            $row,
-            '候選列必須印出 mention_count——外圍層唯一的依據就是被提及幾次。',
-        );
-        $this->assertStringContainsString(
-            'topics.mentionCount',
-            $row,
-            '提及次數要有文案鍵，不能只印一個裸數字。',
-        );
-    }
-
-    /**
-     * 門檻藏起來，使用者無從判斷這份清單有多寬鬆。
-     */
-    #[Test]
-    public function the_window_and_the_threshold_are_on_screen(): void
-    {
-        $source = $this->jsx();
-
-        $this->assertStringContainsString('window_days', $source, '必須寫出新聞視窗天數。');
-        $this->assertStringContainsString('min_mentions', $source, '必須寫出共同提及門檻。');
-        $this->assertStringContainsString('topics.thresholdNote', $source);
-    }
 
     /**
      * 傳導鏈逐句列出：使用者要看得出這個因果假設長什麼樣，才能判斷要不要信。
@@ -468,9 +433,11 @@ class TopicPageTest extends TestCase
      *
      * 舊文案寫「傳導表列名的個股也還沒有可列的資料」，描述的是一個不存在的
      * 過濾行為：`core()` 對傳導表列名的標的無條件列出，缺序列也照樣是一列。
-     * 空 board 真正的兩個成因是「共同提及都沒到門檻」與「傳導表沒有列出任何
-     * 個股」（沒列，或列的全是指數／ETF）。裸的 assertStringContainsString
-     * 對這件事完全無感，所以逐個關鍵詞比對。
+     * 移除外圍層之後延伸層完全由核心推導，所以空 board 只剩**一個**成因：
+     * 傳導表沒有列出任何個股（沒列，或列的全是指數／ETF）。文案不得再提新聞
+     * 共同提及——那個成因隨著外圍層一起消失了，留著會讓使用者以為這一頁還在
+     * 看新聞。裸的 assertStringContainsString 對這件事完全無感，所以逐個
+     * 關鍵詞比對，並且反向擋掉已消失的那個成因。
      */
     #[Test]
     public function the_empty_state_only_describes_what_can_actually_happen(): void
@@ -478,8 +445,8 @@ class TopicPageTest extends TestCase
         $this->assertStringContainsString('topics.emptyCandidates', $this->jsx());
 
         $required = [
-            'zh' => ['共同提及', '傳導表', '個股'],
-            'en' => ['co-mention', 'transmission table', 'stock'],
+            'zh' => ['傳導表', '個股', 'ETF'],
+            'en' => ['transmission table', 'stock', 'ETF'],
         ];
 
         foreach ($required as $locale => $keywords) {
@@ -491,9 +458,15 @@ class TopicPageTest extends TestCase
                 $this->assertStringContainsString(
                     $keyword,
                     $copy,
-                    "{$locale} 的 emptyCandidates 必須寫出空清單的兩個真實成因，「{$keyword}」缺一不可。",
+                    "{$locale} 的 emptyCandidates 必須寫出空清單那個唯一的真實成因，「{$keyword}」缺一不可。",
                 );
             }
+
+            $this->assertStringNotContainsString(
+                $locale === 'zh' ? '共同提及' : 'co-mention',
+                $copy,
+                "{$locale} 的 emptyCandidates 不得再把新聞共同提及講成空清單的成因——外圍層已移除。",
+            );
         }
 
         $this->assertStringNotContainsString(

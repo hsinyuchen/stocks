@@ -9,7 +9,6 @@ use App\Enums\TopicDirection;
 use App\Enums\TopicTier;
 use App\Models\Fundamental;
 use App\Models\Instrument;
-use App\Models\NewsItem;
 use App\Services\Topics\TopicCandidateResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -17,17 +16,12 @@ use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 /**
- * 題材鏈路的接合：config 的傳導表 → news_items → fundamentals → TopicBoard。
+ * 題材鏈路的接合：config 的傳導表 → instruments／fundamentals → TopicBoard。
  *
  * 各層自己的測試都用手寫的 DTO 或單層 fixture，所以**跨層的資料形狀與語意落差
- * 不會被任何一邊發現**：TopicNewsMentions 少填一個述詞、fundamentals 的 JSON
- * 路徑寫錯、TransmissionMapper 的 domains 判定變了，兩邊的測試都照樣全綠，
- * 只有真正跑過整條鏈的測試會紅。本測試不手寫任何 DTO，建真的 Instrument／
- * fundamentals／news_items 列，一路走到 board。
- *
- * news_items 的 related_symbols／domains／relevant 三個欄位都照實填：
- * TopicNewsMentions 有 relevant 述詞、TransmissionMapper 會看 domains，
- * 少填會讓外圍層恆空，而整份煙霧測試退化成「測空清單」。
+ * 不會被任何一邊發現**：fundamentals 的 JSON 路徑寫錯、order_inventory 的
+ * industry 快照換了鍵名，兩邊的測試都照樣全綠，只有真正跑過整條鏈的測試會紅。
+ * 本測試不手寫任何 DTO，建真的 Instrument／fundamentals 列，一路走到 board。
  */
 class TopicSeamTest extends TestCase
 {
@@ -46,7 +40,7 @@ class TopicSeamTest extends TestCase
     }
 
     #[Test]
-    public function a_topic_flows_from_config_and_cached_rows_to_a_three_tier_board(): void
+    public function a_topic_flows_from_config_and_cached_rows_to_a_two_tier_board(): void
     {
         // 核心：傳導表「航運」（positive）與「航空」（negative）各一檔。
         $shipping = Instrument::factory()->create(['symbol' => '2603.TW', 'name' => '長榮']);
@@ -65,22 +59,6 @@ class TopicSeamTest extends TestCase
         $peer = Instrument::factory()->create(['symbol' => '5608.TW', 'name' => '四維航']);
         $this->cachedSeries($peer, '航運業');
 
-        // 外圍：只在新聞裡與題材共同出現。
-        $mentioned = Instrument::factory()->create(['symbol' => '9101.TW', 'name' => '外圍標的']);
-
-        for ($daysAgo = 1; $daysAgo <= (int) config('topics.min_mentions'); $daysAgo++) {
-            NewsItem::query()->create([
-                'title' => '荷莫茲海峽緊張 油輪改道 '.$daysAgo,
-                'summary' => '伊朗宣布封鎖演習，中東航運保費上升。',
-                'url' => 'https://example.com/hormuz-'.$daysAgo,
-                'source' => 'test',
-                'published_at' => $this->now->subDays($daysAgo),
-                'related_symbols' => [$mentioned->symbol],
-                'domains' => ['geopolitics'],
-                'relevant' => true,
-            ]);
-        }
-
         $board = app(TopicCandidateResolver::class)->resolve('hormuz_oil', $this->now);
 
         $this->assertNotNull($board);
@@ -95,12 +73,7 @@ class TopicSeamTest extends TestCase
         $this->assertSame(TopicDirection::Benefits, $extended?->direction, '延伸沿用來源核心的方向');
         $this->assertNull($extended?->sectorName);
 
-        $periphery = $this->find($board->candidates, '9101.TW');
-        $this->assertSame(TopicTier::Periphery, $periphery?->tier);
-        $this->assertSame((int) config('topics.min_mentions'), $periphery?->mentionCount);
-        $this->assertNull($periphery?->direction);
-
-        // 序列真的被讀到了：全 null 的話上面三層仍然成立，而「營收驗證」
+        // 序列真的被讀到了：全 null 的話上面兩層仍然成立，而「營收驗證」
         // 這條線其實從未接上。
         $this->assertTrue(
             $this->find($board->candidates, '1301.TW')?->revenueVerified,
