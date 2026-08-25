@@ -51,6 +51,73 @@ class OrderInventoryAssessorTest extends TestCase
      * 日期，凍結後是 2026-08-24）刻意不同：同名不同語意正是修正 1 的坑，fixture
      * 若讓兩者相等，拿錯欄位的實作照樣全綠。
      */
+    /**
+     * 直接把序列寫進 fundamentals，繞開 provider。
+     *
+     * 不走 bindProvider()＋forInstrument()：`OrderInventoryAssessor` 在解析時就
+     * 把 `FundamentalsService`（連同它當下綁的 provider）收進建構子，先 resolve
+     * 再 bind 會讓它用到預設的 fake provider——那是一個很安靜的順序陷阱。
+     * 這條測試要驗的是「產業別怎麼影響窄回傳」，序列從哪來無關。
+     */
+    private function writeSeries(string $symbol, OrderInventoryData $data): Instrument
+    {
+        $instrument = Instrument::factory()->create(['symbol' => $symbol]);
+
+        Fundamental::query()->create([
+            'instrument_id' => $instrument->id,
+            'data_as_of' => '2026-06-30',
+            'fetched_at' => now(),
+            'per' => 10.0,
+            'order_inventory' => $data->toArray(),
+        ]);
+
+        return $instrument;
+    }
+
+    private function withIndustry(string $industry): OrderInventoryData
+    {
+        $series = $this->ratableSeries();
+
+        return new OrderInventoryData(
+            quarters: $series->quarters,
+            market: 'tw',
+            industry: $industry,
+            dataAsOf: '2026-06-30',
+        );
+    }
+
+    #[Test]
+    public function the_narrow_signals_separate_a_missing_series_from_an_unsuited_industry(): void
+    {
+        $assessor = app(OrderInventoryAssessor::class);
+
+        // 序列拿不到：還不知道產業是什麼，不得宣稱本框架不適用。
+        $missing = $assessor->seriesSignalsFor(Instrument::factory()->create(['symbol' => '9999.TW']));
+
+        $this->assertNull($missing['revenue_verified']);
+        $this->assertTrue(
+            $missing['revenue_applicable'],
+            '沒讀到產業別就宣稱不適用，等於在沒有證據的情況下下結論',
+        );
+
+        // 序列完整但產業不適用（航運在 order_inventory.industry.not_applicable 裡）：
+        // C1 恆為 null，而且這是永久的，不是還沒累積。
+        $unsuited = $assessor->seriesSignalsFor($this->writeSeries('2603.TW', $this->withIndustry('航運業')));
+
+        $this->assertNull($unsuited['revenue_verified']);
+        $this->assertFalse(
+            $unsuited['revenue_applicable'],
+            '航運屬 not_applicable，說「無資料」會讓使用者等一個不會來的答案',
+        );
+
+        // 對照組：同一份序列換成適用的產業就取得結論，證明上面那個 null 是
+        // 產業造成的，不是序列本身有問題。
+        $suited = $assessor->seriesSignalsFor($this->writeSeries('2330.TW', $this->withIndustry('半導體業')));
+
+        $this->assertTrue($suited['revenue_applicable']);
+        $this->assertNotNull($suited['revenue_verified'], '適用產業必須得到 true 或 false，不是 null');
+    }
+
     private function ratableSeries(): OrderInventoryData
     {
         return new OrderInventoryData(

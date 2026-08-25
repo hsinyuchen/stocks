@@ -153,13 +153,15 @@ class TopicCandidateResolver
 
         foreach ($rows as $symbol => $meta) {
             $instrument = $instruments->get($symbol);
+            [$revenueVerified, $revenueApplicable] = $this->revenueSignals($instrument);
 
             $out[$symbol] = new TopicCandidate(
                 symbol: $symbol,
                 name: $instrument?->name,
                 tier: TopicTier::Core,
                 direction: $meta['direction'],
-                revenueVerified: $this->revenueVerified($instrument),
+                revenueVerified: $revenueVerified,
+                revenueApplicable: $revenueApplicable,
                 industry: $this->industryOf($instrument),
                 sectorName: $meta['sector'] === '' ? null : $meta['sector'],
             );
@@ -223,12 +225,15 @@ class TopicCandidateResolver
         $out = [];
 
         foreach ($collected as $symbol => $meta) {
+            [$revenueVerified, $revenueApplicable] = $this->revenueSignals($meta['instrument']);
+
             $out[$symbol] = new TopicCandidate(
                 symbol: (string) $symbol,
                 name: $meta['instrument']->name,
                 tier: TopicTier::Extended,
                 direction: $meta['direction'],
-                revenueVerified: $this->revenueVerified($meta['instrument']),
+                revenueVerified: $revenueVerified,
+                revenueApplicable: $revenueApplicable,
                 industry: $meta['industry'],
                 // 延伸不屬於任何被策展的 sector。帶上 sector 名稱會讓使用者
                 // 以為它也被策展進了那一段傳導。
@@ -334,6 +339,7 @@ class TopicCandidateResolver
 
         foreach ($picked as $symbol => $count) {
             $instrument = $instruments->get($symbol);
+            [$revenueVerified, $revenueApplicable] = $this->revenueSignals($instrument);
 
             $out[] = new TopicCandidate(
                 symbol: (string) $symbol,
@@ -342,7 +348,8 @@ class TopicCandidateResolver
                 // 外圍不在傳導表內，系統不知道方向。不給方向不是資料缺漏，
                 // 是這個層級本來就沒有這個資訊。
                 direction: null,
-                revenueVerified: $this->revenueVerified($instrument),
+                revenueVerified: $revenueVerified,
+                revenueApplicable: $revenueApplicable,
                 industry: $this->industryOf($instrument),
                 mentionCount: $count,
             );
@@ -378,13 +385,29 @@ class TopicCandidateResolver
      * 不可評級的序列宣稱營收已驗證」的短路判斷，等於製造第二份必然漂移的副本。
      * 31ms 換不到那個風險。
      */
-    private function revenueVerified(?Instrument $instrument): ?bool
+    /**
+     * 營收驗證的三態與「本框架適不適用這個產業」。
+     *
+     * 兩個值一起取：`revenue_verified` 為 null 有兩個成因，對使用者的意義完全
+     * 不同——「序列還沒累積」等分析跑過就會有答案，「這個產業本框架不適用」
+     * （航運、金融保險等服務業不具備一般進銷存循環）**永遠不會有答案**。
+     * 兩者都顯示「無資料」會讓使用者一直等一個不會來的東西，而規格的頭號
+     * 範例題材 hormuz_oil 的核心正好就是航運股。
+     *
+     * 標的不在 instruments 表時回 `[null, true]`：那時連產業都還不知道，
+     * 宣稱本框架不適用是沒有證據的結論。
+     *
+     * @return array{0: ?bool, 1: bool}
+     */
+    private function revenueSignals(?Instrument $instrument): array
     {
         if ($instrument === null) {
-            return null;
+            return [null, true];
         }
 
-        return $this->orderInventory->seriesSignalsFor($instrument)['revenue_verified'];
+        $signals = $this->orderInventory->seriesSignalsFor($instrument);
+
+        return [$signals['revenue_verified'], $signals['revenue_applicable']];
     }
 
     private function industryOf(?Instrument $instrument): ?string

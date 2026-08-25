@@ -81,16 +81,36 @@ class OrderInventoryAssessor
      * 跑在個股頁每次開頁、選股器每掃一檔、首頁每次載入的路徑上。這裡算出的評級
      * 缺同業腿、也不屬於任何一次完整評級，寫回去只會污染評級軌跡。
      *
-     * 拿不到序列時兩個值都是 null（「算不出來」），不得以 false／0 頂替。
+     * 拿不到序列時三個值分別是 null／null／true，不得以 false／0 頂替。
      *
-     * @return array{revenue_verified: ?bool, gross_margin_qoq_pp: ?float}
+     * **`revenue_applicable` 用來分辨兩種「算不出來」。** `revenue_verified` 為
+     * null 有兩個成因，對使用者的意義完全不同：
+     *
+     * - **序列還沒累積**：等分析或掃描跑過就會有答案。呈現層說「無資料」是對的。
+     * - **這個產業本框架不適用**：`config('order_inventory.industry.not_applicable')`
+     *   列了金融保險、證券、銀行、**航運**、觀光餐旅等服務業——它們不具備一般
+     *   進銷存循環，`assess()` 直接短路成 not_applicable、條件表整個空掉。
+     *   這種情形**永遠不會有答案**，說「無資料」會讓使用者一直等一個不會來的東西。
+     *
+     * 這個區分不是假想需求：`config('news.transmission')` 的 hormuz_oil（規格的
+     * 頭號範例題材）核心就是航運股，2603／2609／2615 的營收徽章結構上恆為 null。
+     *
+     * 序列拿不到時 `revenue_applicable` 回 **true**：那時還不知道產業是什麼，
+     * 而「不適用」是一個需要證據才能下的結論。回 false 等於在沒讀到產業別的
+     * 情況下宣稱本框架不適用——那正是本框架一路在避免的過度宣稱。
+     *
+     * @return array{revenue_verified: ?bool, gross_margin_qoq_pp: ?float, revenue_applicable: bool}
      */
     public function seriesSignalsFor(Instrument $instrument): array
     {
         $data = $this->fundamentals->orderInventorySeriesFor($instrument);
 
         if ($data === null || ! $data->hasAny()) {
-            return ['revenue_verified' => null, 'gross_margin_qoq_pp' => null];
+            return [
+                'revenue_verified' => null,
+                'gross_margin_qoq_pp' => null,
+                'revenue_applicable' => true,
+            ];
         }
 
         // 走完整的 assess() 而不是直接呼叫 conditions()：資料過舊／產業不適用時
@@ -101,6 +121,7 @@ class OrderInventoryAssessor
         return [
             'revenue_verified' => $assessment->conditions['C1'] ?? null,
             'gross_margin_qoq_pp' => $assessment->metrics->grossMarginQoqPp,
+            'revenue_applicable' => $assessment->industryBucket !== 'not_applicable',
         ];
     }
 

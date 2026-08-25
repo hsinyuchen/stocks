@@ -56,6 +56,25 @@ class TopicDataTest extends TestCase
         $this->assertFalse($refuted->toArray()['revenue_verified']);
     }
 
+    /**
+     * 「無資料」有兩個成因，序列化後必須分得開：序列還沒累積（等分析跑過會有
+     * 答案），與這個產業本框架不適用（永遠不會有答案）。兩者都印「無資料」
+     * 會讓使用者一直等一個不會來的東西——規格的頭號範例題材 hormuz_oil 的核心
+     * 正好就是航運股，而航運在 order_inventory.industry.not_applicable 裡。
+     */
+    #[Test]
+    public function an_unsuited_industry_is_distinguishable_from_a_missing_series(): void
+    {
+        $notYet = new TopicCandidate('2330.TW', '台積電', TopicTier::Core);
+        $neverWill = new TopicCandidate('2603.TW', '長榮', TopicTier::Core, revenueApplicable: false);
+
+        $this->assertNull($notYet->toArray()['revenue_verified']);
+        $this->assertNull($neverWill->toArray()['revenue_verified']);
+
+        $this->assertTrue($notYet->toArray()['revenue_applicable'], '沒有序列時不得宣稱本框架不適用');
+        $this->assertFalse($neverWill->toArray()['revenue_applicable']);
+    }
+
     #[Test]
     public function a_candidate_without_a_direction_serialises_as_null(): void
     {
