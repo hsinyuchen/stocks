@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Screener;
 
+use App\Models\Alert;
+use App\Models\Instrument;
 use App\Models\User;
 use App\Services\Screener\Rules\EarlySocialArbitrage;
 use App\Services\Screener\Rules\IndustryOutperformer;
@@ -119,6 +121,41 @@ class ScreenRuleNoteTest extends TestCase
 
         $this->actingAs($user)->get('/alerts')->assertOk()->assertInertia(
             fn (Assert $page) => $page->where('signalRules', $expected)->etc(),
+        );
+    }
+
+    /**
+     * 首頁的已觸發訊號警報：規則名稱與附註由後端解好。
+     *
+     * 這裡原本直接把 `signal_key` 印給使用者（「訊號 early_social_arbitrage」）
+     * ——機器鍵對使用者毫無意義，而且那是 25 條規則共同的問題，不只帶附註的兩條。
+     *
+     * 走 partial 請求而不是 assertInertia：首頁的重資料是 Inertia deferred props，
+     * 整頁請求拿不到 triggeredAlerts。
+     */
+    #[Test]
+    public function the_dashboard_resolves_the_signal_label_and_notes(): void
+    {
+        $user = User::factory()->create();
+        $instrument = Instrument::factory()->create(['symbol' => '2330.TW']);
+
+        $alert = new Alert([
+            'instrument_id' => $instrument->id,
+            'type' => 'signal',
+            'signal_key' => 'early_social_arbitrage',
+        ]);
+        $user->alerts()->save($alert);
+        // status／triggered_at 不在 fillable 裡（避免從請求塞觸發狀態），測試改直接寫。
+        $alert->forceFill(['status' => 'triggered', 'triggered_at' => now()])->save();
+
+        $payload = $this->actingAs($user)->getDashboard()->assertOk()->json('props.triggeredAlerts');
+
+        $this->assertCount(1, $payload);
+        $this->assertSame('早期社交套利', $payload[0]['signal_label'], '不得把機器鍵印給使用者');
+        $this->assertSame(
+            (new EarlySocialArbitrage)->noteKeys(),
+            $payload[0]['signal_notes'],
+            '觸發後回頭看首頁、據以動作的那一刻，跟建立警報的當下一樣需要那兩則更正',
         );
     }
 

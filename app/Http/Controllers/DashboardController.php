@@ -16,6 +16,7 @@ use App\Services\Chip\ChipDataService;
 use App\Services\Market\MarketBreadthService;
 use App\Services\News\NewsIngestionService;
 use App\Services\News\TransmissionMapper;
+use App\Services\Screener\ScreenRuleRegistry;
 use App\Services\SignalEngine;
 use App\Services\TechnicalIndicatorService;
 use Carbon\CarbonImmutable;
@@ -112,6 +113,12 @@ class DashboardController extends Controller
      */
     private function triggeredAlerts(User $user): array
     {
+        // 規則名稱與必要說明在後端解好再送：這裡原本直接把 signal_key 印給使用者
+        // （「訊號 early_social_arbitrage」），而那個機器鍵對他毫無意義。
+        // 附註跟著一起送的理由見 ScreenRuleNote——觸發後回頭看首頁、據以動作的
+        // 那一刻，跟建立警報的當下一樣需要那兩則更正。
+        $rules = collect(app(ScreenRuleRegistry::class)->listing())->keyBy('key');
+
         return $user->alerts()->with('instrument')->where('status', 'triggered')->latest('triggered_at')->get()
             ->map(fn (Alert $alert): array => [
                 'id' => $alert->id,
@@ -121,6 +128,10 @@ class DashboardController extends Controller
                 'type' => $alert->type,
                 'threshold' => $alert->threshold === null ? null : (float) $alert->threshold,
                 'signal_key' => $alert->signal_key,
+                // 規則被移除或改名時退回 null，前端會退回顯示 signal_key——
+                // 那比整條警報消失或畫面爆掉好。
+                'signal_label' => $rules->get($alert->signal_key)['label'] ?? null,
+                'signal_notes' => $rules->get($alert->signal_key)['notes'] ?? [],
                 'triggered_price' => $alert->triggered_price === null ? null : (float) $alert->triggered_price,
                 'triggered_at' => $alert->triggered_at?->toIso8601String(),
             ])->all();

@@ -736,10 +736,17 @@ export default function Dashboard({
                                             {alert.scope === 'market'
                                                 ? (alert.type === 'market_bearish_flip' ? t('dashboard.marketBearishFlip') : t('dashboard.marketForeignFuturesFlip'))
                                                 : alert.type === 'signal'
-                                                    ? t('dashboard.signalLabel', { key: alert.signal_key })
+                                                    ? t('dashboard.signalLabel', { key: alert.signal_label ?? alert.signal_key })
                                                     : `${alert.type} ${alert.threshold}`}
                                             {alert.triggered_price !== null ? t('dashboard.triggeredPrice', { price: alert.triggered_price }) : ''}
                                         </small>
+                                        {(alert.signal_notes ?? []).length > 0 ? (
+                                            <ul className="alert-rule-notes">
+                                                {alert.signal_notes.map((note) => (
+                                                    <li key={note}>{t(note)}</li>
+                                                ))}
+                                            </ul>
+                                        ) : null}
                                     </li>
                                 ))}
                             </ul>
