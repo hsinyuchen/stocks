@@ -526,6 +526,61 @@ class TopicCandidateResolverTest extends TestCase
     // ---------------------------------------------------- 營收驗證與只讀
 
     /**
+     * 「本框架不適用此產業」要真的從 resolver 一路走到 board——**三層都要**。
+     *
+     * 原本 `revenueApplicable` 在 resolver → board 這一段零覆蓋：測試只碰過
+     * `seriesSignalsFor()` 的直接回傳、手工建構的 TopicCandidate、以及對 JSX
+     * 原始碼的字串斷言。把 resolver 裡三個 `revenueUnknownReason:` 參數任一
+     * 寫死 null，整個題材測試套件都會全綠，而那一態從此永遠走不到。
+     * 所以核心、延伸、外圍各放一檔航運股。
+     *
+     * 對照組不可省：全部寫死成 NotApplicable 一樣會讓上面三條斷言通過。
+     *
+     * **注意一個安靜的順序陷阱**：`OrderInventoryAssessor` 在解析時就把
+     * `FundamentalsService`（連同當下綁的 provider）收進建構子，先 resolve
+     * 再 bind 會用到預設的 fake provider。所以這裡直接寫 `fundamentals` 列，
+     * 不走 bindProvider() + forInstrument()。
+     */
+    #[Test]
+    public function an_unsuited_industry_is_marked_not_applicable_in_every_tier(): void
+    {
+        $this->series($this->instrument('2603.TW'), '航運業');   // 核心（傳導表列名）
+        $this->series($this->instrument('5608.TW'), '航運業');   // 延伸（同產業）
+        // 外圍那檔的產業要與核心不同，否則它會先被延伸層收走（觀光餐旅同樣在
+        // order_inventory.industry.not_applicable 名單上）。
+        $this->series($this->instrument('9101.TW'), '觀光餐旅');
+        $this->series($this->instrument('1301.TW'), '塑膠工業');  // 對照組：適用產業
+
+        for ($i = 1; $i <= (int) config('topics.min_mentions'); $i++) {
+            $this->hormuzNews($i, ['9101.TW']);
+        }
+
+        $tiers = [
+            '2603.TW' => TopicTier::Core,
+            '5608.TW' => TopicTier::Extended,
+            '9101.TW' => TopicTier::Periphery,
+        ];
+
+        foreach ($tiers as $symbol => $tier) {
+            $candidate = $this->candidate('hormuz_oil', $symbol);
+
+            $this->assertNotNull($candidate, $symbol.' 必須在 board 上');
+            $this->assertSame($tier, $candidate->tier, $symbol.' 的層級與測資意圖不符，這條測試會測到別的東西');
+            $this->assertNull($candidate->revenueVerified, '航運屬 not_applicable，C1 恆為 null');
+            $this->assertSame(
+                RevenueUnknownReason::NotApplicable,
+                $candidate->revenueUnknownReason,
+                $symbol.'（'.$tier->value.'）說「無資料」會讓使用者等一個不會來的答案',
+            );
+        }
+
+        $control = $this->candidate('hormuz_oil', '1301.TW');
+
+        $this->assertNull($control?->revenueUnknownReason, '對照組：適用產業有結論，不是全部都不適用');
+        $this->assertTrue($control?->revenueVerified);
+    }
+
+    /**
      * 沒有結論時要說得出**為什麼**。
      *
      * 四種成因對使用者是四種不同的行動，而 `revenueVerified` 全是 null——
