@@ -322,7 +322,13 @@ class SocialArbitrageAssessorTest extends TestCase
             {
                 $this->seriesCalls++;
 
-                return ['revenue_verified' => true, 'gross_margin_qoq_pp' => -2.5];
+                // 三個鍵都給：spy 少一個鍵時本類別今天不讀所以不會炸，但契約
+                // 已經漂移，下一個消費端讀到的會是 undefined index。
+                return [
+                    'revenue_verified' => true,
+                    'gross_margin_qoq_pp' => -2.5,
+                    'revenue_unknown_reason' => null,
+                ];
             }
 
             public function cachedFor(Instrument $instrument): ?array

@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Data\TopicBoard;
 use App\Data\TopicCandidate;
+use App\Enums\RevenueUnknownReason;
 use App\Enums\TopicDirection;
 use App\Enums\TopicTier;
 use PHPUnit\Framework\Attributes\Test;
@@ -57,22 +58,48 @@ class TopicDataTest extends TestCase
     }
 
     /**
-     * 「無資料」有兩個成因，序列化後必須分得開：序列還沒累積（等分析跑過會有
-     * 答案），與這個產業本框架不適用（永遠不會有答案）。兩者都印「無資料」
-     * 會讓使用者一直等一個不會來的東西——規格的頭號範例題材 hormuz_oil 的核心
-     * 正好就是航運股，而航運在 order_inventory.industry.not_applicable 裡。
+     * 「沒有結論」有**五個**成因，序列化後必須分得開。
+     *
+     * 三種等得到答案（序列尚未累積、資料不足以判定、序列過舊或缺關鍵科目——
+     * 最後一種要等下一次財報），一種要先有人建立標的，一種**永遠不會有答案**
+     * （本框架不適用此產業）。全部壓成一句「無資料」會讓使用者一直等一個
+     * 不會來的東西——規格的頭號範例題材 hormuz_oil 的核心正好就是航運股，
+     * 而航運在 order_inventory.industry.not_applicable 裡。
      */
     #[Test]
-    public function an_unsuited_industry_is_distinguishable_from_a_missing_series(): void
+    public function every_reason_for_having_no_revenue_answer_serialises_distinctly(): void
     {
-        $notYet = new TopicCandidate('2330.TW', '台積電', TopicTier::Core);
-        $neverWill = new TopicCandidate('2603.TW', '長榮', TopicTier::Core, revenueApplicable: false);
+        $byReason = [];
 
-        $this->assertNull($notYet->toArray()['revenue_verified']);
-        $this->assertNull($neverWill->toArray()['revenue_verified']);
+        foreach (RevenueUnknownReason::cases() as $reason) {
+            $candidate = new TopicCandidate('2603.TW', '長榮', TopicTier::Core, revenueUnknownReason: $reason);
 
-        $this->assertTrue($notYet->toArray()['revenue_applicable'], '沒有序列時不得宣稱本框架不適用');
-        $this->assertFalse($neverWill->toArray()['revenue_applicable']);
+            $this->assertNull($candidate->toArray()['revenue_verified'], '有原因就代表 C1 沒有結論');
+
+            $byReason[] = $candidate->toArray()['revenue_unknown_reason'];
+        }
+
+        $this->assertSame(
+            count(RevenueUnknownReason::cases()),
+            count(array_unique($byReason)),
+            '任兩個成因合併成同一個序列化值，呈現層就分不開了',
+        );
+        $this->assertContains('not_applicable', $byReason);
+        $this->assertContains('not_in_universe', $byReason);
+    }
+
+    /**
+     * 有結論時**沒有原因**：`revenue_unknown_reason` 為 null 與
+     * `revenue_verified` 為 null 是同一件事的兩面，兩者同時有值代表
+     * 呈現層會拿到互相矛盾的兩個欄位。
+     */
+    #[Test]
+    public function a_verified_candidate_carries_no_reason(): void
+    {
+        $verified = new TopicCandidate('2330.TW', '台積電', TopicTier::Core, revenueVerified: true);
+
+        $this->assertArrayHasKey('revenue_unknown_reason', $verified->toArray());
+        $this->assertNull($verified->toArray()['revenue_unknown_reason']);
     }
 
     #[Test]

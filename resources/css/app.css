@@ -4359,9 +4359,16 @@ select:focus-visible {
     color: var(--text);
 }
 
-/* 「尚未累積」與「本框架不適用」必須一眼分得開：前者虛線（等得到答案），
-   後者實線灰底（永遠不會有答案）。同一種灰會讓航運股的使用者一直等下去。 */
-.topic-badge--unknown {
+/* 「還沒有答案」與「永遠不會有答案」必須一眼分得開：前者虛線（不論要等的是
+   下一次掃描、下一次財報還是有人建立標的），後者實線灰底。同一種灰會讓航運股
+   的使用者一直等下去。
+
+   四種「還沒有」共用同一個樣式：徽章文字本身已經把成因分開講，樣式再編碼一次
+   只會與文案漂移。 */
+.topic-badge--not-yet,
+.topic-badge--indeterminate,
+.topic-badge--stale,
+.topic-badge--not-in-universe {
     background: transparent;
     border-style: dashed;
     color: var(--muted);

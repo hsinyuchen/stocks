@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Topics;
 
+use App\Enums\RevenueUnknownReason;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -243,16 +244,18 @@ class TopicPageTest extends TestCase
     // ------------------------------------------------------------------
 
     /**
-     * 四個呈現狀態各走一個分支。
+     * 七個呈現狀態各走一個分支。
      *
-     * 只斷言「有出現某個字串」對「四者長得一樣」完全無感，所以這裡把元件主體依
-     * `return (` 切成四段，逐一比對 className 與 i18n 鍵**只出現在自己那一段**。
+     * 只斷言「有出現某個字串」對「幾者長得一樣」完全無感，所以這裡把元件主體依
+     * `return (` 切成七段，逐一比對 className 與 i18n 鍵**只出現在自己那一段**。
      *
-     * 第三態（尚未累積）與第四態（本框架不適用）**絕對不能合併**：前者等分析跑過
-     * 就會有答案，後者永遠不會有。合併等於叫使用者一直等一個不會來的東西。
+     * 五種「沒有結論」**絕對不能合併**，因為它們對使用者是五種不同的行動：
+     * 「序列尚未累積」與「資料不足以判定」等分析跑過就可能有答案；「序列過舊或
+     * 缺關鍵科目」要等下一次財報；「未建立標的」要先有人搜尋或 ingest 建立；
+     * 「不適用此產業」永遠不會有答案。合併等於叫使用者一直等一個不會來的東西。
      */
     #[Test]
-    public function the_revenue_badge_uses_four_distinct_branches(): void
+    public function the_revenue_badge_gives_every_state_its_own_branch(): void
     {
         $body = $this->componentBody($this->jsx(), 'RevenueBadge');
 
@@ -264,10 +267,20 @@ class TopicPageTest extends TestCase
             $cursor = $found + 8;
         }
 
+        $states = [
+            'verified=true' => ['topic-badge--verified', 'topics.revenueVerified'],
+            'verified=false' => ['topic-badge--refuted', 'topics.revenueRefuted'],
+            'reason=not_applicable' => ['topic-badge--not-applicable', 'topics.revenueNotApplicable'],
+            'reason=not_in_universe' => ['topic-badge--not-in-universe', 'topics.revenueNotInUniverse'],
+            'reason=not_yet' => ['topic-badge--not-yet', 'topics.revenueNotYet'],
+            'reason=stale' => ['topic-badge--stale', 'topics.revenueStale'],
+            'reason=indeterminate' => ['topic-badge--indeterminate', 'topics.revenueIndeterminate'],
+        ];
+
         $this->assertCount(
-            4,
+            count($states),
             $offsets,
-            'RevenueBadge 必須有四個渲染分支：已驗證／未獲驗證／無資料（尚未累積）／本框架不適用。',
+            'RevenueBadge 必須讓每個狀態各走一個渲染分支：已驗證／未獲驗證，加上五種「沒有結論」的原因。',
         );
 
         $segments = [];
@@ -276,13 +289,6 @@ class TopicPageTest extends TestCase
             $end = $offsets[$index + 1] ?? strlen($body);
             $segments[] = substr($body, $start, $end - $start);
         }
-
-        $states = [
-            'applicable=false' => ['topic-badge--not-applicable', 'topics.revenueNotApplicable'],
-            'verified=true' => ['topic-badge--verified', 'topics.revenueVerified'],
-            'verified=false' => ['topic-badge--refuted', 'topics.revenueRefuted'],
-            'verified=null' => ['topic-badge--unknown', 'topics.revenueUnknown'],
-        ];
 
         foreach ($states as $state => [$className, $messageKey]) {
             $withClass = array_values(array_filter($segments, fn (string $s): bool => str_contains($s, $className)));
@@ -293,13 +299,61 @@ class TopicPageTest extends TestCase
             $this->assertSame($withClass[0], $withKey[0], "{$state} 的 className 與文案鍵必須在同一個分支。");
         }
 
-        // `revenue_applicable` 要真的被讀，否則第四態永遠走不到。
+        // 原因要真的被讀，否則五個原因分支永遠走不到。
         $this->assertStringContainsString(
-            'applicable',
+            'reason',
             $body,
-            'RevenueBadge 必須看 revenue_applicable，否則「本框架不適用」永遠不會顯示。',
+            'RevenueBadge 必須看 revenue_unknown_reason，否則「為什麼沒有結論」永遠不會顯示。',
         );
-        $this->assertStringContainsString('revenue_applicable', $this->jsx(), '頁面必須把 revenue_applicable 傳進徽章。');
+        $this->assertStringContainsString(
+            'revenue_unknown_reason',
+            $this->jsx(),
+            '頁面必須把 revenue_unknown_reason 傳進徽章。',
+        );
+    }
+
+    /**
+     * 每個後端會產生的原因，前端都要有對應的比較與文案。
+     *
+     * 上一條測的是「JSX 裡的分支互不重疊」，這條測的是**兩邊的列舉對得起來**：
+     * 後端新增一個原因而前端沒跟上時，那一列會靜靜掉進最後一個分支被講成別的
+     * 意思，而純粹掃 JSX 的斷言對這件事完全無感。
+     *
+     * 唯一允許沒有自己比較式的是 `indeterminate`——它是最後一個分支，同時是
+     * 任何未預期值的落點（「沒有結論」是所有情形的誠實上位描述）。這條測試把
+     * 「哪一個可以沒有比較式」寫死，多一個少一個都會紅。
+     */
+    #[Test]
+    public function every_backend_reason_has_a_comparison_and_a_translation(): void
+    {
+        $body = $this->componentBody($this->jsx(), 'RevenueBadge');
+        $zh = $this->dictionaryKeys('zh');
+        $en = $this->dictionaryKeys('en');
+
+        preg_match_all("/reason === '([a-z_]+)'/", $body, $matches);
+        $compared = $matches[1];
+
+        $this->assertSame($compared, array_values(array_unique($compared)), '同一個原因不得比較兩次。');
+
+        $all = array_map(fn (RevenueUnknownReason $r): string => $r->value, RevenueUnknownReason::cases());
+
+        $this->assertSame(
+            [RevenueUnknownReason::Indeterminate->value],
+            array_values(array_diff($all, $compared)),
+            '除了 indeterminate（最後一個分支，兼未預期值的落點）以外，每個後端原因都要有自己的比較式。',
+        );
+        $this->assertSame(
+            [],
+            array_values(array_diff($compared, $all)),
+            'RevenueBadge 比較了一個後端不會產生的原因，那個分支永遠走不到。',
+        );
+
+        foreach ($all as $value) {
+            $key = 'topics.revenue'.str_replace('_', '', ucwords($value, '_'));
+
+            $this->assertContains($key, $zh, "繁中字典缺少 {$key}。");
+            $this->assertContains($key, $en, "英文字典缺少 {$key}。");
+        }
     }
 
     // ------------------------------------------------------------------

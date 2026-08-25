@@ -4,6 +4,8 @@ namespace App\Services\Fundamentals;
 
 use App\Data\OrderInventoryAssessment;
 use App\Data\OrderInventoryData;
+use App\Enums\OrderInventoryRating;
+use App\Enums\RevenueUnknownReason;
 use App\Models\Fundamental;
 use App\Models\Instrument;
 
@@ -81,25 +83,24 @@ class OrderInventoryAssessor
      * 跑在個股頁每次開頁、選股器每掃一檔、首頁每次載入的路徑上。這裡算出的評級
      * 缺同業腿、也不屬於任何一次完整評級，寫回去只會污染評級軌跡。
      *
-     * 拿不到序列時三個值分別是 null／null／true，不得以 false／0 頂替。
+     * 拿不到序列時三個值分別是 null／null／NotYet，不得以 false／0 頂替。
      *
-     * **`revenue_applicable` 用來分辨兩種「算不出來」。** `revenue_verified` 為
-     * null 有兩個成因，對使用者的意義完全不同：
+     * **`revenue_unknown_reason` 說明 C1 為什麼沒有結論。** 一個布林
+     * （「適不適用」）只分得出兩態，而實測有四種成因落在這個入口，
+     * 對使用者是四種不同的行動——逐條見 {@see RevenueUnknownReason}。
+     * 尤其「序列完整落地但季末日太舊」：序列**累積過了**，再跑一百次掃描
+     * 季末日也不會往前走，講成「尚未累積」是把使用者留在一個不會結束的等待裡。
      *
-     * - **序列還沒累積**：等分析或掃描跑過就會有答案。呈現層說「無資料」是對的。
-     * - **這個產業本框架不適用**：`config('order_inventory.industry.not_applicable')`
-     *   列了金融保險、證券、銀行、**航運**、觀光餐旅等服務業——它們不具備一般
-     *   進銷存循環，`assess()` 直接短路成 not_applicable、條件表整個空掉。
-     *   這種情形**永遠不會有答案**，說「無資料」會讓使用者一直等一個不會來的東西。
+     * 序列拿不到時回 **NotYet** 而不是 NotApplicable：那時還不知道產業是什麼，
+     * 而「不適用」是一個需要證據才能下的結論。在沒讀到產業別的情況下宣稱本框架
+     * 不適用，正是本框架一路在避免的過度宣稱。
      *
-     * 這個區分不是假想需求：`config('news.transmission')` 的 hormuz_oil（規格的
-     * 頭號範例題材）核心就是航運股，2603／2609／2615 的營收徽章結構上恆為 null。
+     * 產業不適用**優先於**資料過舊：`assess()` 的串聯 0（過舊／缺科目）排在
+     * 串聯 1（產業不適用）之前，所以一檔過舊的航運股拿到的 rating 是
+     * insufficient；但對使用者而言「這個產業永遠不會有答案」蓋過「這份資料太舊」
+     * ——補了新財報也還是不會有答案。因此這裡看 `industryBucket` 而不是 rating。
      *
-     * 序列拿不到時 `revenue_applicable` 回 **true**：那時還不知道產業是什麼，
-     * 而「不適用」是一個需要證據才能下的結論。回 false 等於在沒讀到產業別的
-     * 情況下宣稱本框架不適用——那正是本框架一路在避免的過度宣稱。
-     *
-     * @return array{revenue_verified: ?bool, gross_margin_qoq_pp: ?float, revenue_applicable: bool}
+     * @return array{revenue_verified: ?bool, gross_margin_qoq_pp: ?float, revenue_unknown_reason: ?RevenueUnknownReason}
      */
     public function seriesSignalsFor(Instrument $instrument): array
     {
@@ -109,7 +110,7 @@ class OrderInventoryAssessor
             return [
                 'revenue_verified' => null,
                 'gross_margin_qoq_pp' => null,
-                'revenue_applicable' => true,
+                'revenue_unknown_reason' => RevenueUnknownReason::NotYet,
             ];
         }
 
@@ -117,12 +118,31 @@ class OrderInventoryAssessor
         // assess() 會短路，條件表整個空掉（C1 於是為 null）。跳過那兩道短路等於
         // 用一份已被判定不可評級的序列去宣稱「營收已驗證」。
         $assessment = $this->radar->assess($data);
+        $verified = $assessment->conditions['C1'] ?? null;
 
         return [
-            'revenue_verified' => $assessment->conditions['C1'] ?? null,
+            'revenue_verified' => $verified,
             'gross_margin_qoq_pp' => $assessment->metrics->grossMarginQoqPp,
-            'revenue_applicable' => $assessment->industryBucket !== 'not_applicable',
+            'revenue_unknown_reason' => $verified === null ? $this->unknownReason($assessment) : null,
         ];
+    }
+
+    /**
+     * C1 沒有結論時，是哪一種沒有結論。
+     */
+    private function unknownReason(OrderInventoryAssessment $assessment): RevenueUnknownReason
+    {
+        if ($assessment->industryBucket === 'not_applicable') {
+            return RevenueUnknownReason::NotApplicable;
+        }
+
+        if ($assessment->rating === OrderInventoryRating::Insufficient) {
+            return RevenueUnknownReason::Stale;
+        }
+
+        // 走到這裡代表序列可評級、產業也適用，只是 C1 本身算不出來
+        // （既無月營收、序列裡也沒有去年同季）。
+        return RevenueUnknownReason::Indeterminate;
     }
 
     /**

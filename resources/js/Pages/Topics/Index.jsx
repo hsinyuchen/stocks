@@ -118,24 +118,27 @@ function TopicChooser({ topics, selected }) {
 }
 
 /**
- * 營收驗證徽章。**四態，四個分支，不得合併任何兩個。**
+ * 營收驗證徽章。**七態，七個分支，不得合併任何兩個。**
  *
- * `revenue_applicable` 為 false 是「這個產業本框架不適用」（金融保險、證券、銀行、
- * 航運、觀光餐旅等服務業不具備一般進銷存循環，`assess()` 直接短路）——**永遠不會
- * 有答案**；`revenue_verified` 為 null 是「序列尚未累積」——等分析或掃描跑過就會
- * 有答案。把後者的文案套到前者身上，使用者會一直等一個不會來的東西，而本頁的頭號
- * 範例題材 hormuz_oil 的核心正好就是航運股（2603／2609／2615）。
+ * `verified` 為 true／false 是訂單庫存框架的 C1 有結論；為 null 時
+ * `reason` 說明**為什麼沒有結論**，而五個原因對使用者是五種不同的行動：
  *
- * `false` 與 `null` 同理：`false` 是「判過、不成立」，`null` 是「沒查到」。
+ * - `not_yet`／`indeterminate`：等分析或掃描跑過就可能有答案。
+ * - `stale`：序列已經完整落地，過舊的是財報的季末日——再跑一百次掃描它也不會
+ *   往前走，要等下一次財報。講成「尚未累積」是把使用者留在一個不會結束的等待裡。
+ * - `not_in_universe`：這一檔還不在 instruments 表。建立標的是 ingest 與搜尋的
+ *   職責，本頁不代勞，所以不會有任何分析或掃描去碰它。
+ * - `not_applicable`：該產業（金融保險、證券、銀行、航運、觀光餐旅等服務業）
+ *   不具備一般進銷存循環，`assess()` 直接短路——**永遠不會有答案**。
+ *
+ * 本頁的頭號範例題材 hormuz_oil 同時踩到後兩種：核心是航運股，而九檔核心裡
+ * 有六檔根本不在 instruments 表。
+ *
+ * `indeterminate` 放在最後：它同時是「可評級但 C1 算不出來」這一態，也是任何
+ * 未預期值的落點——「沒有結論」是所有情形的誠實上位描述，落到別的分支才會說錯話。
  */
-function RevenueBadge({ applicable, verified }) {
+function RevenueBadge({ reason, verified }) {
     const { t } = useI18n();
-
-    if (applicable === false) {
-        return (
-            <span className="topic-badge topic-badge--not-applicable">{t('topics.revenueNotApplicable')}</span>
-        );
-    }
 
     if (verified === true) {
         return (
@@ -149,8 +152,32 @@ function RevenueBadge({ applicable, verified }) {
         );
     }
 
+    if (reason === 'not_applicable') {
+        return (
+            <span className="topic-badge topic-badge--not-applicable">{t('topics.revenueNotApplicable')}</span>
+        );
+    }
+
+    if (reason === 'not_in_universe') {
+        return (
+            <span className="topic-badge topic-badge--not-in-universe">{t('topics.revenueNotInUniverse')}</span>
+        );
+    }
+
+    if (reason === 'stale') {
+        return (
+            <span className="topic-badge topic-badge--stale">{t('topics.revenueStale')}</span>
+        );
+    }
+
+    if (reason === 'not_yet') {
+        return (
+            <span className="topic-badge topic-badge--not-yet">{t('topics.revenueNotYet')}</span>
+        );
+    }
+
     return (
-        <span className="topic-badge topic-badge--unknown">{t('topics.revenueUnknown')}</span>
+        <span className="topic-badge topic-badge--indeterminate">{t('topics.revenueIndeterminate')}</span>
     );
 }
 
@@ -192,7 +219,7 @@ function CandidateRow({ candidate, showMentions }) {
                         {t('topics.industryLabel', { name: candidate.industry })}
                     </span>
                 ) : null}
-                <RevenueBadge applicable={candidate.revenue_applicable} verified={candidate.revenue_verified} />
+                <RevenueBadge reason={candidate.revenue_unknown_reason} verified={candidate.revenue_verified} />
             </div>
         </li>
     );

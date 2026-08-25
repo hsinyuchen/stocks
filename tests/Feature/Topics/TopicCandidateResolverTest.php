@@ -11,6 +11,7 @@ use App\Data\MarketQuoteData;
 use App\Data\OrderInventoryData;
 use App\Data\QuarterlyFinancials;
 use App\Data\TopicCandidate;
+use App\Enums\RevenueUnknownReason;
 use App\Enums\TopicDirection;
 use App\Enums\TopicTier;
 use App\Models\Fundamental;
@@ -481,6 +482,71 @@ class TopicCandidateResolverTest extends TestCase
     }
 
     // ---------------------------------------------------- 營收驗證與只讀
+
+    /**
+     * 沒有結論時要說得出**為什麼**。
+     *
+     * 四種成因對使用者是四種不同的行動，而 `revenueVerified` 全是 null——
+     * 只驗 null 的測試對「四者被講成同一件事」完全無感。
+     * （產業不適用那一態由 an_unsuited_industry_core_is_marked_not_applicable
+     * 連同對照組一起釘住。）
+     */
+    #[Test]
+    public function each_reason_for_having_no_revenue_answer_reaches_the_board(): void
+    {
+        // 2615.TW 刻意不建立：傳導表有 30 檔而 instruments 表只有 20 檔。
+        $this->instrument('2609.TW');                                       // 有標的、沒有序列
+        $this->staleSeries($this->instrument('2610.TW'), '航空業');           // 序列完整但季末日太舊
+        $this->series($this->instrument('1301.TW'), '塑膠工業', revenueGrowing: null);   // 可評級但 C1 算不出來
+
+        $reasons = [
+            '2615.TW' => RevenueUnknownReason::NotInUniverse,
+            '2609.TW' => RevenueUnknownReason::NotYet,
+            '2610.TW' => RevenueUnknownReason::Stale,
+            '1301.TW' => RevenueUnknownReason::Indeterminate,
+        ];
+
+        foreach ($reasons as $symbol => $expected) {
+            $candidate = $this->candidate('hormuz_oil', $symbol);
+
+            $this->assertNotNull($candidate, $symbol.' 必須在 board 上');
+            $this->assertNull($candidate->revenueVerified, $symbol.' 這四種成因下 C1 都沒有結論');
+            $this->assertSame($expected, $candidate->revenueUnknownReason, $symbol.' 的成因被講錯了');
+        }
+
+        $this->assertCount(
+            count($reasons),
+            array_unique(array_map(fn (RevenueUnknownReason $r): string => $r->value, $reasons)),
+            '任兩個成因合併，使用者就分不出哪一列等得到答案',
+        );
+    }
+
+    /**
+     * 季末日超過 max_quarter_age_days 的一份完整序列：**序列本身是新鮮抓進來的**
+     * （fetched_at 是昨天），過舊的是財報的季末日，兩者是不同的尺。
+     */
+    private function staleSeries(Instrument $instrument, string $industry): Fundamental
+    {
+        return Fundamental::query()->create([
+            'instrument_id' => $instrument->id,
+            'data_as_of' => '2024-06-30',
+            'fetched_at' => $this->now->subDay(),
+            'order_inventory' => (new OrderInventoryData(
+                quarters: [
+                    new QuarterlyFinancials(period: '2024Q1', endDate: '2024-03-31', revenue: 1000.0, costOfGoodsSold: 700.0, grossProfit: 300.0, inventories: 350.0),
+                    new QuarterlyFinancials(period: '2024Q2', endDate: '2024-06-30', revenue: 1100.0, costOfGoodsSold: 760.0, grossProfit: 340.0, inventories: 360.0),
+                ],
+                monthlyRevenue: [
+                    ['month' => '2024-04-01', 'revenue' => 950.0, 'yoy' => 0.06],
+                    ['month' => '2024-05-01', 'revenue' => 980.0, 'yoy' => 0.07],
+                    ['month' => '2024-06-01', 'revenue' => 1000.0, 'yoy' => 0.08],
+                ],
+                market: 'tw',
+                industry: $industry,
+                dataAsOf: '2024-06-30',
+            ))->toArray(),
+        ]);
+    }
 
     /**
      * revenueVerified 是三態。只測 null 的話，把 null 一律壓成 false 不會紅

@@ -6,6 +6,7 @@ use App\Data\TopicBoard;
 use App\Data\TopicCandidate;
 use App\Enums\AssetType;
 use App\Enums\MarketRegion;
+use App\Enums\RevenueUnknownReason;
 use App\Enums\TopicDirection;
 use App\Enums\TopicTier;
 use App\Models\Fundamental;
@@ -159,7 +160,7 @@ class TopicCandidateResolver
 
         foreach ($rows as $symbol => $meta) {
             $instrument = $instruments->get($symbol);
-            [$revenueVerified, $revenueApplicable] = $this->revenueSignals($instrument);
+            [$revenueVerified, $revenueUnknownReason] = $this->revenueSignals($instrument);
 
             $out[$symbol] = new TopicCandidate(
                 symbol: $symbol,
@@ -167,7 +168,7 @@ class TopicCandidateResolver
                 tier: TopicTier::Core,
                 direction: $meta['direction'],
                 revenueVerified: $revenueVerified,
-                revenueApplicable: $revenueApplicable,
+                revenueUnknownReason: $revenueUnknownReason,
                 industry: $this->industryOf($instrument),
                 sectorName: $meta['sector'] === '' ? null : $meta['sector'],
             );
@@ -231,7 +232,7 @@ class TopicCandidateResolver
         $out = [];
 
         foreach ($collected as $symbol => $meta) {
-            [$revenueVerified, $revenueApplicable] = $this->revenueSignals($meta['instrument']);
+            [$revenueVerified, $revenueUnknownReason] = $this->revenueSignals($meta['instrument']);
 
             $out[$symbol] = new TopicCandidate(
                 symbol: (string) $symbol,
@@ -239,7 +240,7 @@ class TopicCandidateResolver
                 tier: TopicTier::Extended,
                 direction: $meta['direction'],
                 revenueVerified: $revenueVerified,
-                revenueApplicable: $revenueApplicable,
+                revenueUnknownReason: $revenueUnknownReason,
                 industry: $meta['industry'],
                 // 延伸不屬於任何被策展的 sector。帶上 sector 名稱會讓使用者
                 // 以為它也被策展進了那一段傳導。
@@ -349,7 +350,7 @@ class TopicCandidateResolver
 
         foreach ($picked as $symbol => $count) {
             $instrument = $instruments->get($symbol);
-            [$revenueVerified, $revenueApplicable] = $this->revenueSignals($instrument);
+            [$revenueVerified, $revenueUnknownReason] = $this->revenueSignals($instrument);
 
             $out[] = new TopicCandidate(
                 symbol: (string) $symbol,
@@ -359,7 +360,7 @@ class TopicCandidateResolver
                 // 是這個層級本來就沒有這個資訊。
                 direction: null,
                 revenueVerified: $revenueVerified,
-                revenueApplicable: $revenueApplicable,
+                revenueUnknownReason: $revenueUnknownReason,
                 industry: $this->industryOf($instrument),
                 mentionCount: $count,
             );
@@ -406,8 +407,16 @@ class TopicCandidateResolver
     }
 
     /**
-     * `null` 代表**沒有序列可判**（尚未累積、或該標的根本不在 instruments 表），
-     * 不是「未驗證」。呈現層必須把兩者顯示成不同的東西。
+     * 營收驗證的三態，以及沒有結論時的成因。
+     *
+     * `revenueVerified` 為 null 不是「未驗證」而是「沒有結論」，成因見
+     * {@see RevenueUnknownReason}：其中兩種（本框架不適用此產業、標的不在
+     * instruments 表）**不會因為再跑一次分析或掃描而改變**，實測傳導表 30 檔裡
+     * 有 10 檔屬後者，hormuz_oil 的九檔核心裡就佔六檔。全部顯示成「無資料」
+     * 會讓使用者一直等一個不會來的東西。
+     *
+     * 標的不在 instruments 表時回 {@see RevenueUnknownReason::NotInUniverse}：
+     * 那時連產業都還不知道，宣稱本框架不適用是沒有證據的結論。
      *
      * 本方法與 {@see industryOf()} 對同一檔各取一次序列（seriesSignalsFor()
      * 內部也會呼叫 orderInventorySeriesFor()），刻意**不合併**。量測（本機、
@@ -418,30 +427,18 @@ class TopicCandidateResolver
      * 並複製 seriesSignalsFor() 那段「必須走完整 assess() 才不會用一份已被判定
      * 不可評級的序列宣稱營收已驗證」的短路判斷，等於製造第二份必然漂移的副本。
      * 31ms 換不到那個風險。
-     */
-    /**
-     * 營收驗證的三態與「本框架適不適用這個產業」。
      *
-     * 兩個值一起取：`revenue_verified` 為 null 有兩個成因，對使用者的意義完全
-     * 不同——「序列還沒累積」等分析跑過就會有答案，「這個產業本框架不適用」
-     * （航運、金融保險等服務業不具備一般進銷存循環）**永遠不會有答案**。
-     * 兩者都顯示「無資料」會讓使用者一直等一個不會來的東西，而規格的頭號
-     * 範例題材 hormuz_oil 的核心正好就是航運股。
-     *
-     * 標的不在 instruments 表時回 `[null, true]`：那時連產業都還不知道，
-     * 宣稱本框架不適用是沒有證據的結論。
-     *
-     * @return array{0: ?bool, 1: bool}
+     * @return array{0: ?bool, 1: ?RevenueUnknownReason}
      */
     private function revenueSignals(?Instrument $instrument): array
     {
         if ($instrument === null) {
-            return [null, true];
+            return [null, RevenueUnknownReason::NotInUniverse];
         }
 
         $signals = $this->orderInventory->seriesSignalsFor($instrument);
 
-        return [$signals['revenue_verified'], $signals['revenue_applicable']];
+        return [$signals['revenue_verified'], $signals['revenue_unknown_reason']];
     }
 
     private function industryOf(?Instrument $instrument): ?string
