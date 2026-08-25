@@ -355,6 +355,48 @@ class TopicCandidateResolverTest extends TestCase
         $this->assertCount($max, $this->tier('hormuz_oil', TopicTier::Extended));
     }
 
+    /**
+     * 延伸層的新鮮度視窗要跟著**注入的** `$now` 走。
+     *
+     * `sameIndustry()` 原本自己讀 `CarbonImmutable::now()`，而 `resolve()` 的
+     * `$now` 只傳給 `periphery()`——同一份 board 的兩層因此可能量在兩個不同的
+     * 時間基準上。這件事被本類別 setUp 的 travelTo() 完全遮住，所以是無聲的。
+     *
+     * 這條測試**刻意不用 travelTo()**：先退回真實時間，再傳一個與真實時間差
+     * 兩年的 `$now`。9001 只對注入的基準新鮮、9002 只對真實時間新鮮，
+     * 兩者恰好把「用了哪一把尺」逼出來——沿用真實時間會把 9002 也收進去。
+     */
+    #[Test]
+    public function the_extended_freshness_window_follows_the_injected_now(): void
+    {
+        $this->travelBack();
+
+        $real = CarbonImmutable::now();
+        $far = $real->addYears(2);
+
+        // 核心的產業別走 FundamentalsService::orderInventorySeriesFor()，那把尺
+        // 讀的是真實時間且不可注入，所以核心的序列要對真實時間新鮮，否則
+        // industry 為 null，延伸層根本不會被觸發。
+        $this->series($this->instrument('2603.TW'), '航運業', fetchedAt: $real->subDay());
+        $this->series($this->instrument('9001.TW'), '航運業', fetchedAt: $far->subDay());
+        $this->series($this->instrument('9002.TW'), '航運業', fetchedAt: $real->subDay());
+
+        $board = $this->resolver()->resolve('hormuz_oil', $far);
+
+        $this->assertNotNull($board);
+
+        $extended = array_values(array_filter(
+            $board->candidates,
+            fn (TopicCandidate $c): bool => $c->tier === TopicTier::Extended,
+        ));
+
+        $this->assertSame(
+            ['9001.TW'],
+            $this->symbols($extended),
+            '延伸層的新鮮度下界要以注入的 $now 為基準，不是行程當下的真實時間',
+        );
+    }
+
     /** 截斷前依 symbol 排序：同一份資料每次得到同一份清單，重新整理不該換一批。 */
     #[Test]
     public function the_extended_tier_is_deterministic(): void

@@ -90,7 +90,7 @@ class TopicCandidateResolver
 
         // 核心先解，因為延伸要用核心的 industry。
         $core = $this->core($rule, $nonStock);
-        $extended = $this->extended($core);
+        $extended = $this->extended($core, $now);
 
         $taken = array_merge(array_keys($core), array_keys($extended));
         $periphery = $this->periphery($topicKey, $taken, $now, $nonStock);
@@ -190,7 +190,7 @@ class TopicCandidateResolver
      * @param  array<string, TopicCandidate>  $core
      * @return array<string, TopicCandidate>
      */
-    private function extended(array $core): array
+    private function extended(array $core, CarbonImmutable $now): array
     {
         /** @var array<string, ?TopicDirection> $byIndustry */
         $byIndustry = [];
@@ -220,7 +220,7 @@ class TopicCandidateResolver
         $collected = [];
 
         foreach ($byIndustry as $industry => $direction) {
-            foreach ($this->sameIndustry((string) $industry, $exclude) as $symbol => $instrument) {
+            foreach ($this->sameIndustry((string) $industry, $exclude, $now) as $symbol => $instrument) {
                 // 已被別的產業收走就不重複——先到先得，順序由 $byIndustry 決定。
                 $collected[$symbol] ??= ['instrument' => $instrument, 'direction' => $direction, 'industry' => (string) $industry];
             }
@@ -264,12 +264,16 @@ class TopicCandidateResolver
      * FundamentalsService::orderInventorySeriesFor() **同一把尺**：同一份
      * order_inventory 用兩把尺會出現「標的自己看得到、同業看不到」的不對稱。
      *
+     * 基準時刻用注入的 `$now`，不自己讀 `CarbonImmutable::now()`：同一份 board
+     * 的三層必須量在同一個時間基準上，否則外圍層與延伸層各量各的，而那個分岔
+     * 在有凍結時間的測試底下完全看不出來。
+     *
      * @param  list<string>  $exclude
      * @return array<string, Instrument>
      */
-    private function sameIndustry(string $industry, array $exclude): array
+    private function sameIndustry(string $industry, array $exclude, CarbonImmutable $now): array
     {
-        $floor = CarbonImmutable::now()
+        $floor = $now
             ->subDays((int) config('order_inventory.series_freshness_days'))
             ->startOfDay();
 
