@@ -29,6 +29,7 @@ use App\Services\Screener\ScreenerService;
 use App\Services\Screener\ScreenRule;
 use App\Services\Screener\ScreenRuleRegistry;
 use App\Services\Social\SocialArbitrageAssessor;
+use App\Support\DailyDataFreshness;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -642,6 +643,16 @@ class SocialScreenRulesTest extends TestCase
     public function the_screener_and_the_stock_page_agree_on_the_stage_without_warming_the_cache(): void
     {
         $instrument = $this->falseSignalSymbol();
+
+        // 前提自我檢查：測資的 fetched_at 必須落在**估值 TTL 已判過期**的時刻，
+        // 否則這條測試根本踩不到 C1，會在任何實作下都綠。
+        // 目前成立是因為 app.timezone 是 UTC 且 $now 是 09:00＝台北 17:00（已過
+        // publish_hour 15），但那是巧合——時區設定或 $now 一改就會靜默失效，
+        // 與本次審查在 MC4 抓到的是同一個陷阱。
+        $this->assertTrue(
+            DailyDataFreshness::isStale($this->now->subDay(), (int) config('fundamentals.publish_hour', 15)),
+            '測資時刻沒有落在估值 TTL 的過期側，這條測試不會踩到 C1',
+        );
 
         // ScreenerService::contextFor() 與 AlertEvaluator::contextFor() 的
         // NEEDS_SOCIAL 分支就是這一個呼叫（接線本身由本檔的 scan／evaluate 測試釘住）。
