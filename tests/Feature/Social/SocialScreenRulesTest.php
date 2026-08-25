@@ -220,6 +220,35 @@ class SocialScreenRulesTest extends TestCase
     }
 
     #[Test]
+    public function industry_outperformer_misses_when_a_threshold_is_unusable(): void
+    {
+        // 門檻的唯一真相只有 config 一處。缺鍵／非數值時既不得裸轉型成 0
+        // （任何非負值都算命中）、不得拋例外（matchesSignal() 沒有 try/catch，
+        // 首頁會 500）、也不得退回類別裡硬寫的預設值（config 與實際判準靜默分歧）。
+        $context = $this->momentumContext(median: 0.99, excess: 0.99);
+
+        // 先確認同一份 context 在門檻正常時是命中的，否則下面的 assertFalse
+        // 可能是因為別的原因不命中，這個測試就白寫了。
+        $this->assertTrue((new IndustryOutperformer)->matches([], $context));
+
+        foreach (['industry_accelerating', 'outperformance'] as $key) {
+            $path = "order_inventory.industry_momentum.{$key}";
+            $original = config($path);
+
+            foreach ([null, '', 'abc'] as $broken) {
+                config([$path => $broken]);
+
+                $this->assertFalse(
+                    (new IndustryOutperformer)->matches([], $context),
+                    sprintf('%s 為 %s 時必須不命中，不得靠硬寫預設值照常判定', $key, var_export($broken, true)),
+                );
+            }
+
+            config([$path => $original]);
+        }
+    }
+
+    #[Test]
     public function neither_rule_supports_backtesting(): void
     {
         $this->assertFalse(

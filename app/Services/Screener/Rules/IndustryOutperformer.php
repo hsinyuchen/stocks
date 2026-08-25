@@ -53,11 +53,18 @@ final class IndustryOutperformer implements ScreenRule
             return false;
         }
 
+        $accelerating = $this->threshold('industry_accelerating');
+        $outperformance = $this->threshold('outperformance');
+
+        if ($accelerating === null || $outperformance === null) {
+            return false;
+        }
+
         return $momentum->applicable === true
             && $momentum->median !== null
-            && $momentum->median >= $this->threshold('industry_accelerating', 0.10)
+            && $momentum->median >= $accelerating
             && $momentum->excess !== null
-            && $momentum->excess >= $this->threshold('outperformance', 0.05);
+            && $momentum->excess >= $outperformance;
     }
 
     /**
@@ -74,20 +81,27 @@ final class IndustryOutperformer implements ScreenRule
     }
 
     /**
-     * 門檻一律從 config 取，非數值時退回預設值。
+     * 門檻一律從 config 取，**取不到就回 null 讓 matches() 不命中**。
      *
-     * 不做裸 `(float)` 轉型：`(float) null === 0.0` 會讓「任何非負中位數都算產業
-     * 加速」「任何非負超額都算跑贏」，把一條被靜默放寬的判準包裝成命中，而且沒有
-     * 任何錯誤訊號可供察覺（同 SocialArbitrageClassifier::requireFloat() 的顧慮）。
+     * 三種寫法都不行，這是第三種：
      *
-     * 這裡刻意**不拋例外**：本規則的 matches() 在 AlertEvaluator 的訊號路徑上
-     * 沒有被 try/catch 包住（contextFor() 的 catch 只蓋 context 載入那一段），
-     * 拋錯會讓首頁整個 500。退回預設值同樣不會靜默放寬判準。
+     * - 裸 `(float)` 轉型：`(float) null === 0.0` 會讓「任何非負中位數都算產業
+     *   加速」「任何非負超額都算跑贏」，把一條被靜默放寬的判準包裝成命中，
+     *   而且沒有任何錯誤訊號（同 SocialArbitrageClassifier::requireFloat() 的顧慮）。
+     * - 拋例外：本規則的 matches() 在 AlertEvaluator 的訊號路徑上**沒有**被
+     *   try/catch 包住（contextFor() 的 catch 只蓋 context 載入那一段，
+     *   matchesSignal() 本身沒有），拋錯會讓首頁整個 500。
+     * - 退回類別裡硬寫的預設值：不會放寬判準，但會**靜默分歧**——有人改了 config
+     *   鍵名或把值設成無效，規則照舊用類別裡那個數字跑，config 與實際判準從此
+     *   不一致而無從察覺。門檻的唯一真相應該只有 config 一處。
+     *
+     * 回 null 則三者皆免：不命中是這條規則對「沒有資料」的既有反應（見 matches()
+     * 對 context 形狀的處理），對使用者的效果是少一檔候選而不是多一檔假候選。
      */
-    private function threshold(string $key, float $default): float
+    private function threshold(string $key): ?float
     {
-        $value = config("order_inventory.industry_momentum.{$key}", $default);
+        $value = config("order_inventory.industry_momentum.{$key}");
 
-        return is_numeric($value) ? (float) $value : $default;
+        return is_numeric($value) ? (float) $value : null;
     }
 }
