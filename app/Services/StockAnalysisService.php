@@ -6,16 +6,21 @@ use App\Contracts\LlmProvider;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
+use App\Data\IndustryMomentum;
 use App\Data\MarginFlowData;
 use App\Data\OrderInventoryAssessment;
+use App\Data\SocialArbitrage;
 use App\Enums\LlmFailureReason;
 use App\Exceptions\LlmRequestException;
 use App\Services\Analysis\OrderInventoryGuide;
 use App\Services\Analysis\SignalFieldGuide;
+use App\Services\Analysis\SocialArbitrageGuide;
 use App\Services\Analysis\SopGuide;
 use App\Services\Analysis\SymbolContextService;
+use App\Services\Fundamentals\IndustryMomentumSampler;
 use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\Rates\RatesNarrative;
+use App\Services\Social\SocialArbitrageAssessor;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 
 class StockAnalysisService
@@ -26,10 +31,11 @@ class StockAnalysisService
     /**
      * 前四個參數保留原樣：既有測試以四個位置參數直接 new 這個 service，改成注入
      * SymbolContextService 會讓它們無法建構。這裡把它們原封不動轉交過去，脈絡
-     * 邏輯本身只有 SymbolContextService 一份。RatesNarrative 與 OrderInventoryAssessor
-     * 走 app() 解析，因為它們各自依賴多層服務，不是能給常數預設值的零參數類別。
+     * 邏輯本身只有 SymbolContextService 一份。RatesNarrative、OrderInventoryAssessor、
+     * SocialArbitrageAssessor 與 IndustryMomentumSampler 走 app() 解析，因為它們各自
+     * 依賴多層服務，不是能給常數預設值的零參數類別。
      *
-     * 後兩個參數同理給預設值，容器仍會照常注入。
+     * 其後的 Guide 類別同理給預設值（零依賴、可直接 new），容器仍會照常注入。
      */
     public function __construct(
         MarketDataProvider $marketData,
@@ -40,8 +46,18 @@ class StockAnalysisService
         ?SymbolContextService $context = null,
         private readonly SopGuide $sop = new SopGuide,
         private readonly OrderInventoryGuide $orderInventoryGuide = new OrderInventoryGuide,
+        private readonly SocialArbitrageGuide $socialGuide = new SocialArbitrageGuide,
     ) {
-        $this->context = $context ?? new SymbolContextService($marketData, $news, $indicators, $signals, app(RatesNarrative::class), app(OrderInventoryAssessor::class));
+        $this->context = $context ?? new SymbolContextService(
+            $marketData,
+            $news,
+            $indicators,
+            $signals,
+            app(RatesNarrative::class),
+            app(OrderInventoryAssessor::class),
+            app(SocialArbitrageAssessor::class),
+            app(IndustryMomentumSampler::class),
+        );
     }
 
     /**
@@ -104,7 +120,7 @@ class StockAnalysisService
             ];
         }
 
-        $prompt = $this->buildPrompt($symbol, $quote, $technicalSnapshot, $ruleSignal, $news, $locale, $fundamentals, $valuation, $context['rates'], $context['order_inventory']);
+        $prompt = $this->buildPrompt($symbol, $quote, $technicalSnapshot, $ruleSignal, $news, $locale, $fundamentals, $valuation, $context['rates'], $context['order_inventory'], $context['social']);
 
         try {
             $response = $llm->complete($model, $prompt);
@@ -164,6 +180,7 @@ class StockAnalysisService
     /**
      * @param  array{block: string, affected: list<array<string, mixed>>}  $rates
      * @param  array{assessment: OrderInventoryAssessment, peer_samples: int}|null  $orderInventory
+     * @param  array{arbitrage: SocialArbitrage, momentum: IndustryMomentum}|null  $social
      */
     private function buildPrompt(
         string $symbol,
@@ -176,6 +193,7 @@ class StockAnalysisService
         ?array $valuation = null,
         array $rates = [],
         ?array $orderInventory = null,
+        ?array $social = null,
     ): string {
         $en = $locale === 'en';
         $technicalSnapshotJson = json_encode($technicalSnapshot, JSON_UNESCAPED_UNICODE);
@@ -218,6 +236,22 @@ class StockAnalysisService
             $orderInventoryDiscipline = $this->orderInventoryGuide->discipline($locale)."\n";
         }
 
+        // 社交套利與產業動能。兩個資料區塊與那份引用紀律共用同一個條件（查無
+        // Instrument 就三段都沒有），理由與訂單／庫存同一條：沒有區塊可引用時，
+        // 紀律只會讓模型去猜一個不存在的區塊；空標頭則會被讀成「查過而且是空的」。
+        // 兩個區塊分開包，理由見 SocialArbitrageGuide 的 docblock。
+        $socialSection = '';
+        $socialDiscipline = '';
+
+        if ($social !== null) {
+            $socialSection = "BEGIN_SOCIAL_ARBITRAGE\n"
+                .$this->socialGuide->arbitrageBlock($social['arbitrage'], $locale)
+                ."\nEND_SOCIAL_ARBITRAGE\nBEGIN_INDUSTRY_MOMENTUM\n"
+                .$this->socialGuide->momentumBlock($social['momentum'], $locale)
+                ."\nEND_INDUSTRY_MOMENTUM\n";
+            $socialDiscipline = $this->socialGuide->discipline($locale)."\n";
+        }
+
         // SOP v2 區塊（依 locale）。nowdoc 承載，內含字面 $ 亦安全。
         $disclaimer = $this->sop->disclaimer($locale);
         $sourceTiers = $this->sop->sourceTiers($locale);
@@ -246,7 +280,7 @@ BEGIN_SOURCE_TIERS
 END_SOURCE_TIERS
 BEGIN_FIELD_GUIDE
 {$fieldGuide}
-{$orderInventoryDiscipline}END_FIELD_GUIDE
+{$orderInventoryDiscipline}{$socialDiscipline}END_FIELD_GUIDE
 BEGIN_SYMBOL
 Symbol: {$symbol}
 END_SYMBOL
@@ -268,7 +302,7 @@ END_FUNDAMENTALS
 BEGIN_VALUATION
 {$valuationJson}
 END_VALUATION
-{$orderInventorySection}BEGIN_RELATED_NEWS
+{$orderInventorySection}{$socialSection}BEGIN_RELATED_NEWS
 {$newsTitles}
 END_RELATED_NEWS
 BEGIN_SCORING_RUBRIC

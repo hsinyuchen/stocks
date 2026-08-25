@@ -440,6 +440,137 @@ return [
             'upgraded' => 'Grade raised from the previous assessment.',
             'downgraded' => 'Grade lowered from the previous assessment.',
         ],
+
+        /*
+         * 社交套利區塊的文案（{@see App\Services\Analysis\SocialArbitrageGuide}）。
+         *
+         * 這裡只放**語意危險**的三類字串，其餘格式性散文留在 Guide 裡（與
+         * OrderInventoryGuide 同一分工）：
+         *   1. 機器鍵對照：`stage_*`、`reason_*` 直接進 prompt 會被 LLM 照抄給使用者
+         *      看，`partly_priced` 這種字不是給人讀的。
+         *   2. 硬性聲明：`coverage_note`（只有新聞、沒有社群）與 `no_backtest_note`
+         *      （門檻未經回測）不得省略、不得改寫成模糊說法。
+         *   3. 各腿的判定詞與「不可評估」說明：`*_unevaluable` 與否定判定
+         *      （`foreign_below` 等）必須長得不一樣——「沒有法人資料」被讀成
+         *      「法人沒買」是本區塊的頭號風險。
+         *
+         * `social` 與 `social_en` 的鍵必須完全一致，由
+         * SocialArbitragePromptTest 的 parity 測試常駐驗證；缺鍵時 Guide 直接拋錯
+         * 而不是靜默少一行（純量 config 缺鍵會回 null，`(string) null === ''`）。
+         */
+        'social' => [
+            'stage_early' => '早期（新聞熱度升溫、股價未顯著漲、法人未明顯買超）',
+            'stage_partly_priced' => '已部分反映（新聞熱度升溫、股價已漲、法人已買超）',
+            'stage_fully_priced' => '已高度反映（新聞熱度處於近期高檔、股價大漲、法人大買）',
+            'stage_false_signal' => '疑似假訊號（新聞熱度升溫，但營收未獲驗證且毛利率下滑）',
+            'stage_insufficient' => '資料不足，無法歸入任何分類',
+
+            'reason_not_enough_samples' => '新期新聞則數低於樣本下限，熱度變化率在這種基數上不可信',
+            'reason_heat_not_rising' => '新聞熱度未升溫，也不在近期高檔，沒有可談的套利階段',
+            'reason_price_unavailable' => '同視窗股價漲幅算不出來（缺行情資料）',
+            'reason_price_in_grey_zone' => '股價漲幅落在「未顯著漲」與「已漲」之間的灰帶，兩邊都不歸',
+            'reason_price_fell' => '同視窗股價反向大跌，屬反向反映而非尚未反映',
+            'reason_no_bucket_matched' => '各腿的判定組合湊不成任何一個分類桶',
+
+            'coverage_note' => '本分類只涵蓋新聞熱度，不含社群輿情——SOP 2.3 列的 YouTube、X、Reddit、Threads、PTT、Dcard 與電商通路，本平台一個都沒有接入。',
+            'no_backtest_note' => '本分類的門檻未經回測，分類結果只是描述性標籤，不是勝率、報酬或後續走勢的預測；法人腿的兩個門檻雖取自本地 21 檔台股的實測分位數，量到的也只是「多罕見」而不是「多有效」。',
+
+            'heat_up' => '升溫',
+            'heat_flat' => '未升溫',
+            'heat_unevaluable' => '新期則數未達樣本下限，熱度變化不予判定',
+
+            'high_water_yes' => '本期已達近期歷史高檔',
+            'high_water_no' => '本期未達近期歷史高檔',
+
+            'price_surged' => '大漲',
+            'price_risen' => '已漲',
+            'price_flat' => '未顯著漲',
+            'price_fell' => '反向大跌',
+            'price_grey_zone' => '落在灰帶，不歸「未顯著漲」也不歸「已漲」',
+            'price_unevaluable' => '無同視窗股價資料，本項無法評估',
+
+            'foreign_heavy' => '已大買（達大買門檻）',
+            'foreign_buying' => '已買超（達買超門檻）',
+            'foreign_below' => '未達買超門檻',
+            'foreign_unevaluable' => '本標的無法人籌碼資料（三大法人買賣超僅台股提供），本項無法評估，不可據此推論法人的進出方向',
+
+            'revenue_verified' => '營收已獲驗證（訂單庫存框架 C1 成立）',
+            'revenue_unverified' => '營收未獲驗證（訂單庫存框架 C1 不成立）',
+            'revenue_unevaluable' => '無訂單庫存框架的財報序列，營收驗證無法評估',
+
+            'margin_declining' => '下滑',
+            'margin_stable' => '未跌破持平帶',
+            'margin_unevaluable' => '無毛利率季變動資料，本項無法評估',
+        ],
+        'social_en' => [
+            'stage_early' => 'Early (news heat rising, price not materially up, no clear institutional buying)',
+            'stage_partly_priced' => 'Partly priced in (news heat rising, price already up, institutions already buying)',
+            'stage_fully_priced' => 'Largely priced in (news heat at a recent high-water mark, price up sharply, heavy institutional buying)',
+            'stage_false_signal' => 'Possible false signal (news heat rising, but revenue is unverified and gross margin is falling)',
+            'stage_insufficient' => 'Insufficient data; no category assigned',
+
+            'reason_not_enough_samples' => 'Recent-window mentions fall below the sample floor; a heat change ratio on that base is not trustworthy',
+            'reason_heat_not_rising' => 'News heat is neither rising nor at a recent high-water mark, so there is no arbitrage stage to speak of',
+            'reason_price_unavailable' => 'The same-window price change cannot be computed (no price history)',
+            'reason_price_in_grey_zone' => 'The price change sits in the grey zone between "not materially up" and "already up" and is assigned to neither side',
+            'reason_price_fell' => 'The price fell sharply over the same window, which is an inverse reaction rather than "not yet priced in"',
+            'reason_no_bucket_matched' => 'The combination of leg verdicts does not match any category',
+
+            'coverage_note' => 'this classification covers news heat only and does not cover social-media sentiment — none of the sources listed in SOP 2.3 (YouTube, X, Reddit, Threads, PTT, Dcard, e-commerce channels) are connected to this platform.',
+            'no_backtest_note' => 'the thresholds behind this classification have never been backtested; the resulting label is descriptive only and is not a prediction of hit rate, return, or subsequent price action. The two institutional-flow thresholds do come from measured percentiles over 21 local TW symbols, but that measures how rare a reading is, not how predictive it is.',
+
+            'heat_up' => 'rising',
+            'heat_flat' => 'not rising',
+            'heat_unevaluable' => 'recent-window mentions below the sample floor; heat change not judged',
+
+            'high_water_yes' => 'this window is at the recent high-water mark',
+            'high_water_no' => 'this window is below the recent high-water mark',
+
+            'price_surged' => 'up sharply',
+            'price_risen' => 'already up',
+            'price_flat' => 'not materially up',
+            'price_fell' => 'down sharply (inverse reaction)',
+            'price_grey_zone' => 'in the grey zone; assigned to neither "not materially up" nor "already up"',
+            'price_unevaluable' => 'no same-window price history; this leg cannot be evaluated',
+
+            'foreign_heavy' => 'heavy buying (at the heavy-buying threshold)',
+            'foreign_buying' => 'net buying (at the net-buying threshold)',
+            'foreign_below' => 'below the net-buying threshold',
+            'foreign_unevaluable' => 'no institutional-flow data for this symbol (three-major-institution flows are published for TW listings only); this leg cannot be evaluated and nothing may be inferred about institutional positioning',
+
+            'revenue_verified' => 'revenue is verified (order/inventory framework condition C1 holds)',
+            'revenue_unverified' => 'revenue is unverified (order/inventory framework condition C1 does not hold)',
+            'revenue_unevaluable' => 'no order/inventory financial series available; revenue verification cannot be evaluated',
+
+            'margin_declining' => 'declining',
+            'margin_stable' => 'within or above the stable band',
+            'margin_unevaluable' => 'no quarter-over-quarter gross-margin change available; this leg cannot be evaluated',
+        ],
+
+        /*
+         * 產業動能區塊的文案。
+         *
+         * `unavailable_*` 兩則與 `insufficient_samples` **必須是三句不同的話**：
+         * 「這個市場沒有這個功能」「這檔的產業別抓不到」「有功能但樣本還不夠」
+         * 是三種不同的處境，寫成同一句會讓使用者以為只是資料還沒到。
+         *
+         * `retrospective_note` 不是可選補充：本指標比的是**已經公布**的月營收，
+         * 名字（動能）容易被讀成前瞻，不寫就是放任過度宣稱。
+         */
+        'industry_momentum' => [
+            'unavailable_not_taiwan' => '本標的非台股。產業動能定義為同產業月營收 YoY 的中位數，而美股沒有月營收（SEC 不提供）、產業別亦未取得。',
+            'unavailable_industry_unknown' => '本標的為台股，但產業別未知（快取中沒有 industry_category），沒有「同業」可比。',
+            'insufficient_samples' => '同業樣本未達中位數所需的最低檔數',
+            'retrospective_note' => '產業動能是回顧性指標：比的是已經公布的月營收，不是對未來營收或股價的預測。',
+            'no_backtest_note' => '產業加速與個股跑贏兩個門檻皆為未經回測的初始估計值。',
+        ],
+        'industry_momentum_en' => [
+            'unavailable_not_taiwan' => 'this symbol is not a TW listing. Industry momentum is defined as the median monthly-revenue YoY of the same industry, and US listings have no monthly revenue (the SEC does not publish it) and no industry category was obtained.',
+            'unavailable_industry_unknown' => 'this symbol is a TW listing, but its industry is unknown (no industry_category in cache), so there are no peers to compare against.',
+            'insufficient_samples' => 'peer samples fall below the minimum count required for a median',
+            'retrospective_note' => 'industry momentum is a backward-looking measure: it compares monthly revenue that has already been published and is not a forecast of future revenue or price.',
+            'no_backtest_note' => 'both thresholds (industry acceleration and single-name outperformance) are initial estimates that have never been backtested.',
+        ],
     ],
 
     /*

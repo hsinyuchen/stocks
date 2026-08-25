@@ -5,14 +5,18 @@ namespace App\Services\Analysis;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
+use App\Data\IndustryMomentum;
 use App\Data\MarginFlowData;
 use App\Data\MarketQuoteData;
 use App\Data\NewsItemData;
 use App\Data\OrderInventoryAssessment;
+use App\Data\SocialArbitrage;
 use App\Models\Instrument;
+use App\Services\Fundamentals\IndustryMomentumSampler;
 use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\Rates\RatesNarrative;
 use App\Services\SignalEngine;
+use App\Services\Social\SocialArbitrageAssessor;
 use App\Services\TechnicalIndicatorService;
 use App\Support\MarketResolver;
 
@@ -25,8 +29,9 @@ use App\Support\MarketResolver;
  *
  * 刻意只依賴「兩個消費端都要」的服務。基本面估值、籌碼、融資是呼叫端才需要的
  * 加值資料，疊在外層，避免這裡被撐成無所不包的上帝物件，也讓 analyze() 不必為了
- * 組脈絡而多背三個它用不到的依賴。利率敘述與訂單／庫存評級則相反——個股分析與
- * 個股問答都要，且兩邊都曾經各自漏接過，所以放在這裡由單一來源供給。
+ * 組脈絡而多背三個它用不到的依賴。利率敘述、訂單／庫存評級、社交套利分類與產業
+ * 動能則相反——個股分析與個股問答都要，且前兩者都曾經各自漏接過，所以放在這裡由
+ * 單一來源供給。
  */
 final class SymbolContextService
 {
@@ -42,6 +47,8 @@ final class SymbolContextService
         private readonly SignalEngine $signals,
         private readonly RatesNarrative $ratesNarrative,
         private readonly OrderInventoryAssessor $orderInventory,
+        private readonly SocialArbitrageAssessor $socialArbitrage,
+        private readonly IndustryMomentumSampler $industryMomentum,
     ) {}
 
     /**
@@ -70,7 +77,8 @@ final class SymbolContextService
      *     data_as_of: string,
      *     has_prices: bool,
      *     rates: array{block: string, affected: list<array<string, mixed>>},
-     *     order_inventory: array{assessment: OrderInventoryAssessment, peer_samples: int}|null
+     *     order_inventory: array{assessment: OrderInventoryAssessment, peer_samples: int}|null,
+     *     social: array{arbitrage: SocialArbitrage, momentum: IndustryMomentum}|null
      * }
      */
     public function forSymbol(string $symbol, array $chipFlows = [], array $marginFlows = [], ?array $brokerBranch = null, string $locale = 'zh'): array
@@ -80,6 +88,10 @@ final class SymbolContextService
         $news = $this->news->relatedNews($symbol, self::NEWS_LIMIT);
         $rates = $this->ratesContext($symbol, $locale);
         $orderInventory = $this->orderInventoryContext($symbol);
+        // 必須排在 orderInventoryContext() 之後：社交套利的營收／毛利兩條腿與產業
+        // 動能的產業別都走「只讀快取」入口，上一行剛把本次序列與評級寫進快取，
+        // 順序反過來這三項在首次分析時會全部退化成不可評估。
+        $social = $this->socialContext($symbol);
 
         if ($prices === []) {
             return [
@@ -96,6 +108,7 @@ final class SymbolContextService
                 'has_prices' => false,
                 'rates' => $rates,
                 'order_inventory' => $orderInventory,
+                'social' => $social,
             ];
         }
 
@@ -114,6 +127,40 @@ final class SymbolContextService
             'has_prices' => true,
             'rates' => $rates,
             'order_inventory' => $orderInventory,
+            'social' => $social,
+        ];
+    }
+
+    /**
+     * 社交套利分類與產業動能（best-effort，查無標的回 null）。
+     *
+     * 與 orderInventoryContext() 同樣要自己以代號反查 Instrument，理由相同：
+     * `forSymbol()` 的輸入只有代號，而兩個評估器都吃 `Instrument`（要用
+     * `instrument_id` 限縮新聞、行情、籌碼與財報快取）。查無標的時回 null 而非
+     * 建檔——搜尋結果頁可能對尚未建檔的代號組脈絡。
+     *
+     * 兩者合成一個鍵而不是兩個：它們同時出現、同時缺席（同一次反查的產物），
+     * 消費端只要判斷一次「有沒有社交面向」就能同時決定兩個區塊與那份引用紀律
+     * 要不要輸出。
+     *
+     * `SocialArbitrageAssessor::forInstrument()` 全程只讀、一次上游都不打（見該
+     * 類別 docblock），所以這裡不必另設「只讀入口」；產業動能則刻意走
+     * `cachedFor()` 而不是 `forInstrument()`，後者要呼叫端先弄到一份序列，而
+     * 過期時會就地抓上游。
+     *
+     * @return array{arbitrage: SocialArbitrage, momentum: IndustryMomentum}|null
+     */
+    private function socialContext(string $symbol): ?array
+    {
+        $instrument = Instrument::query()->where('symbol', $symbol)->first();
+
+        if ($instrument === null) {
+            return null;
+        }
+
+        return [
+            'arbitrage' => $this->socialArbitrage->forInstrument($instrument),
+            'momentum' => $this->industryMomentum->cachedFor($instrument),
         ];
     }
 
