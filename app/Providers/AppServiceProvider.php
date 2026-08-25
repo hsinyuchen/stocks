@@ -28,6 +28,7 @@ use App\Services\Fake\FakeNewsProvider;
 use App\Services\Fake\FakeSymbolNewsProvider;
 use App\Services\Fake\FakeYieldCurveProvider;
 use App\Services\Fundamentals\FinMindFundamentalsProvider;
+use App\Services\Fundamentals\IndustryMomentumSampler;
 use App\Services\Fundamentals\OrderInventoryPeerSampler;
 use App\Services\Fundamentals\RoutingCompanyFinancialsProvider;
 use App\Services\Fundamentals\SecEdgarFinancialsProvider;
@@ -64,6 +65,9 @@ class AppServiceProvider extends ServiceProvider
         // 同一次掃描內同產業要共用查詢結果；但常駐 worker 不該跨日沿用同一份樣本，
         // 所以是 scoped 不是 singleton。
         $this->app->scoped(OrderInventoryPeerSampler::class);
+
+        // 產業動能取樣：同上，掃描結果的記憶化只在同一次 request／job 內有效。
+        $this->app->scoped(IndustryMomentumSampler::class);
 
         // 新聞熱度：每個 request／每個 queued job 一份新實例。選股器逐檔呼叫，
         // 同一次掃描要共用同一次 news_items 查詢；但常駐 worker 不該跨日沿用

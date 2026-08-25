@@ -478,6 +478,37 @@ return [
     ],
 
     /*
+     * 產業動能。
+     *
+     * **命名一律「產業動能」，不叫「未來潛力」**——這是回顧性指標（比的是已公布的
+     * 月營收），用前瞻性名稱是過度宣稱。
+     *
+     * **台股限定**：spec 定義為「同 industry_category 的月營收 YoY 中位數」，
+     * 而美股沒有月營收（SEC 不提供）、industry 也恆為 null（階段 1 決定不抓 SIC）。
+     * 非台股一律回 applicable = false，與「有功能但沒樣本」語意不同。
+     *
+     * **樣本一開始必然是 0**：本 sampler 只讀已快取的 fundamentals.order_inventory，
+     * 那個欄位 2026-08-22 才 migrate 進來，本地 51 列 fundamentals 的 fetched_at
+     * 都在 2026-08-05 之前，**沒有任何一列有 order_inventory**。覆蓋率隨個股分析與
+     * 選股掃描累積，不是一開始就完整——這是機會性計算的固有性質，不是缺陷，
+     * 但呈現層必須把「0 檔樣本（尚未累積）」與「不適用（美股）」分開講。
+     *
+     * 門檻是初始估計值，**未經回測**——與本檔 social 區塊的
+     * foreign_net_buy_volume_share 那兩個實測值來源不同，不要混為一談。
+     */
+    'industry_momentum' => [
+        'min_samples' => 5,
+        'max_samples' => 60,
+        'freshness_days' => 30,
+
+        /* 產業加速：產業中位數 YoY 達此值。 */
+        'industry_accelerating' => 0.10,
+
+        /* 個股跑贏：超額（自身 YoY − 產業中位數）達此值。 */
+        'outperformance' => 0.05,
+    ],
+
+    /*
      * 社交套利分桶。
      *
      * **這些門檻是初始估計值，未經回測或統計量測**——與本專案美債利率功能的門檻
