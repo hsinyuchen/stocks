@@ -18,6 +18,7 @@ use App\Http\Controllers\ScreenerController;
 use App\Http\Controllers\StockChartController;
 use App\Http\Controllers\StockChatController;
 use App\Http\Controllers\StockSearchController;
+use App\Http\Controllers\TopicController;
 use App\Http\Controllers\WatchlistAnalysisController;
 use App\Http\Controllers\WatchlistController;
 use Illuminate\Support\Facades\Route;
@@ -73,6 +74,7 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/screener/scan', [ScreenerController::class, 'scan'])->name('screener.scan');
     Route::get('/screener/history', [ScreenerController::class, 'history'])->name('screener.history');
     Route::post('/screener/watchlist', [ScreenerController::class, 'addToWatchlist'])->name('screener.watchlist');
+    Route::get('/topics', [TopicController::class, 'index'])->name('topics.index');
     Route::get('/analyses', [AnalysesController::class, 'index'])->name('analyses.index');
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
