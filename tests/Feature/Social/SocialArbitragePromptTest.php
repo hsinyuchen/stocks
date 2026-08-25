@@ -54,7 +54,7 @@ class SocialArbitragePromptTest extends TestCase
     private const EN_NO_BACKTEST_LINE = '- Threshold provenance: the thresholds behind this classification have never been backtested; the resulting label is descriptive only and is not a prediction of hit rate, return, or subsequent price action. The two institutional-flow thresholds do come from measured percentiles over 21 local TW symbols, but that measures how rare a reading is, not how predictive it is.';
 
     /** 台股情境（本檔自建的 news／price／chip 列）算出來的三條腿。 */
-    private const ZH_TW_STAGE_LINE = '- 分類：已部分反映（新聞熱度升溫、股價已漲、法人已買超）';
+    private const ZH_TW_STAGE_LINE = '- 分類：已部分反映';
 
     private const ZH_TW_HEAT_LINE = '- 新聞熱度：新期 4 則、前期 0 則（新期樣本下限 3 則、升溫門檻 +50.0%）→ 升溫';
 
@@ -251,6 +251,38 @@ class SocialArbitragePromptTest extends TestCase
             'close' => $close,
             'volume' => $volume,
         ]);
+    }
+
+    #[Test]
+    public function the_stage_label_names_the_category_without_asserting_any_leg(): void
+    {
+        // 分類名稱是靜態文案，對每一檔標的說同一句話；但條件成不成立是逐檔判定的。
+        // 曾經寫成「早期（新聞熱度升溫、股價未顯著漲、法人未明顯買超）」，
+        // 於是美股標的的區塊第一行斷言「法人未明顯買超」、逐腿行卻寫「本項無法評估」
+        // ——同一份輸出自相矛盾，且違反本區塊自己第 3 條引用紀律。
+        $guide = app(SocialArbitrageGuide::class);
+
+        foreach (SocialArbitrageStage::cases() as $stage) {
+            foreach (['zh', 'en'] as $locale) {
+                $label = $guide->stageLabel($stage, $locale);
+
+                // 缺陷整個發生在括號裡（名稱後面接一串條件），所以括號是最精確的
+                // 釘法；「法人」「institutional」再補一道，防的是有人不用括號、
+                // 改用破折號或逗號把同一串條件寫回去。
+                foreach (['(', '（', '法人', 'institutional'] as $forbidden) {
+                    $this->assertStringNotContainsStringIgnoringCase(
+                        $forbidden,
+                        $label,
+                        sprintf(
+                            '分類名稱只放名稱，不得夾帶各條腿的判定（%s／%s）'
+                            .'——那句話對不可評估的腿是假的',
+                            $stage->value,
+                            $locale,
+                        ),
+                    );
+                }
+            }
+        }
     }
 
     #[Test]
@@ -552,7 +584,7 @@ class SocialArbitragePromptTest extends TestCase
         ));
 
         $this->assertSame(<<<'ZH'
-            - 分類：早期（新聞熱度升溫、股價未顯著漲、法人未明顯買超）
+            - 分類：早期
             - 涵蓋面：本分類只涵蓋新聞熱度，不含社群輿情——SOP 2.3 列的 YouTube、X、Reddit、Threads、PTT、Dcard 與電商通路，本平台一個都沒有接入。
             - 門檻性質：本分類的門檻未經回測，分類結果只是描述性標籤，不是勝率、報酬或後續走勢的預測；法人腿的兩個門檻雖取自本地 21 檔台股的實測分位數，量到的也只是「多罕見」而不是「多有效」。
             - 新聞熱度：新期 4 則、前期 0 則（新期樣本下限 3 則、升溫門檻 +50.0%）→ 升溫
@@ -578,7 +610,7 @@ class SocialArbitragePromptTest extends TestCase
         ));
 
         $this->assertSame(<<<'ZH'
-            - 分類：已高度反映（新聞熱度處於近期高檔、股價大漲、法人大買）
+            - 分類：已高度反映
             - 涵蓋面：本分類只涵蓋新聞熱度，不含社群輿情——SOP 2.3 列的 YouTube、X、Reddit、Threads、PTT、Dcard 與電商通路，本平台一個都沒有接入。
             - 門檻性質：本分類的門檻未經回測，分類結果只是描述性標籤，不是勝率、報酬或後續走勢的預測；法人腿的兩個門檻雖取自本地 21 檔台股的實測分位數，量到的也只是「多罕見」而不是「多有效」。
             - 新聞熱度：新期 12 則、前期 4 則，變化 +200.0%（新期樣本下限 3 則、升溫門檻 +50.0%）→ 升溫

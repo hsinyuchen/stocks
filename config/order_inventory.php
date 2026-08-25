@@ -459,10 +459,21 @@ return [
          * 而不是靜默少一行（純量 config 缺鍵會回 null，`(string) null === ''`）。
          */
         'social' => [
-            'stage_early' => '早期（新聞熱度升溫、股價未顯著漲、法人未明顯買超）',
-            'stage_partly_priced' => '已部分反映（新聞熱度升溫、股價已漲、法人已買超）',
-            'stage_fully_priced' => '已高度反映（新聞熱度處於近期高檔、股價大漲、法人大買）',
-            'stage_false_signal' => '疑似假訊號（新聞熱度升溫，但營收未獲驗證且毛利率下滑）',
+            /*
+             * 分類名稱**只放名稱，不帶「（熱度升溫、股價未顯著漲、法人未明顯買超）」
+             * 這種條件括號**。括號是靜態文案，會對每一檔標的說同一句話，但條件成不成立
+             * 是逐檔判定的：美股沒有三大法人資料，法人腿回 null，區塊的逐腿行會寫
+             * 「本項無法評估」，而括號卻在上一行斷言「法人未明顯買超」——同一份輸出
+             * 自相矛盾，且正好違反本區塊自己第 3 條引用紀律（不可評估的腿不得當成
+             * 否定來推論）。
+             *
+             * 拿掉括號沒有損失資訊：逐腿行本來就逐條輸出「原始值＋門檻＋判定」，
+             * 那比括號精確，而且永遠是真的。
+             */
+            'stage_early' => '早期',
+            'stage_partly_priced' => '已部分反映',
+            'stage_fully_priced' => '已高度反映',
+            'stage_false_signal' => '疑似假訊號',
             'stage_insufficient' => '資料不足，無法歸入任何分類',
 
             'reason_not_enough_samples' => '新期新聞則數低於樣本下限，熱度變化率在這種基數上不可信',
@@ -503,10 +514,10 @@ return [
             'margin_unevaluable' => '無毛利率季變動資料，本項無法評估',
         ],
         'social_en' => [
-            'stage_early' => 'Early (news heat rising, price not materially up, no clear institutional buying)',
-            'stage_partly_priced' => 'Partly priced in (news heat rising, price already up, institutions already buying)',
-            'stage_fully_priced' => 'Largely priced in (news heat at a recent high-water mark, price up sharply, heavy institutional buying)',
-            'stage_false_signal' => 'Possible false signal (news heat rising, but revenue is unverified and gross margin is falling)',
+            'stage_early' => 'Early',
+            'stage_partly_priced' => 'Partly priced in',
+            'stage_fully_priced' => 'Largely priced in',
+            'stage_false_signal' => 'Possible false signal',
             'stage_insufficient' => 'Insufficient data; no category assigned',
 
             'reason_not_enough_samples' => 'Recent-window mentions fall below the sample floor; a heat change ratio on that base is not trustworthy',
