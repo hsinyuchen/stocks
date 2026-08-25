@@ -45,6 +45,7 @@ use App\Services\News\GoogleNewsSymbolNewsProvider;
 use App\Services\News\ProcessYoutubeWorkerRunner;
 use App\Services\Rates\YahooYieldCurveProvider;
 use App\Services\Search\FinMindStockSearchProvider;
+use App\Services\Social\NewsHeatCalculator;
 use App\Support\FinMindTokenResolver;
 use Illuminate\Support\ServiceProvider;
 
@@ -63,6 +64,11 @@ class AppServiceProvider extends ServiceProvider
         // 同一次掃描內同產業要共用查詢結果；但常駐 worker 不該跨日沿用同一份樣本，
         // 所以是 scoped 不是 singleton。
         $this->app->scoped(OrderInventoryPeerSampler::class);
+
+        // 新聞熱度：每個 request／每個 queued job 一份新實例。選股器逐檔呼叫，
+        // 同一次掃描要共用同一次 news_items 查詢；但常駐 worker 不該跨日沿用
+        // 同一份新聞快照。
+        $this->app->scoped(NewsHeatCalculator::class);
 
         $this->app->bind(NewsProvider::class, function ($app): NewsProvider {
             return config('services.news.driver') === 'fake'
