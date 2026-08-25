@@ -39,6 +39,71 @@ class NewsHeatCalculatorTest extends TestCase
         return app(NewsHeatCalculator::class);
     }
 
+    /**
+     * `$now` 帶非 UTC 時區時，則數仍以 `$now` 自己的日界切分。
+     *
+     * 分組把 published_at 的日期字串查表換成 daysAgo（原本是逐列 Carbon 運算，
+     * 5302 列要 275ms）。查表的前提是**表裡的日期換算到儲存時區**——少了那一步，
+     * `$now` 帶其他時區時會查到**差一天的桶**而不是查不到，退路攔不到，
+     * 熱度會靜默偏差。
+     *
+     * 測資刻意壓在新期／前期的**邊界**上：台北午夜＝前一天 16:00 UTC，
+     * 所以正確換算下 UTC 日期 2026-08-11 是 daysAgo 13（新期最後一天）；
+     * 少了換算會被算成 14，整則掉進前期。放在視窗中央的話差一天看不出來
+     * ——兩邊都還在新期內，斷言照樣綠。
+     */
+    #[Test]
+    public function the_day_buckets_follow_the_timezone_of_the_given_now(): void
+    {
+        $this->assertSame(14, (int) config('order_inventory.social.heat_window_days'), '本測試的邊界日期是照 14 天視窗算的');
+
+        $taipeiNow = CarbonImmutable::parse('2026-08-25 10:00:00', 'Asia/Taipei');
+
+        NewsItem::query()->create([
+            'title' => 'tz-boundary',
+            'url' => 'https://example.com/'.uniqid(),
+            'source' => 'test',
+            'published_at' => CarbonImmutable::parse('2026-08-11 18:00:00', 'UTC'),
+            'related_symbols' => ['2330.TW'],
+            'relevant' => true,
+        ]);
+
+        $heat = $this->calculator()->forSymbol('2330.TW', $taipeiNow);
+
+        $this->assertSame(1, $heat->recentCount, '台北框架下這一則是 daysAgo 13，仍在新期視窗內');
+        $this->assertSame(0, $heat->priorCount, '少了時區換算會被算成 daysAgo 14，整則掉進前期');
+    }
+
+    /**
+     * 對照表查不到的列**不得跳過**，要退回 Carbon 算。
+     *
+     * 這條路徑真的走得到：對照表的最新一格是 `$now` 換算到儲存時區後的日期，
+     * 而 `published_at <= $now` 允許比它更晚的儲存日期。台北 `$now` 早上 10:00
+     * ＝ UTC 02:00，此時 UTC 日期已經是隔天，但對照表最新一格還是前一天。
+     *
+     * 跳過的話會**靜默少算則數**，熱度無聲偏低——正是「最近才發生的事」那一段，
+     * 也就是熱度訊號最該敏感的地方。
+     */
+    #[Test]
+    public function a_date_outside_the_lookup_table_still_counts(): void
+    {
+        $taipeiNow = CarbonImmutable::parse('2026-08-25 10:00:00', 'Asia/Taipei');
+
+        // UTC 日期 2026-08-25 晚於對照表最新的一格（2026-08-24），只能靠退路。
+        NewsItem::query()->create([
+            'title' => 'tz-beyond-table',
+            'url' => 'https://example.com/'.uniqid(),
+            'source' => 'test',
+            'published_at' => CarbonImmutable::parse('2026-08-25 01:00:00', 'UTC'),
+            'related_symbols' => ['2330.TW'],
+            'relevant' => true,
+        ]);
+
+        $heat = $this->calculator()->forSymbol('2330.TW', $taipeiNow);
+
+        $this->assertSame(1, $heat->recentCount, '查不到對照表就退回 Carbon 算，不得跳過');
+    }
+
     #[Test]
     public function it_counts_the_recent_window_against_the_prior_window(): void
     {
