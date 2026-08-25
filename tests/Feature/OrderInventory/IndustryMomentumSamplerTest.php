@@ -439,6 +439,41 @@ class IndustryMomentumSamplerTest extends TestCase
         $this->assertNotSame($sampler, app(IndustryMomentumSampler::class), 'scope 結束後要重建，不得跨 scope 沿用樣本');
     }
 
+    /**
+     * 階段 4 審查抓到的 C2：`cachedFor()` 取 industry 時走的是估值的**每日** TTL
+     * （FundamentalsService::cachedOrderInventoryFor()），而 industry_category 是
+     * 幾乎不變的靜態標籤、序列是季財報＋月營收，一天不會有新東西。
+     *
+     * 後果是同一列資料可以當**別檔**的同業樣本 30 天（本 sampler 的
+     * freshness_days），卻在**自己**身上被判「產業別未知」——標的與同業用了兩把
+     * 不同的尺。台股在警報／選股器路徑上因此幾乎永不命中產業動能規則。
+     */
+    #[Test]
+    public function a_row_fetched_yesterday_still_yields_the_industry(): void
+    {
+        // 昨天抓的列：估值的每日 TTL（盤後公佈時刻）下必定過期，
+        // 但同業取樣的新鮮度視窗（30 天）下仍然新鮮。
+        $yesterday = CarbonImmutable::now()->subDay();
+
+        $subject = $this->peer('2330.TW', '半導體業', 0.30, fetchedAt: $yesterday);
+
+        for ($i = 0; $i < $this->floor(); $i++) {
+            $this->peer("910{$i}.TW", '半導體業', 0.10, fetchedAt: $yesterday);
+        }
+
+        $result = $this->sampler()->cachedFor($subject);
+
+        $this->assertTrue(
+            $result->applicable,
+            '標的自己與同業必須用同一把尺；昨天抓的列不該讓產業別憑空消失',
+        );
+        $this->assertSame('半導體業', $result->industry);
+        $this->assertNull($result->reason);
+        $this->assertEqualsWithDelta(0.10, $result->median, 0.0001);
+        $this->assertEqualsWithDelta(0.30, $result->own, 0.0001);
+        $this->assertEqualsWithDelta(0.20, $result->excess, 0.0001);
+    }
+
     #[Test]
     public function a_not_applicable_result_carries_no_numbers(): void
     {

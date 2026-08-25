@@ -36,6 +36,23 @@ return [
     'us_ttl_hours' => (int) env('ORDER_INVENTORY_US_TTL_HOURS', 24),
 
     /*
+     * 序列快取的新鮮度視窗（天）。
+     *
+     * 給 FundamentalsService::orderInventorySeriesFor() 用，**與估值的每日 TTL
+     * 無關**。估值（PER／PBR／EPS）每個交易日盤後公佈，所以那條路問的是「今天
+     * 的公佈了沒」；但 order_inventory 是**季財報＋月營收**——季報約在季末後 45 天
+     * 送件、月營收每月 10 日前公告，一天不會有新東西。拿每日 TTL 去量它，會讓
+     * 昨天抓的整條序列在今天盤後被判「沒有」，而只讀快取的消費端（社交套利的
+     * 營收與毛利兩條腿）於是恆為不可評估。
+     *
+     * 30 天與 peer／industry_momentum 兩個取樣區的 freshness_days 同值，**理由也
+     * 相同**：比的是「現在」的營運狀況，超過一個月的快取列不該再拿來下判斷。
+     * 三者刻意各自成鍵而不共用一個：取樣是跨公司比較、這裡是單一標的的讀取，
+     * 兩種用途的視窗將來可能要分開調。
+     */
+    'series_freshness_days' => 30,
+
+    /*
      * SEC EDGAR 設定。
      *
      * SEC 要求 User-Agent 必須可識別並帶聯絡方式，否則會被封鎖；
@@ -565,19 +582,24 @@ return [
          * 「這個市場沒有這個功能」「這檔的產業別抓不到」「有功能但樣本還不夠」
          * 是三種不同的處境，寫成同一句會讓使用者以為只是資料還沒到。
          *
+         * `unavailable_industry_unknown` 不可寫成「快取中沒有 industry_category」：
+         * 快取裡可能有，只是那一列已經超出 industry_momentum.freshness_days 的視窗
+         * （見 OrderInventoryIndustrySampler::subjectData()）。兩種成因都要講到，
+         * 否則使用者會以為系統從沒抓過這一檔。
+         *
          * `retrospective_note` 不是可選補充：本指標比的是**已經公布**的月營收，
          * 名字（動能）容易被讀成前瞻，不寫就是放任過度宣稱。
          */
         'industry_momentum' => [
             'unavailable_not_taiwan' => '本標的非台股。產業動能定義為同產業月營收 YoY 的中位數，而美股沒有月營收（SEC 不提供）、產業別亦未取得。',
-            'unavailable_industry_unknown' => '本標的為台股，但產業別未知（快取中沒有 industry_category），沒有「同業」可比。',
+            'unavailable_industry_unknown' => '本標的為台股，但產業別未知（快取中沒有可用的 industry_category：未曾抓取，或已超出新鮮度視窗），沒有「同業」可比。',
             'insufficient_samples' => '同業樣本未達中位數所需的最低檔數',
             'retrospective_note' => '產業動能是回顧性指標：比的是已經公布的月營收，不是對未來營收或股價的預測。',
             'no_backtest_note' => '產業加速與個股跑贏兩個門檻皆為未經回測的初始估計值。',
         ],
         'industry_momentum_en' => [
             'unavailable_not_taiwan' => 'this symbol is not a TW listing. Industry momentum is defined as the median monthly-revenue YoY of the same industry, and US listings have no monthly revenue (the SEC does not publish it) and no industry category was obtained.',
-            'unavailable_industry_unknown' => 'this symbol is a TW listing, but its industry is unknown (no industry_category in cache), so there are no peers to compare against.',
+            'unavailable_industry_unknown' => 'this symbol is a TW listing, but its industry is unknown (no usable industry_category in cache: never fetched, or past the freshness window), so there are no peers to compare against.',
             'insufficient_samples' => 'peer samples fall below the minimum count required for a median',
             'retrospective_note' => 'industry momentum is a backward-looking measure: it compares monthly revenue that has already been published and is not a forecast of future revenue or price.',
             'no_backtest_note' => 'both thresholds (industry acceleration and single-name outperformance) are initial estimates that have never been backtested.',

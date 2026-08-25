@@ -470,7 +470,7 @@ export default {
             "momentumTitle": "Peer monthly-revenue YoY",
             "momentumNotApplicableHeading": "Industry momentum does not apply to this symbol",
             "momentumUnavailableNotTaiwan": "This symbol is not a TW listing. Industry momentum is defined as the median monthly-revenue YoY of the same industry, and US listings have no monthly revenue (the SEC does not publish it) and no industry category was obtained.",
-            "momentumUnavailableIndustryUnknown": "This symbol is a TW listing, but its industry is unknown (no industry_category in cache), so there are no peers to compare against.",
+            "momentumUnavailableIndustryUnknown": "This symbol is a TW listing, but its industry is unknown (no usable industry_category in cache: never fetched, or past the freshness window), so there are no peers to compare against.",
             "momentumIndustry": "Industry",
             "momentumSamples": ":count peers sampled (excluding this symbol)",
             "momentumInsufficientSamples": "Not enough peer samples yet (:count so far; a median needs :min). Coverage builds up as stock analyses and screener scans run.",

@@ -129,6 +129,59 @@ class FundamentalsService
     }
 
     /**
+     * 序列的只讀入口，新鮮度用**序列自己的視窗**（order_inventory.series_freshness_days）。
+     *
+     * **為什麼不共用 cachedOrderInventoryFor()**：那個方法的新鮮度刻意與各自市場的
+     * 抓取路徑一致（台股 isStale()、美股 isUnitedStatesStale()），因為它服務的是
+     * **評級**——「這裡回 null」必須等價於「正常路徑此刻會去抓上游」，訂單庫存規則
+     * 依賴這個等價關係。但台股那把尺（isStale()）問的是「今天盤後的**估值**公佈了
+     * 沒」，為每日更新的 PER／PBR／EPS 設計；order_inventory 是季財報＋月營收，
+     * 季報約在季末後 45 天送件、月營收每月 10 日前公告，一天不會有新東西。
+     * 拿每日 TTL 去量季／月序列，會讓昨天抓的整條序列在今天 15:00 之後被判「沒有」。
+     *
+     * 這對評級沒差（規則本來就接受「拿不到就不命中」），但對只讀快取又**不做**
+     * 抓取的消費端是致命的：社交套利的營收與毛利兩條腿因此在選股器與首頁警報上
+     * 恆為 null，而個股頁只是因為呼叫順序先暖了快取才看得到——同一檔標的於是在
+     * 兩個畫面上得到不同的分類。這個入口存在就是為了解開那個順序依賴。
+     *
+     * 取列走 latestSeriesRow()，理由與 cachedOrderInventoryFor() 相同（見該方法）。
+     * 兩個市場共用同一個視窗：季報的公告節奏台美一致，不需要再分岔一次。
+     */
+    public function orderInventorySeriesFor(Instrument $instrument): ?OrderInventoryData
+    {
+        $row = $this->latestSeriesRow($instrument);
+
+        if ($row === null || $row->fetched_at === null) {
+            return null;
+        }
+
+        // startOfDay 綁定：不切齊的話門檻會帶當下的時分秒，同一列在午夜前後一下
+        // 納入一下排除，而且視窗實際只有 N-1 天多（同
+        // OrderInventoryIndustrySampler::freshnessFloor() 的理由）。
+        $floor = CarbonImmutable::now()->subDays($this->seriesFreshnessDays())->startOfDay();
+
+        return $row->fetched_at->greaterThanOrEqualTo($floor)
+            ? OrderInventoryData::fromArray($row->order_inventory)
+            : null;
+    }
+
+    /**
+     * 缺鍵或非正整數一律拋錯，不做裸 `(int)` 轉型（`(int) null === 0`）：視窗變 0
+     * 會把新鮮度視窗縮到今天，序列於是恆為不可用，而不會有任何錯誤訊號可供察覺
+     * ——那正是本入口要修掉的那個失敗模式。
+     */
+    private function seriesFreshnessDays(): int
+    {
+        $value = config('order_inventory.series_freshness_days');
+
+        if (! is_numeric($value) || (int) $value < 1) {
+            throw new \RuntimeException('order_inventory.series_freshness_days config 缺失或非正整數，無法判斷序列新鮮度。');
+        }
+
+        return (int) $value;
+    }
+
+    /**
      * 台股：序列本來就由 forInstrument() 連同估值一次抓、寫進同一列。
      *
      * 這裡只做「讀既有列」，過期時委派回 forInstrument()，不自己開第二條抓取

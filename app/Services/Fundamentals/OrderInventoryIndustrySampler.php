@@ -76,7 +76,8 @@ abstract class OrderInventoryIndustrySampler
      * 那才是需要 JSON 述詞才不會退化成全表載入的查詢。
      *
      * 守衛與掃描完全一致（新鮮度、產業嚴格比對、市場交叉驗證），否則會出現
-     * 「自己用寬鬆條件、同業用嚴格條件」的不對稱比較。
+     * 「自己用寬鬆條件、同業用嚴格條件」的不對稱比較。前兩者在
+     * {@see subjectData()} 裡，產業比對在本方法。
      *
      * @param  array<int, float>  $scanned  {@see metricsForIndustry()} 的結果
      */
@@ -86,10 +87,39 @@ abstract class OrderInventoryIndustrySampler
             return $scanned[$subject->id];
         }
 
+        $data = $this->subjectData($subject);
+
+        // 產業嚴格比對留在這裡而不是推進 SQL：{@see subjectData()} 服務兩個用途，
+        // 其中一個（取 industry 本身）不可能先知道要比什麼。這一次點查最多回一列，
+        // 多比一個欄位不影響成本。
+        if ($data === null || $data->industry !== $industry) {
+            return null;
+        }
+
+        return $this->metricFor($data);
+    }
+
+    /**
+     * 標的自己那一列已快取的序列，**新鮮度與同業取樣同一把尺**（`freshness_days`）。
+     *
+     * 兩個用途共用同一個點查：{@see metricForSubject()} 要它的指標值，
+     * {@see IndustryMomentumSampler::cachedFor()} 要它的 `industry`。留兩份點查
+     * 必然漂移，而漂移的正是「標的自己與同業用不用同一把尺」這個最微妙的地方。
+     *
+     * **不可改用 FundamentalsService::cachedOrderInventoryFor()**：那條路的新鮮度是
+     * 估值的每日 TTL（「今天盤後的 PER 公佈了沒」），而 `industry_category` 是幾乎
+     * 不變的靜態標籤、序列是季財報＋月營收。套每日 TTL 的後果是同一列資料可以當
+     * **別檔**的同業樣本 30 天，卻在**自己**身上被判「產業別未知」——台股在警報與
+     * 選股器路徑上因此幾乎恆為 applicable = false、永不命中。
+     *
+     * 市場交叉驗證與 {@see scanIndustry()} 一致：JSON 內的 `market` 與 symbol 推導
+     * 出來的市場一旦不一致，代表這列快取可疑，寧可當作沒有。
+     */
+    protected function subjectData(Instrument $subject): ?OrderInventoryData
+    {
         $row = Fundamental::query()
             ->where('instrument_id', $subject->id)
             ->whereNotNull('order_inventory')
-            ->where('order_inventory->industry', $industry)
             ->where('fetched_at', '>=', $this->freshnessFloor())
             ->orderByDesc('fetched_at')
             ->orderByDesc('id')
@@ -101,11 +131,7 @@ abstract class OrderInventoryIndustrySampler
 
         $data = OrderInventoryData::fromArray($row->order_inventory);
 
-        if ($data->market !== $this->marketOf($subject->symbol) || $data->industry !== $industry) {
-            return null;
-        }
-
-        return $this->metricFor($data);
+        return $data->market === $this->marketOf($subject->symbol) ? $data : null;
     }
 
     /**

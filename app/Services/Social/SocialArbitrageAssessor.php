@@ -25,9 +25,17 @@ use Carbon\CarbonImmutable;
  * 本類別的消費端是警報評估，它跑在首頁的**同步 web 請求**裡，而 PHP 的
  * `max_execution_time` 不是例外、`try/catch` 攔不到；那條路徑也沒有選股掃描
  * （scan_time_budget_seconds）或快報 job（timeout）那種總量預算，只能從「不抓」
- * 這一端解。同樣理由讓營收兩條腿走 `OrderInventoryAssessor::cachedFor()` 而不是
- * `forInstrument()`（後者美股會打 SEC EDGAR、timeout 40 秒）。
+ * 這一端解。
  * 「只聚合已快取的資料」的先例是階段 3 的 `OrderInventoryPeerSampler`。
+ *
+ * 營收與毛利兩條腿走 `OrderInventoryAssessor::seriesSignalsFor()`，**不是**
+ * `cachedFor()`。兩者都只讀，差別在新鮮度那把尺：`cachedFor()` 用估值的每日 TTL
+ * （「今天盤後的 PER 公佈了沒」），而這兩條腿要的是**季財報＋月營收**，一天不會
+ * 有新東西。套每日 TTL 的後果不是「保守地少講一句」——個股頁在社交套利之前會先
+ * 跑一次會抓取的入口、順手刷新 fetched_at，選股器與首頁警報沒有這個順序保護，
+ * 於是同一檔標的在個股頁上是「疑似假訊號」、在選股器裡卻被當成「早期」篩給使用者。
+ * `seriesSignalsFor()` 用序列自己的視窗，把那個順序依賴解掉；它同時是本類別
+ * 「全程只讀」這句話成立的前提——`cachedFor()` 每次呼叫都會寫回一次評級。
  *
  * 拿不到就當沒有：該條腿回 `null`（「算不出來」），等下一次個股分析／選股掃描把
  * 資料抓進快取即可。**這個約束在測試上是無聲的**——把讀取換回那兩個服務，功能
@@ -64,19 +72,18 @@ class SocialArbitrageAssessor
         $from = $now->subDays($windowDays - 1)->startOfDay();
         $to = $now->endOfDay();
 
-        // 只呼叫一次：營收與毛利兩條腿共用同一份快照。呼叫兩次除了多一輪查詢與寫回，
+        // 只呼叫一次：營收與毛利兩條腿共用同一份快照。呼叫兩次除了多一輪查詢，
         // 還可能拿到不一致的兩份快照。
-        $cached = $this->orderInventory->cachedFor($instrument);
-        $assessment = $cached['assessment'] ?? null;
-        $conditions = $assessment?->conditions ?? [];
+        $series = $this->orderInventory->seriesSignalsFor($instrument);
 
         return $this->classifier->classify(
             heat: $this->heat->forSymbol($instrument->symbol, $now),
             priceChange: $this->priceChange($instrument, $from, $to),
             foreignShare: $this->foreignShare($instrument, $from, $to),
-            // 缺鍵與「C1 算不出來」都是 null：兩者對呈現層是同一件事（營收腿不可評估）。
-            revenueVerified: $conditions['C1'] ?? null,
-            grossMarginQoqPp: $assessment?->metrics->grossMarginQoqPp,
+            // 「序列拿不到」與「C1 算不出來」都是 null：兩者對呈現層是同一件事
+            // （營收腿不可評估）。
+            revenueVerified: $series['revenue_verified'],
+            grossMarginQoqPp: $series['gross_margin_qoq_pp'],
         );
     }
 

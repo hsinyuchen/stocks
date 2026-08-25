@@ -471,7 +471,7 @@ export default {
             "momentumTitle": "同業月營收 YoY",
             "momentumNotApplicableHeading": "本標的不適用產業動能",
             "momentumUnavailableNotTaiwan": "本標的非台股。產業動能定義為同產業月營收 YoY 的中位數，而美股沒有月營收（SEC 不提供）、產業別亦未取得。",
-            "momentumUnavailableIndustryUnknown": "本標的為台股，但產業別未知（快取中沒有 industry_category），沒有「同業」可比。",
+            "momentumUnavailableIndustryUnknown": "本標的為台股，但產業別未知（快取中沒有可用的 industry_category：未曾抓取，或已超出新鮮度視窗），沒有「同業」可比。",
             "momentumIndustry": "產業別",
             "momentumSamples": "同業樣本 :count 檔（不含本標的）",
             "momentumInsufficientSamples": "尚未累積足夠同業樣本（目前 :count 檔，中位數需 :min 檔）。覆蓋率會隨個股分析與選股掃描累積。",

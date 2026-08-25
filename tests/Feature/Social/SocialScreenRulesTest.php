@@ -11,6 +11,7 @@ use App\Data\IndustryMomentum;
 use App\Data\MarketQuoteData;
 use App\Data\NewsHeat;
 use App\Data\OrderInventoryData;
+use App\Data\QuarterlyFinancials;
 use App\Data\SocialArbitrage;
 use App\Enums\IndustryMomentumUnavailableReason;
 use App\Enums\SocialArbitrageStage;
@@ -27,9 +28,11 @@ use App\Services\Screener\Rules\IndustryOutperformer;
 use App\Services\Screener\ScreenerService;
 use App\Services\Screener\ScreenRule;
 use App\Services\Screener\ScreenRuleRegistry;
+use App\Services\Social\SocialArbitrageAssessor;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Inertia\Testing\AssertableInertia as Assert;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -526,6 +529,112 @@ class SocialScreenRulesTest extends TestCase
         $user->alerts()->save($alert);
 
         return $alert;
+    }
+
+    /**
+     * 一份「營收未驗證＋毛利下滑」的財報序列：社交套利的假訊號配方。
+     *
+     * 最新月營收 YoY 為負 → 連續成長月數 0 → C1 不成立；毛利率由 30% 降到 27%
+     * （−3.0pp，低於 gross_margin_stable_pp 的 −0.5）→ 毛利腿判定下滑。
+     * 季末日刻意留在 now 之前兩個月內，否則 too_old 會讓評級短路成 insufficient、
+     * 條件表整個空掉，測到的就不是本案要釘的東西。
+     */
+    private function falseSignalSeries(): OrderInventoryData
+    {
+        return new OrderInventoryData(
+            quarters: [
+                new QuarterlyFinancials(period: '2026Q1', endDate: '2026-03-31', revenue: 1000.0, costOfGoodsSold: 700.0, grossProfit: 300.0, inventories: 350.0),
+                new QuarterlyFinancials(period: '2026Q2', endDate: '2026-06-30', revenue: 1000.0, costOfGoodsSold: 730.0, grossProfit: 270.0, inventories: 350.0),
+            ],
+            monthlyRevenue: [
+                ['month' => '2026-05-01', 'revenue' => 1000.0, 'yoy' => -0.05],
+                ['month' => '2026-06-01', 'revenue' => 900.0, 'yoy' => -0.10],
+            ],
+            market: 'tw',
+            industry: '半導體業',
+            dataAsOf: '2026-06-30',
+        );
+    }
+
+    /**
+     * 熱度升溫、股價只漲 1%（＝ earlySymbol 的配方），但財報序列是假訊號配方，
+     * 且那一列是**昨天**抓的。
+     *
+     * 昨天抓的估值列在 FundamentalsService::isStale()（每日盤後 TTL）下必定過期
+     * ——那把尺問的是「今天盤後的估值公佈了沒」。序列是季財報＋月營收，一天不會
+     * 有新東西，所以「估值過期」不該讓序列一併消失。data_as_of 刻意早於
+     * FakeFundamentalsProvider 的 2026-07-08，個股頁那條會抓取的路徑才會新增一列
+     * 而不是就地更新，重現生產環境「開過個股頁的標的序列被暖進快取」的狀態。
+     */
+    private function falseSignalSymbol(string $symbol = '2330.TW'): Instrument
+    {
+        $instrument = $this->earlySymbol($symbol);
+
+        Fundamental::query()->create([
+            'instrument_id' => $instrument->id,
+            'data_as_of' => '2026-06-30',
+            'fetched_at' => $this->now->subDay(),
+            'per' => 18.5,
+            'order_inventory' => $this->falseSignalSeries()->toArray(),
+        ]);
+
+        // 個股頁會就地抓一次上游；回傳同一份序列，兩條路徑的差異才只剩「怎麼讀快取」。
+        $series = $this->falseSignalSeries();
+        $this->app->instance(CompanyFinancialsProvider::class, new class($series) implements CompanyFinancialsProvider
+        {
+            public function __construct(private readonly OrderInventoryData $series) {}
+
+            public function financials(string $symbol, int $months): OrderInventoryData
+            {
+                return $this->series;
+            }
+        });
+
+        return $instrument;
+    }
+
+    /**
+     * 選股器／警報路徑與個股頁路徑，在**同一組 DB 狀態**下必須得到同一個分類。
+     *
+     * 這是階段 4 審查抓到的 C1：社交套利的營收與毛利兩條腿原本走
+     * OrderInventoryAssessor::cachedFor()，而那條路以估值的每日 TTL 判斷季／月序列
+     * 的新鮮度。個股頁在社交套利之前先跑過 FundamentalsService::forInstrument()，
+     * 順手把 fetched_at 刷新（＝暖了快取）所以看得到兩條腿；選股器與首頁警報沒有
+     * 這個順序保護，兩條腿恆為 null。同一檔標的於是在個股頁上是「疑似假訊號」、
+     * 在選股器裡卻被當成「早期」篩給使用者。
+     *
+     * 順序不可調換：選股器路徑必須跑在個股頁之前，否則個股頁已經把快取暖好，
+     * 這條測試就測不到「沒人先暖快取」的那個情境。
+     */
+    #[Test]
+    public function the_screener_and_the_stock_page_agree_on_the_stage_without_warming_the_cache(): void
+    {
+        $instrument = $this->falseSignalSymbol();
+
+        // ScreenerService::contextFor() 與 AlertEvaluator::contextFor() 的
+        // NEEDS_SOCIAL 分支就是這一個呼叫（接線本身由本檔的 scan／evaluate 測試釘住）。
+        $screenerStage = app(SocialArbitrageAssessor::class)->forInstrument($instrument)->stage;
+
+        $this->assertSame(
+            SocialArbitrageStage::FalseSignal,
+            $screenerStage,
+            '沒人先暖快取時，選股器仍必須讀得到季／月序列——營收未驗證且毛利下滑是假訊號',
+        );
+
+        $this->assertSame(
+            [],
+            $this->scanSymbols('early_social_arbitrage'),
+            '假訊號不得因為兩條腿讀不到而退化成「早期」，被篩給使用者',
+        );
+
+        // 個股頁：controller 在社交套利之前先跑過 FundamentalsService::forInstrument()，
+        // 那一步會刷新 fetched_at。
+        $this->actingAs(User::factory()->create())
+            ->get('/stocks/search?symbol='.$instrument->symbol)
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('socialArbitrage.stage', $screenerStage->value)
+                ->etc());
     }
 
     #[Test]

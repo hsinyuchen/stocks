@@ -206,9 +206,10 @@ class ScreenerService
                     ScreenRule::NEEDS_FUNDAMENTALS => app(FundamentalsService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_MARGIN => app(MarginDataService::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_ORDER_INVENTORY => app(OrderInventoryAssessor::class)->forInstrument($instrument),
-                    // SocialArbitrageAssessor 已經全程只讀（直接讀 DailyPrice／ChipFlow
-                    // model，營收走 OrderInventoryAssessor::cachedFor()），因此**沒有**
-                    // 抓取與只讀兩個入口之分——不要為對稱而「補」一個不存在的 cachedFor()。
+                    // SocialArbitrageAssessor 全程只讀，且**一列都不寫**（直接讀
+                    // DailyPrice／ChipFlow model，營收與毛利走
+                    // OrderInventoryAssessor::seriesSignalsFor()），因此**沒有**抓取
+                    // 與只讀兩個入口之分——不要為對稱而「補」一個不存在的 cachedFor()。
                     ScreenRule::NEEDS_SOCIAL => app(SocialArbitrageAssessor::class)->forInstrument($instrument),
                     ScreenRule::NEEDS_INDUSTRY_MOMENTUM => app(IndustryMomentumSampler::class)->cachedFor($instrument),
                     default => null,

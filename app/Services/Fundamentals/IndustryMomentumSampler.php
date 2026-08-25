@@ -24,8 +24,6 @@ use Carbon\CarbonImmutable;
  */
 class IndustryMomentumSampler extends OrderInventoryIndustrySampler
 {
-    public function __construct(private readonly FundamentalsService $fundamentals) {}
-
     /**
      * 只讀入口：industry 自己從快取取，呼叫端不必先弄到一份 OrderInventoryData。
      *
@@ -35,18 +33,22 @@ class IndustryMomentumSampler extends OrderInventoryIndustrySampler
      * （評級用的粗分類桶）而**沒有**原始 `industry_category`——拿桶去餵是另一種
      * 東西，比出來的同業根本不同群。
      *
-     * 為什麼是**只讀**：委派給 {@see FundamentalsService::cachedOrderInventoryFor()}，
-     * 那個方法只讀「帶序列的最新一列」，過期就回 null 而不去抓。真正會抓的入口是
-     * `orderInventoryFor()`：台股走 FinMind、美股打 SEC EDGAR（timeout 40 秒、沒有
-     * FinMindGate 那種斷路器）。本方法的消費端之一是 AlertEvaluator，它跑在首頁的
-     * 同步 web 請求裡，而 PHP 的 max_execution_time 不是例外、try/catch 攔不到，
-     * 那條路徑也沒有掃描預算或 job timeout 可以兜底。
-     * 拿不到就當產業未知（`IndustryUnknown`），等下一次個股分析／選股掃描把序列
-     * 抓進快取即可。命名沿用階段 3 立下的「cachedFor = 只讀入口」慣例。
+     * 為什麼是**只讀**：走基底的 {@see OrderInventoryIndustrySampler::subjectData()}，
+     * 那是一次 `instrument_id` 點查，過舊就回 null 而不去抓。真正會抓的入口是
+     * `FundamentalsService::orderInventoryFor()`：台股走 FinMind、美股打 SEC EDGAR
+     * （timeout 40 秒、沒有 FinMindGate 那種斷路器）。本方法的消費端之一是
+     * AlertEvaluator，它跑在首頁的同步 web 請求裡，而 PHP 的 max_execution_time
+     * 不是例外、try/catch 攔不到，那條路徑也沒有掃描預算或 job timeout 可以兜底。
+     * 命名沿用階段 3 立下的「cachedFor = 只讀入口」慣例。
+     *
+     * **新鮮度刻意不走 FundamentalsService::cachedOrderInventoryFor()**：那條路用
+     * 估值的每日 TTL，會讓標的自己與同業用兩把不同的尺，理由見 subjectData()。
+     * 真的拿不到（未曾抓取，或已超出 freshness_days 視窗）時才當產業未知
+     * （`IndustryUnknown`），等下一次個股分析／選股掃描把序列抓進快取即可。
      */
     public function cachedFor(Instrument $subject): IndustryMomentum
     {
-        return $this->forInstrument($subject, $this->fundamentals->cachedOrderInventoryFor($subject)?->industry);
+        return $this->forInstrument($subject, $this->subjectData($subject)?->industry);
     }
 
     public function forInstrument(Instrument $subject, ?string $industry): IndustryMomentum

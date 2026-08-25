@@ -88,9 +88,17 @@ final class SymbolContextService
         $news = $this->news->relatedNews($symbol, self::NEWS_LIMIT);
         $rates = $this->ratesContext($symbol, $locale);
         $orderInventory = $this->orderInventoryContext($symbol);
-        // 必須排在 orderInventoryContext() 之後：社交套利的營收／毛利兩條腿與產業
-        // 動能的產業別都走「只讀快取」入口，上一行剛把本次序列與評級寫進快取，
-        // 順序反過來這三項在首次分析時會全部退化成不可評估。
+        // 仍必須排在 orderInventoryContext() 之後，但理由已經縮小到只剩一種：
+        // **這一行是本方法唯一會去抓上游的步驟**。社交套利的營收／毛利兩條腿與
+        // 產業動能的產業別都走只讀入口，序列從未落地的標的（第一次被分析）在它們
+        // 眼裡就是「沒有」。順序反過來，首次分析的那三項會全部退化成不可評估，
+        // 而使用者看到的正是第一份報告。
+        //
+        // 已經**不再**是「快取過期」那個理由：兩個只讀入口現在各用序列自己的新鮮度
+        // 視窗（order_inventory.series_freshness_days／industry_momentum.freshness_days），
+        // 不再需要上一行順手刷新 fetched_at。昨天抓過的標的兩種順序結果相同。
+        // 這條順序由 SocialArbitragePromptTest::the_symbol_context_carries_the_social_assessment
+        // 釘住（那個 fixture 一列 fundamentals 都沒有）。
         $social = $this->socialContext($symbol);
 
         if ($prices === []) {
@@ -147,6 +155,10 @@ final class SymbolContextService
      * 類別 docblock），所以這裡不必另設「只讀入口」；產業動能則刻意走
      * `cachedFor()` 而不是 `forInstrument()`，後者要呼叫端先弄到一份序列，而
      * 過期時會就地抓上游。
+     *
+     * 兩者都是只讀入口，序列從未落地時一律回「不可評估／產業未知」，所以在
+     * `forSymbol()` 裡仍排在 `orderInventoryContext()` 之後——那是唯一會抓取的步驟，
+     * 詳見該處註解。
      *
      * @return array{arbitrage: SocialArbitrage, momentum: IndustryMomentum}|null
      */

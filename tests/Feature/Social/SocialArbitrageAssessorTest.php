@@ -9,13 +9,12 @@ use App\Contracts\MarketDataProvider;
 use App\Data\DailyPriceData;
 use App\Data\FundamentalsData;
 use App\Data\MarketQuoteData;
-use App\Data\OrderInventoryAssessment;
 use App\Data\OrderInventoryData;
-use App\Data\OrderInventoryMetrics;
-use App\Enums\OrderInventoryRating;
+use App\Data\QuarterlyFinancials;
 use App\Enums\SocialArbitrageStage;
 use App\Models\ChipFlow;
 use App\Models\DailyPrice;
+use App\Models\Fundamental;
 use App\Models\Instrument;
 use App\Models\NewsItem;
 use App\Services\Fundamentals\FundamentalsService;
@@ -307,51 +306,105 @@ class SocialArbitrageAssessorTest extends TestCase
     }
 
     #[Test]
-    public function it_reads_the_order_inventory_cache_once_and_never_the_fetching_entry_point(): void
+    public function it_reads_the_series_once_and_never_the_rating_entry_points(): void
     {
         $instrument = $this->instrument('2330.TW');
 
-        $assessment = new OrderInventoryAssessment(
-            rating: OrderInventoryRating::B,
-            metrics: new OrderInventoryMetrics(grossMarginQoqPp: -2.5),
-            conditions: ['C1' => true],
-        );
-
         $spy = new class(app(FundamentalsService::class), app(OrderInventoryRadar::class), app(OrderInventoryPeerSampler::class)) extends OrderInventoryAssessor
         {
+            public int $seriesCalls = 0;
+
             public int $cachedCalls = 0;
 
             public int $fetchingCalls = 0;
 
-            public ?array $stub = null;
+            public function seriesSignalsFor(Instrument $instrument): array
+            {
+                $this->seriesCalls++;
+
+                return ['revenue_verified' => true, 'gross_margin_qoq_pp' => -2.5];
+            }
 
             public function cachedFor(Instrument $instrument): ?array
             {
                 $this->cachedCalls++;
 
-                return $this->stub;
+                return null;
             }
 
             public function forInstrument(Instrument $instrument): ?array
             {
                 $this->fetchingCalls++;
 
-                return $this->stub;
+                return null;
             }
         };
-        $spy->stub = ['assessment' => $assessment, 'peer_samples' => 3];
         $this->app->instance(OrderInventoryAssessor::class, $spy);
 
         $result = $this->assessor()->forInstrument($instrument, $this->now);
 
         // 營收與毛利兩條腿必須來自**同一份**快照，因此只能取一次。
-        $this->assertSame(1, $spy->cachedCalls, '兩條腿共用一次 cachedFor()');
+        $this->assertSame(1, $spy->seriesCalls, '兩條腿共用一次 seriesSignalsFor()');
+        $this->assertSame(
+            0,
+            $spy->cachedCalls,
+            'cachedFor() 用估值的每日 TTL 量季／月序列，且每次呼叫都寫回一次評級',
+        );
         $this->assertSame(0, $spy->fetchingCalls, 'forInstrument() 會就地抓上游，這條路徑不得走');
 
         $this->assertTrue($result->revenueLegEvaluable);
-        $this->assertFalse($result->revenueUnverified, 'C1 為 true 代表營收已驗證');
+        $this->assertFalse($result->revenueUnverified, 'revenue_verified 為 true 代表營收已驗證');
         $this->assertTrue($result->marginLegEvaluable);
         $this->assertTrue($result->marginDeclining, '-2.5pp 低於 gross_margin_stable_pp（-0.5）');
+    }
+
+    /**
+     * 「全程只讀」包含**不寫**：本類別跑在個股頁每次開頁、選股器每掃一檔、
+     * 首頁每次警報評估的路徑上。
+     *
+     * 走 OrderInventoryAssessor::cachedFor() 時每一次呼叫都會 persistRating()
+     * 寫一次 `fundamentals.order_inventory_rating`，而那個評級缺同業腿、也不屬於
+     * 任何一次完整評級。這條測試釘住 seriesSignalsFor() 這條路一列都不寫。
+     */
+    #[Test]
+    public function it_never_writes_a_rating_back(): void
+    {
+        $instrument = $this->instrument('2330.TW');
+
+        foreach ([0, 1, 2, 3] as $daysAgo) {
+            $this->news($daysAgo, '2330.TW');
+        }
+
+        $row = Fundamental::query()->create([
+            'instrument_id' => $instrument->id,
+            'data_as_of' => '2026-06-30',
+            'fetched_at' => $this->now->subDay(),
+            'per' => 18.5,
+            'order_inventory' => (new OrderInventoryData(
+                quarters: [
+                    new QuarterlyFinancials(period: '2026Q1', endDate: '2026-03-31', revenue: 1000.0, costOfGoodsSold: 700.0, grossProfit: 300.0, inventories: 350.0),
+                    new QuarterlyFinancials(period: '2026Q2', endDate: '2026-06-30', revenue: 1000.0, costOfGoodsSold: 730.0, grossProfit: 270.0, inventories: 350.0),
+                ],
+                monthlyRevenue: [
+                    ['month' => '2026-05-01', 'revenue' => 1000.0, 'yoy' => -0.05],
+                    ['month' => '2026-06-01', 'revenue' => 900.0, 'yoy' => -0.10],
+                ],
+                market: 'tw',
+                industry: '半導體業',
+                dataAsOf: '2026-06-30',
+            ))->toArray(),
+        ]);
+
+        $result = $this->assessor()->forInstrument($instrument, $this->now);
+
+        // 先確認兩條腿真的讀到了：讀不到的話「沒寫評級」是空話。
+        $this->assertTrue($result->revenueLegEvaluable, '序列讀不到的話這條測試等於什麼都沒釘');
+        $this->assertTrue($result->marginLegEvaluable);
+
+        $this->assertNull(
+            $row->refresh()->order_inventory_rating,
+            '社交套利宣稱全程只讀；這條路徑算出的評級缺同業腿，寫回去會污染評級軌跡',
+        );
     }
 
     /**
