@@ -9,6 +9,7 @@ use App\Enums\SocialArbitrageInsufficientReason;
 use App\Enums\SocialArbitrageStage;
 use App\Services\Fundamentals\IndustryMomentumSampler;
 use App\Services\Social\SocialArbitrageClassifier;
+use App\Support\SocialArbitrageVerdicts;
 
 /**
  * 社交套利分類與產業動能的 prompt 區塊。依 locale 產生，與 SopGuide、
@@ -194,11 +195,9 @@ class SocialArbitrageGuide
         $floor = $this->intThreshold('order_inventory.social.min_recent_mentions');
         $rise = $this->percent($this->threshold('order_inventory.social.heat_rise_ratio'));
 
-        $verdict = $this->copy('social', match ($arbitrage->heatUp) {
-            true => 'heat_up',
-            false => 'heat_flat',
-            null => 'heat_unevaluable',
-        }, $en);
+        // 判定鍵一律走 SocialArbitrageVerdicts：面板端讀的是同一組鍵，兩邊各寫一次
+        // match 會讓優先序在其中一邊被改掉而沒有訊號。
+        $verdict = $this->copy('social', SocialArbitrageVerdicts::heat($arbitrage), $en);
 
         $change = $heat->changeRatio === null
             ? ''
@@ -225,11 +224,13 @@ class SocialArbitrageGuide
     {
         $heat = $arbitrage->heat;
 
-        if ($heat->highWaterThreshold === null) {
+        $key = SocialArbitrageVerdicts::highWater($arbitrage);
+
+        if ($key === null) {
             return null;
         }
 
-        $verdict = $this->copy('social', $heat->isHighWater ? 'high_water_yes' : 'high_water_no', $en);
+        $verdict = $this->copy('social', $key, $en);
 
         return $en
             ? sprintf(
@@ -250,19 +251,14 @@ class SocialArbitrageGuide
     {
         $prefix = $en ? '- Price leg: ' : '- 股價腿：';
 
-        // priceLegEvaluable 與 priceChange 非 null 等價（見 SocialArbitrage docblock），
-        // 但仍一併檢查 priceChange：null 進 sprintf 會被印成 0。
-        if (! $arbitrage->priceLegEvaluable || $arbitrage->priceChange === null) {
-            return $prefix.$this->copy('social', 'price_unevaluable', $en);
+        $key = SocialArbitrageVerdicts::price($arbitrage);
+
+        // 不可評估時**不印任何數字**：priceChange 為 null 進 sprintf 會被印成 0。
+        if ($key === 'price_unevaluable') {
+            return $prefix.$this->copy('social', $key, $en);
         }
 
-        $verdict = $this->copy('social', match (true) {
-            $arbitrage->priceSurged === true => 'price_surged',
-            $arbitrage->priceRisen === true => 'price_risen',
-            $arbitrage->priceFell === true => 'price_fell',
-            $arbitrage->priceFlat === true => 'price_flat',
-            default => 'price_grey_zone',
-        }, $en);
+        $verdict = $this->copy('social', $key, $en);
 
         $risen = $this->percent($this->threshold('order_inventory.social.price_risen'));
         $surged = $this->percent($this->threshold('order_inventory.social.price_surged'));
@@ -292,15 +288,13 @@ class SocialArbitrageGuide
     {
         $prefix = $en ? '- Institutional leg: ' : '- 法人腿：';
 
-        if (! $arbitrage->foreignLegEvaluable || $arbitrage->foreignVolumeShare === null) {
-            return $prefix.$this->copy('social', 'foreign_unevaluable', $en);
+        $key = SocialArbitrageVerdicts::foreign($arbitrage);
+
+        if ($key === 'foreign_unevaluable') {
+            return $prefix.$this->copy('social', $key, $en);
         }
 
-        $verdict = $this->copy('social', match (true) {
-            $arbitrage->foreignBuyingHeavy === true => 'foreign_heavy',
-            $arbitrage->foreignBuying === true => 'foreign_buying',
-            default => 'foreign_below',
-        }, $en);
+        $verdict = $this->copy('social', $key, $en);
 
         $buy = $this->percent($this->threshold('order_inventory.social.foreign_net_buy_volume_share'));
         $heavy = $this->percent($this->threshold('order_inventory.social.foreign_net_buy_volume_share_heavy'));
@@ -319,11 +313,7 @@ class SocialArbitrageGuide
     /** 營收腿的原始輸入本身就是布林（訂單庫存框架的 C1），沒有數值可印。 */
     private function revenueVerdict(SocialArbitrage $arbitrage, bool $en): string
     {
-        return $this->copy('social', match ($arbitrage->revenueUnverified) {
-            true => 'revenue_unverified',
-            false => 'revenue_verified',
-            null => 'revenue_unevaluable',
-        }, $en);
+        return $this->copy('social', SocialArbitrageVerdicts::revenue($arbitrage), $en);
     }
 
     /** 毛利腿。「下滑」用的是階段 2 C2 的持平帶而不是 0，所以門檻要寫出來。 */
@@ -331,11 +321,13 @@ class SocialArbitrageGuide
     {
         $prefix = $en ? '- Gross-margin leg: ' : '- 毛利腿：';
 
-        if (! $arbitrage->marginLegEvaluable || $arbitrage->grossMarginQoqPp === null) {
-            return $prefix.$this->copy('social', 'margin_unevaluable', $en);
+        $key = SocialArbitrageVerdicts::margin($arbitrage);
+
+        if ($key === 'margin_unevaluable') {
+            return $prefix.$this->copy('social', $key, $en);
         }
 
-        $verdict = $this->copy('social', $arbitrage->marginDeclining === true ? 'margin_declining' : 'margin_stable', $en);
+        $verdict = $this->copy('social', $key, $en);
         $band = $this->points($this->threshold('order_inventory.thresholds.gross_margin_stable_pp'));
 
         return $prefix.($en

@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
+use App\Data\IndustryMomentum;
 use App\Data\MarginFlowData;
+use App\Data\SocialArbitrage;
 use App\Enums\AnalysisStatus;
 use App\Enums\AssetType;
 use App\Enums\MarketRegion;
@@ -15,12 +17,16 @@ use App\Models\LlmProviderSetting;
 use App\Models\StockAnalysis;
 use App\Models\StockChatTurn;
 use App\Models\User;
+use App\Services\Analysis\SocialArbitrageGuide;
 use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
+use App\Services\Fundamentals\IndustryMomentumSampler;
 use App\Services\Margin\MarginDataService;
 use App\Services\News\SymbolNewsService;
 use App\Services\Search\StockSearchService;
+use App\Services\Social\SocialArbitrageAssessor;
+use App\Support\SocialArbitrageVerdicts;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -91,6 +97,13 @@ class StockSearchController extends Controller
         // Sponsor 使用者抓得到，免費 token 回 null → 前端面板顯示需贊助等級。
         $brokerBranch = app(BrokerBranchDataService::class)->summaryFor($instrument);
 
+        // 社交套利與產業動能。兩者都是**全程只讀**的入口（見各自 docblock），一次
+        // 上游都不打，所以可以留在這個同步 web 請求裡；換成會抓資料的入口
+        // （OrderInventoryAssessor::forInstrument()、IndustryMomentumSampler::forInstrument()）
+        // 會讓個股頁受 PHP max_execution_time 擺布，而那不是例外、try/catch 攔不到。
+        $arbitrage = app(SocialArbitrageAssessor::class)->forInstrument($instrument);
+        $momentum = app(IndustryMomentumSampler::class)->cachedFor($instrument);
+
         // 首載瘦身：不再輸出 prices/indicators，前端掛載後另打 stocks.chart endpoint
         // 取 5 年日/週/月 K 與完整指標序列，避免首頁 payload 過大。
         return Inertia::render('Stocks/Search', [
@@ -130,6 +143,8 @@ class StockSearchController extends Controller
             ], array_slice($marginFlows, -20)),
             // 券商分點主力摘要；null 代表非台股/需贊助等級/抓取失敗，前端據此降級。
             'brokerBranch' => $brokerBranch,
+            'socialArbitrage' => $this->socialArbitragePayload($arbitrage),
+            'industryMomentum' => $this->industryMomentumPayload($momentum),
         ]);
     }
 
@@ -228,6 +243,8 @@ class StockSearchController extends Controller
             'chipFlows' => [],
             'marginFlows' => [],
             'brokerBranch' => null,
+            'socialArbitrage' => null,
+            'industryMomentum' => null,
         ];
     }
 
@@ -364,6 +381,142 @@ class StockSearchController extends Controller
             // reverse() 保留原 key，不 values() 會序列化成 JSON object。
             ->values()
             ->all();
+    }
+
+    /**
+     * 社交套利分類的前端 payload。
+     *
+     * **分類、各腿判定、細分原因全部由後端算好送出**，前端一律不重算：前端若自己
+     * 依門檻再判一次，會出現「畫面顯示的」與「prompt 給 LLM 的」不一致——同一份
+     * 資料兩套結論。判定鍵走 {@see SocialArbitrageVerdicts}，與 prompt 區塊
+     * （{@see SocialArbitrageGuide}）共用同一份優先序。
+     *
+     * 門檻一併送出，但**只供顯示**：本功能的門檻全都沒做過預測力回測（見 config
+     * 各鍵註解），只給「法人買：是」等於把一條武斷的線包裝成事實，使用者無從判斷
+     * 結論離門檻有多遠。
+     *
+     * 三條數值腿的 `value` 為 `null` 時**照實送 null**，不以 0 代替：`0` 是
+     * 「有資料且為零」這個實質宣稱，而美股的法人腿恆為 null。
+     */
+    private function socialArbitragePayload(SocialArbitrage $arbitrage): array
+    {
+        $heat = $arbitrage->heat;
+        $highWaterVerdict = SocialArbitrageVerdicts::highWater($arbitrage);
+
+        return [
+            'stage' => $arbitrage->stage->value,
+            'insufficient_reason' => $arbitrage->insufficientReason?->value,
+            'window_days' => (int) $this->requireNumeric('order_inventory.social.heat_window_days'),
+            'heat' => [
+                'recent_count' => $heat->recentCount,
+                'prior_count' => $heat->priorCount,
+                // 前期 0 則時變化率無定義（除以 0），照實送 null——前端據此略過
+                // 那半句，印「變化 0.0%」會把「算不出來」講成「沒有變化」。
+                'change_ratio' => $heat->changeRatio,
+                'evaluable' => $heat->hasEnoughSamples,
+                'verdict' => SocialArbitrageVerdicts::heat($arbitrage),
+                'min_recent_mentions' => (int) $this->requireNumeric('order_inventory.social.min_recent_mentions'),
+                'rise_ratio' => $this->requireNumeric('order_inventory.social.heat_rise_ratio'),
+                // 門檻算不出來時整段缺席：印一個 0.0 則的門檻會讓剛被報導的標的
+                // 立刻看起來像高檔。
+                'high_water' => $highWaterVerdict === null ? null : [
+                    'threshold' => $heat->highWaterThreshold,
+                    'verdict' => $highWaterVerdict,
+                ],
+            ],
+            'legs' => [
+                'price' => [
+                    'evaluable' => $arbitrage->priceLegEvaluable,
+                    'verdict' => SocialArbitrageVerdicts::price($arbitrage),
+                    'value' => $arbitrage->priceChange,
+                    'thresholds' => [
+                        'risen' => $this->requireNumeric('order_inventory.social.price_risen'),
+                        'surged' => $this->requireNumeric('order_inventory.social.price_surged'),
+                        'flat' => $this->requireNumeric('order_inventory.social.price_flat'),
+                        'fell' => $this->requireNumeric('order_inventory.social.price_fell'),
+                    ],
+                ],
+                'foreign' => [
+                    'evaluable' => $arbitrage->foreignLegEvaluable,
+                    'verdict' => SocialArbitrageVerdicts::foreign($arbitrage),
+                    // 分母是**同期成交量**不是股本：本專案沒有流通股數來源
+                    // （見 config 註解與 commit 1ab7420），文案必須照著寫。
+                    'value' => $arbitrage->foreignVolumeShare,
+                    'thresholds' => [
+                        'buy' => $this->requireNumeric('order_inventory.social.foreign_net_buy_volume_share'),
+                        'heavy' => $this->requireNumeric('order_inventory.social.foreign_net_buy_volume_share_heavy'),
+                    ],
+                ],
+                // 營收腿的原始輸入本身就是布林（訂單庫存框架的 C1），沒有數值可印。
+                'revenue' => [
+                    'evaluable' => $arbitrage->revenueLegEvaluable,
+                    'verdict' => SocialArbitrageVerdicts::revenue($arbitrage),
+                    'value' => null,
+                    'thresholds' => null,
+                ],
+                'margin' => [
+                    'evaluable' => $arbitrage->marginLegEvaluable,
+                    'verdict' => SocialArbitrageVerdicts::margin($arbitrage),
+                    'value' => $arbitrage->grossMarginQoqPp,
+                    'thresholds' => [
+                        'stable_band' => $this->requireNumeric('order_inventory.thresholds.gross_margin_stable_pp'),
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * 產業動能的前端 payload。
+     *
+     * 不適用時**只送 applicable 與 reason，不送任何數字**（與
+     * {@see IndustryMomentum::notApplicable()} 同一個理由）：留著半套數字會讓
+     * 前端以為可以拿來比較。「不適用」（這個市場沒有這個功能）與「樣本不足」
+     * （applicable = true、median 為 null、samples 照實回報）是兩件事，前端據
+     * 這兩個欄位分辨，不得自行重判市場或產業。
+     */
+    private function industryMomentumPayload(IndustryMomentum $momentum): array
+    {
+        if (! $momentum->applicable) {
+            return [
+                'applicable' => false,
+                'reason' => $momentum->reason?->value,
+            ];
+        }
+
+        return [
+            'applicable' => true,
+            'reason' => null,
+            'industry' => $momentum->industry,
+            'median' => $momentum->median,
+            'own' => $momentum->own,
+            'excess' => $momentum->excess,
+            // 樣本數一律送出（0 也送）：不寫會讓使用者以為系統看過整個產業。
+            'samples' => $momentum->samples,
+            'min_samples' => (int) $this->requireNumeric('order_inventory.industry_momentum.min_samples'),
+            'thresholds' => [
+                'industry_accelerating' => $this->requireNumeric('order_inventory.industry_momentum.industry_accelerating'),
+                'outperformance' => $this->requireNumeric('order_inventory.industry_momentum.outperformance'),
+            ],
+        ];
+    }
+
+    /**
+     * 讀一個門檻，缺鍵或非數值一律拋錯。
+     *
+     * 與 SocialArbitrageGuide::threshold() 同一個理由：裸 `(float)` 轉型會讓
+     * 「已漲門檻 +0.0%」印在畫面上，看起來像判定寫錯，而實際是讀不到設定。
+     * 這些鍵全部寫在版控裡的 config，缺鍵是部署問題，讓它拋出來。
+     */
+    private function requireNumeric(string $path): float
+    {
+        $value = config($path);
+
+        if (! is_numeric($value)) {
+            throw new \RuntimeException("$path config 缺失或非數值，無法輸出社交套利／產業動能面板的門檻。");
+        }
+
+        return (float) $value;
     }
 
     private function analysisPayload(Request $request, Instrument $instrument): array

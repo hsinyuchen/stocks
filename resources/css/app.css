@@ -3988,3 +3988,105 @@ select:focus-visible {
         max-width: 100%;
     }
 }
+
+/*
+ * 社交套利面板。
+ *
+ * 「無法評估」與「否定」必須在視覺上分得開：不可評估的腿刻意壓低對比、加一個
+ * 外框標記，且不佔用數值欄——「本平台沒有這種資料」不該長得像「查過了，不成立」。
+ */
+.social-stage {
+    align-items: baseline;
+    display: flex;
+    gap: 8px;
+    margin: 12px 0 0;
+}
+
+.social-stage__label,
+.social-reason__label {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+.social-stage strong {
+    font-size: 1.15rem;
+}
+
+.social-reason {
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    gap: 8px;
+    margin: 6px 0 0;
+}
+
+/* 固定文案：不摺疊、不縮成 tooltip，所以給它與內文相同的字級與滿版寬度。 */
+.social-coverage {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    margin: 10px 0 0;
+    padding: 10px 12px;
+}
+
+.social-legs {
+    display: grid;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.social-leg {
+    align-items: baseline;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    gap: 4px 10px;
+    padding: 8px 12px;
+}
+
+.social-leg__name {
+    font-weight: 600;
+    min-width: 6em;
+}
+
+.social-leg__thresholds {
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
+.social-leg__verdict {
+    font-weight: 600;
+    margin-left: auto;
+}
+
+.social-leg--unevaluable {
+    background: transparent;
+    border-style: dashed;
+}
+
+.social-leg__badge {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    padding: 1px 8px;
+}
+
+.social-leg__unevaluable {
+    color: var(--muted);
+    font-style: italic;
+}
+
+.momentum-unavailable,
+.momentum-samples,
+.momentum-insufficient {
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    margin: 10px 0 0;
+}

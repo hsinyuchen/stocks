@@ -1007,6 +1007,347 @@ function BrokerBranchPanel({ brokerBranch, market }) {
     );
 }
 
+/*
+ * 社交套利：分類、細分原因與各腿判定**全部由後端算好**（SocialArbitrageAssessor →
+ * SocialArbitrageClassifier → SocialArbitrageVerdicts），前端只做查表與格式化。
+ *
+ * 三張對照表刻意放在模組層而不是元件內：判定文案的 i18n 鍵只准由後端傳來的
+ * verdict 索引，一旦寫進元件就等於前端自己選了一個結論，於是「畫面顯示的」與
+ * 「prompt 給 LLM 的」會出現兩套說法。門檻同理——傳下來只為了顯示，不參與比較。
+ */
+const SOCIAL_STAGE_LABELS = {
+    early: 'stocks.social.stage.early',
+    partly_priced: 'stocks.social.stage.partlyPriced',
+    fully_priced: 'stocks.social.stage.fullyPriced',
+    false_signal: 'stocks.social.stage.falseSignal',
+    insufficient: 'stocks.social.stage.insufficient',
+};
+
+const SOCIAL_REASON_LABELS = {
+    not_enough_samples: 'stocks.social.reason.notEnoughSamples',
+    heat_not_rising: 'stocks.social.reason.heatNotRising',
+    price_unavailable: 'stocks.social.reason.priceUnavailable',
+    price_in_grey_zone: 'stocks.social.reason.priceInGreyZone',
+    price_fell: 'stocks.social.reason.priceFell',
+    no_bucket_matched: 'stocks.social.reason.noBucketMatched',
+};
+
+const SOCIAL_VERDICT_LABELS = {
+    heat_up: 'stocks.social.verdict.heatUp',
+    heat_flat: 'stocks.social.verdict.heatFlat',
+    heat_unevaluable: 'stocks.social.verdict.heatUnevaluable',
+    high_water_yes: 'stocks.social.verdict.highWaterYes',
+    high_water_no: 'stocks.social.verdict.highWaterNo',
+    price_surged: 'stocks.social.verdict.priceSurged',
+    price_risen: 'stocks.social.verdict.priceRisen',
+    price_flat: 'stocks.social.verdict.priceFlat',
+    price_fell: 'stocks.social.verdict.priceFell',
+    price_grey_zone: 'stocks.social.verdict.priceGreyZone',
+    price_unevaluable: 'stocks.social.verdict.priceUnevaluable',
+    foreign_heavy: 'stocks.social.verdict.foreignHeavy',
+    foreign_buying: 'stocks.social.verdict.foreignBuying',
+    foreign_below: 'stocks.social.verdict.foreignBelow',
+    foreign_unevaluable: 'stocks.social.verdict.foreignUnevaluable',
+    revenue_verified: 'stocks.social.verdict.revenueVerified',
+    revenue_unverified: 'stocks.social.verdict.revenueUnverified',
+    revenue_unevaluable: 'stocks.social.verdict.revenueUnevaluable',
+    margin_declining: 'stocks.social.verdict.marginDeclining',
+    margin_stable: 'stocks.social.verdict.marginStable',
+    margin_unevaluable: 'stocks.social.verdict.marginUnevaluable',
+};
+
+const MOMENTUM_UNAVAILABLE_LABELS = {
+    not_taiwan: 'stocks.social.momentumUnavailableNotTaiwan',
+    industry_unknown: 'stocks.social.momentumUnavailableIndustryUnknown',
+};
+
+/** 比率轉帶正負號的百分比。null 一律回破折號——「沒有這種資料」不是「0%」。 */
+function socialPercent(ratio) {
+    if (ratio === null || ratio === undefined) {
+        return '—';
+    }
+
+    const value = Number(ratio) * 100;
+
+    return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
+}
+
+/** 本身已經是百分點的值（毛利率 QoQ、持平帶下界）。 */
+function socialPoints(points) {
+    if (points === null || points === undefined) {
+        return '—';
+    }
+
+    const value = Number(points);
+
+    return `${value >= 0 ? '+' : ''}${value.toFixed(1)}pp`;
+}
+
+/** 兩個比率相減得到的百分點（產業超額與其門檻）。 */
+function socialPointsFromRatio(ratio) {
+    if (ratio === null || ratio === undefined) {
+        return '—';
+    }
+
+    return socialPoints(Number(ratio) * 100);
+}
+
+/**
+ * 單一條腿：判定 + 原始值 + 門檻。
+ *
+ * 「無法評估」與「否定」走**完全不同的分支**：不可評估那支不印任何原始值與門檻，
+ * 並多帶一個明示的標記。兩者長得一樣等於把「本平台沒有這種資料」講成「查過了，
+ * 不成立」——美股沒有三大法人籌碼，那是常態不是例外。
+ *
+ * 原始值與門檻並列是刻意的：本功能的門檻全都沒做過預測力回測，只給「法人買：是」
+ * 是把一條武斷的線包裝成事實，使用者無從判斷結論離門檻有多遠。
+ */
+function SocialLeg({ name, leg, value, thresholds }) {
+    const { t } = useI18n();
+
+    if (!leg.evaluable) {
+        return (
+            <div className="social-leg social-leg--unevaluable">
+                <span className="social-leg__name">{name}</span>
+                <span className="social-leg__badge">{t('stocks.social.unevaluableBadge')}</span>
+                <span className="social-leg__unevaluable">{t(SOCIAL_VERDICT_LABELS[leg.verdict])}</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="social-leg social-leg--evaluable">
+            <span className="social-leg__name">{name}</span>
+            {value ? <span className="social-leg__value">{value}</span> : null}
+            {thresholds ? <span className="social-leg__thresholds">（{thresholds}）</span> : null}
+            <span className="social-leg__verdict">{t(SOCIAL_VERDICT_LABELS[leg.verdict])}</span>
+        </div>
+    );
+}
+
+/**
+ * 新聞熱度腿。
+ *
+ * 則數與判定分開：則數是事實（永遠顯示），判定在新期則數未達樣本下限時是
+ * 「不予判定」而不是「未升溫」——1→2 則會被算成 +100%，那是算不準。
+ * 變化率為 null（前期 0 則，除以 0 無定義）時整段略過那半句。
+ */
+function SocialHeatRow({ heat }) {
+    const { t } = useI18n();
+
+    return (
+        <div className="social-leg social-leg--evaluable">
+            <span className="social-leg__name">{t('stocks.social.heatLegName')}</span>
+            <span className="social-leg__value">
+                {t('stocks.social.heatCounts', { recent: heat.recent_count, prior: heat.prior_count })}
+                {heat.change_ratio === null ? '' : `，${t('stocks.social.heatChange', { value: socialPercent(heat.change_ratio) })}`}
+            </span>
+            <span className="social-leg__thresholds">
+                （{t('stocks.social.heatThresholds', {
+                    floor: heat.min_recent_mentions,
+                    rise: socialPercent(heat.rise_ratio),
+                })}）
+            </span>
+            <span className="social-leg__verdict">{t(SOCIAL_VERDICT_LABELS[heat.verdict])}</span>
+        </div>
+    );
+}
+
+/**
+ * 熱度高檔那一行。門檻算不出來（歷史太短、分佈全空、百分位落在 0 則）時後端送
+ * null，整行不輸出——印一個 0.0 則的門檻會讓剛被報導的標的立刻看起來像高檔。
+ */
+function SocialHighWaterRow({ highWater, recentCount }) {
+    const { t } = useI18n();
+
+    if (!highWater) {
+        return null;
+    }
+
+    return (
+        <div className="social-leg social-leg--evaluable">
+            <span className="social-leg__name">{t('stocks.social.highWaterName')}</span>
+            <span className="social-leg__value">
+                {t('stocks.social.highWaterDetail', {
+                    threshold: Number(highWater.threshold).toFixed(1),
+                    recent: recentCount,
+                })}
+            </span>
+            <span className="social-leg__verdict">{t(SOCIAL_VERDICT_LABELS[highWater.verdict])}</span>
+        </div>
+    );
+}
+
+/**
+ * 社交套利面板。
+ *
+ * 「本分類只涵蓋新聞熱度」是**固定文案**：不可摺疊、不可縮成 tooltip。SOP 2.3 列的
+ * YouTube／X／Reddit／Threads／PTT／Dcard／電商通路本平台一個都沒有接入，使用者
+ * 看到「社交套利」四個字時預設會以為涵蓋了社群，這句話是唯一的更正機會。
+ */
+function SocialArbitragePanel({ arbitrage }) {
+    const { t } = useI18n();
+
+    if (!arbitrage) {
+        return null;
+    }
+
+    const { heat, legs } = arbitrage;
+    const stageKey = SOCIAL_STAGE_LABELS[arbitrage.stage];
+    const reasonKey = SOCIAL_REASON_LABELS[arbitrage.insufficient_reason];
+
+    return (
+        <section className="stock-panel social-panel">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">{t('stocks.social.kicker')}</p>
+                    <h2>{t('stocks.social.title')}</h2>
+                </div>
+                <span className="field-hint">{t('stocks.social.windowNote', { days: arbitrage.window_days })}</span>
+            </div>
+
+            <p className="social-stage">
+                <span className="social-stage__label">{t('stocks.social.stageHeading')}</span>
+                <strong>{stageKey === undefined ? arbitrage.stage : t(stageKey)}</strong>
+            </p>
+
+            {reasonKey === undefined ? null : (
+                <p className="social-reason">
+                    <span className="social-reason__label">{t('stocks.social.insufficientReason')}</span>
+                    {t(reasonKey)}
+                </p>
+            )}
+
+            <p className="social-coverage">{t('stocks.social.coverageNote')}</p>
+            <p className="social-coverage">{t('stocks.social.noBacktestNote')}</p>
+
+            <div className="social-legs">
+                <SocialHeatRow heat={heat} />
+                <SocialHighWaterRow highWater={heat.high_water} recentCount={heat.recent_count} />
+                <SocialLeg
+                    name={t('stocks.social.priceLegName')}
+                    leg={legs.price}
+                    value={t('stocks.social.priceValue', { value: socialPercent(legs.price.value) })}
+                    thresholds={t('stocks.social.priceThresholds', {
+                        risen: socialPercent(legs.price.thresholds.risen),
+                        surged: socialPercent(legs.price.thresholds.surged),
+                        flat: socialPercent(legs.price.thresholds.flat),
+                        fell: socialPercent(legs.price.thresholds.fell),
+                    })}
+                />
+                <SocialLeg
+                    name={t('stocks.social.foreignLegName')}
+                    leg={legs.foreign}
+                    value={t('stocks.social.foreignValue', { value: socialPercent(legs.foreign.value) })}
+                    thresholds={t('stocks.social.foreignThresholds', {
+                        buy: socialPercent(legs.foreign.thresholds.buy),
+                        heavy: socialPercent(legs.foreign.thresholds.heavy),
+                    })}
+                />
+                {/* 營收腿的原始輸入本身就是布林（訂單庫存框架的 C1），沒有數值可印。 */}
+                <SocialLeg name={t('stocks.social.revenueLegName')} leg={legs.revenue} value="" thresholds="" />
+                <SocialLeg
+                    name={t('stocks.social.marginLegName')}
+                    leg={legs.margin}
+                    value={t('stocks.social.marginValue', { value: socialPoints(legs.margin.value) })}
+                    thresholds={t('stocks.social.marginThresholds', {
+                        band: socialPoints(legs.margin.thresholds.stable_band),
+                    })}
+                />
+            </div>
+
+            <p className="fundamentals-disclaimer">{t('stocks.social.disclaimer')}</p>
+        </section>
+    );
+}
+
+/**
+ * 產業動能面板。三種狀態必須分得開，後端已經把它們編碼在兩個欄位上：
+ *
+ * 1. 不適用（`applicable = false`）——這個市場沒有這個功能，原因由 `reason` 指名。
+ * 2. 樣本不足（`applicable = true`、`median` 為 null）——有功能但還沒累積夠，樣本數
+ *    照實寫。`fundamentals.order_inventory` 是新欄位，上線初期這會是常態，寫成
+ *    「無資料」或「不適用」會被讀成這檔不支援。
+ * 3. 正常。
+ *
+ * 樣本數在中位數分支之前無條件輸出：不寫會讓使用者以為系統看過整個產業。
+ */
+function IndustryMomentumPanel({ momentum }) {
+    const { t } = useI18n();
+
+    if (!momentum) {
+        return null;
+    }
+
+    if (!momentum.applicable) {
+        const reasonKey = MOMENTUM_UNAVAILABLE_LABELS[momentum.reason];
+
+        return (
+            <section className="stock-panel momentum-panel">
+                <div className="panel-heading">
+                    <div>
+                        <p className="section-kicker">{t('stocks.social.momentumKicker')}</p>
+                        <h2>{t('stocks.social.momentumNotApplicableHeading')}</h2>
+                    </div>
+                </div>
+                <p className="momentum-unavailable">{reasonKey === undefined ? '' : t(reasonKey)}</p>
+            </section>
+        );
+    }
+
+    return (
+        <section className="stock-panel momentum-panel">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">{t('stocks.social.momentumKicker')}</p>
+                    <h2>{t('stocks.social.momentumTitle')}</h2>
+                </div>
+                {momentum.industry ? (
+                    <span className="field-hint">{t('stocks.social.momentumIndustry')}：{momentum.industry}</span>
+                ) : null}
+            </div>
+
+            <p className="momentum-samples">{t('stocks.social.momentumSamples', { count: momentum.samples })}</p>
+
+            {momentum.median === null ? (
+                <p className="momentum-insufficient">
+                    {t('stocks.social.momentumInsufficientSamples', {
+                        count: momentum.samples,
+                        min: momentum.min_samples,
+                    })}
+                </p>
+            ) : (
+                <div className="fundamentals-grid">
+                    <div className="fundamentals-cell">
+                        <span>{t('stocks.social.momentumMedian')}</span>
+                        <strong className={changeClass(momentum.median)}>{socialPercent(momentum.median)}</strong>
+                        <span>{t('stocks.social.momentumMedianThreshold', {
+                            threshold: socialPercent(momentum.thresholds.industry_accelerating),
+                        })}</span>
+                    </div>
+                    <div className="fundamentals-cell">
+                        <span>{t('stocks.social.momentumOwn')}</span>
+                        <strong className={changeClass(momentum.own)}>{socialPercent(momentum.own)}</strong>
+                    </div>
+                    <div className="fundamentals-cell">
+                        <span>{t('stocks.social.momentumExcess')}</span>
+                        <strong className={changeClass(momentum.excess)}>{socialPointsFromRatio(momentum.excess)}</strong>
+                        <span>{t('stocks.social.momentumExcessThreshold', {
+                            threshold: socialPointsFromRatio(momentum.thresholds.outperformance),
+                        })}</span>
+                    </div>
+                </div>
+            )}
+
+            <p className="fundamentals-disclaimer">
+                {t('stocks.social.momentumRetrospective')}
+                {' '}
+                {t('stocks.social.momentumNoBacktest')}
+            </p>
+        </section>
+    );
+}
+
 export default function StockSearch({
     symbol = null,
     instrument = null,
@@ -1019,6 +1360,8 @@ export default function StockSearch({
     chipFlows = [],
     marginFlows = [],
     brokerBranch = null,
+    socialArbitrage = null,
+    industryMomentum = null,
 }) {
     const { t } = useI18n();
 
@@ -1049,6 +1392,8 @@ export default function StockSearch({
                         <ChipPanel chipFlows={chipFlows} />
                         <BrokerBranchPanel brokerBranch={brokerBranch} market={instrument?.market} />
                         <MarginPanel marginFlows={marginFlows} />
+                        <SocialArbitragePanel arbitrage={socialArbitrage} />
+                        <IndustryMomentumPanel momentum={industryMomentum} />
                         <NewsList news={news} />
                     </div>
                     <aside className="stock-workspace__side">
