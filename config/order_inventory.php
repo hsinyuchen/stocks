@@ -509,9 +509,19 @@ return [
         /*
          * 熱度高檔的比較視窗（日曆日）與百分位。
          *
-         * **與 news.retention_days 有耦合**：保留窗口目前是 90 天，所以 60 天算得出來，
-         * 但餘裕只有 30 天。`NEWS_RETENTION_DAYS` 調到 60 以下會讓這條判準失效
-         * （`highWaterThreshold` 回 null、`isHighWater` 恆為 false）。
+         * **實際涵蓋 56 天而不是 60**：NewsHeatCalculator 把視窗切成整數個
+         * heat_window_days 段，不足一整段的殘餘天數會拉低該段則數、讓百分位失真，
+         * 所以直接捨棄——60 天只切得出 4 段共 56 天。鍵名保留 60 是因為它同時
+         * 界定查詢範圍。
+         *
+         * **與 news.retention_days 有耦合，但耦合方式不是「安全地失效」**：
+         * 段數是由「該標的最舊一則提及距今的天數 + 1」除以 heat_window_days 算出來的
+         * （見 NewsHeatCalculator::forSymbol()），資料有多深就切幾段，與這個鍵無關。
+         * 所以把 `NEWS_RETENTION_DAYS` 從 90 調到 60 並不會讓判準失效，而是**悄悄把
+         * 比較基準換成更窄、更容易觸發高檔的視窗**——比失效更危險。
+         * 真正回 null（判準失效）的臨界是保留天數低於
+         * `heat_window_days * 3 - 1 = 41` 天：此時任何標的都湊不滿百分位所需的 3 段。
+         * 41 到 60 之間：照算，但基準變窄。
          */
         'high_water_window_days' => 60,
         'high_water_percentile' => 80,
