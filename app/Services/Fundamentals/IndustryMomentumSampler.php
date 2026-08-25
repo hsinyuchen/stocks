@@ -36,11 +36,11 @@ class IndustryMomentumSampler extends OrderInventoryIndustrySampler
         $metrics = $this->metricsForIndustry($subject, $industry);
         ['median' => $median, 'samples' => $samples] = $this->medianOfPeers($metrics, $subject);
 
-        // 標的自身的 YoY 取自同一次掃描而不是另打一次查詢：選股器逐檔呼叫，
-        // 多一次查詢就是多一次 N+1。代價是標的自己那列若不在掃描結果內
-        // （尚未快取、過舊、產業不符、或超出記憶體上限）$own 就是 null，
-        // excess 因此也是 null——這是機會性計算的固有性質，不得以 0 代替。
-        $own = $metrics[$subject->id] ?? null;
+        // 標的自身的 YoY 優先取自同一次掃描，掃不到才點查補一次（理由見基底的
+        // metricForSubject()：掃描的記憶體上限會在大產業裡把標的自己截掉）。
+        // 仍可能是 null——尚未快取、過舊、產業不符——那時 excess 也是 null，
+        // 不得以 0 代替。
+        $own = $this->metricForSubject($subject, $industry, $metrics);
 
         return new IndustryMomentum(
             applicable: true,

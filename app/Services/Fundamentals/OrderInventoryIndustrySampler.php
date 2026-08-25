@@ -60,6 +60,55 @@ abstract class OrderInventoryIndustrySampler
     }
 
     /**
+     * 標的自身的指標值。
+     *
+     * 優先取自產業掃描結果——多數情況下標的自己就在裡面，不必多打一次查詢。
+     * 掃不到時才以 `instrument_id` 點查補一次。
+     *
+     * **為什麼一定要補這一次**：掃描有 `max_samples + 1` 的記憶體上限，而記憶化的
+     * 鍵是 market|industry **不含標的**——同一次選股掃描內換一檔標的時，上限是照
+     * 第一次呼叫截的，第二檔的自己可能早已被截掉。台股半導體遠超過 60 檔，這不是
+     * 理論邊界。少了這次補查，超額會在**樣本最多、最值得比較的產業**恆為 null，
+     * 也就是這個功能最該起作用的地方失效。
+     *
+     * **這一次補查不是 N+1**：述詞是 `instrument_id`，正是 `fundamentals` 索引的
+     * 前導欄，且最多回一列。同業掃描仍然是每個產業一次（見 {@see scanIndustry()}），
+     * 那才是需要 JSON 述詞才不會退化成全表載入的查詢。
+     *
+     * 守衛與掃描完全一致（新鮮度、產業嚴格比對、市場交叉驗證），否則會出現
+     * 「自己用寬鬆條件、同業用嚴格條件」的不對稱比較。
+     *
+     * @param  array<int, float>  $scanned  {@see metricsForIndustry()} 的結果
+     */
+    protected function metricForSubject(Instrument $subject, string $industry, array $scanned): ?float
+    {
+        if (isset($scanned[$subject->id])) {
+            return $scanned[$subject->id];
+        }
+
+        $row = Fundamental::query()
+            ->where('instrument_id', $subject->id)
+            ->whereNotNull('order_inventory')
+            ->where('order_inventory->industry', $industry)
+            ->where('fetched_at', '>=', $this->freshnessFloor())
+            ->orderByDesc('fetched_at')
+            ->orderByDesc('id')
+            ->first(['order_inventory']);
+
+        if ($row === null || ! is_array($row->order_inventory)) {
+            return null;
+        }
+
+        $data = OrderInventoryData::fromArray($row->order_inventory);
+
+        if ($data->market !== $this->marketOf($subject->symbol) || $data->industry !== $industry) {
+            return null;
+        }
+
+        return $this->metricFor($data);
+    }
+
+    /**
      * 從指標表算出**排除標的自己之後**的中位數與樣本數。
      *
      * 標的自己不得計入：拿自己跟含自己的中位數比，會讓判定在小樣本產業裡

@@ -8,6 +8,7 @@ use App\Enums\IndustryMomentumUnavailableReason;
 use App\Models\Fundamental;
 use App\Models\Instrument;
 use App\Services\Fundamentals\IndustryMomentumSampler;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -320,6 +321,58 @@ class IndustryMomentumSamplerTest extends TestCase
 
         $this->assertSame($this->floor(), $result->samples, '新鮮度看抓取時戳，不看資料日');
         $this->assertEqualsWithDelta(0.10, $result->median, 0.0001);
+    }
+
+    #[Test]
+    public function the_subject_still_has_its_own_growth_when_the_scan_cap_excludes_it(): void
+    {
+        // 掃描的記憶體上限是 max_samples + 1，排序是 fetched_at desc, id desc，
+        // 所以最早建立的標的排在最後。把上限壓到 2（實際掃 3 列）再放 4 檔同業，
+        // 標的自己必然落在上限之外。
+        config(['order_inventory.industry_momentum.max_samples' => 2]);
+        config(['order_inventory.industry_momentum.min_samples' => 2]);
+
+        $subject = $this->peer('2330.TW', '半導體業', 0.90);
+        $this->peer('2303.TW', '半導體業', 0.10);
+        $this->peer('2454.TW', '半導體業', 0.10);
+        $this->peer('3034.TW', '半導體業', 0.10);
+        $this->peer('2408.TW', '半導體業', 0.10);
+
+        $result = $this->sampler()->forInstrument($subject, '半導體業');
+
+        $this->assertEqualsWithDelta(0.10, $result->median, 0.0001);
+        $this->assertEqualsWithDelta(
+            0.90,
+            $result->own,
+            0.0001,
+            '標的自己被掃描上限截掉時要補一次點查——台股半導體遠超過 60 檔，'
+            .'少了這次補查，超額會在樣本最多的產業恆為 null',
+        );
+        $this->assertEqualsWithDelta(0.80, $result->excess, 0.0001);
+    }
+
+    #[Test]
+    public function the_subject_fallback_lookup_obeys_the_same_freshness_window(): void
+    {
+        // 自己用寬鬆條件、同業用嚴格條件，比出來的超額沒有意義。
+        config(['order_inventory.industry_momentum.max_samples' => 2]);
+        config(['order_inventory.industry_momentum.min_samples' => 2]);
+
+        $stale = CarbonImmutable::now()
+            ->subDays((int) config('order_inventory.industry_momentum.freshness_days') + 1)
+            ->startOfDay();
+
+        $subject = $this->peer('2330.TW', '半導體業', 0.90, fetchedAt: $stale);
+        $this->peer('2303.TW', '半導體業', 0.10);
+        $this->peer('2454.TW', '半導體業', 0.10);
+        $this->peer('3034.TW', '半導體業', 0.10);
+        $this->peer('2408.TW', '半導體業', 0.10);
+
+        $result = $this->sampler()->forInstrument($subject, '半導體業');
+
+        $this->assertEqualsWithDelta(0.10, $result->median, 0.0001, '同業仍然算得出中位數');
+        $this->assertNull($result->own, '標的自己的快取過舊時不得拿來比');
+        $this->assertNull($result->excess, '算不出超額就回 null，不得以 0 代替');
     }
 
     #[Test]
