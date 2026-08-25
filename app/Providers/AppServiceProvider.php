@@ -47,6 +47,7 @@ use App\Services\News\ProcessYoutubeWorkerRunner;
 use App\Services\Rates\YahooYieldCurveProvider;
 use App\Services\Search\FinMindStockSearchProvider;
 use App\Services\Social\NewsHeatCalculator;
+use App\Services\Topics\TopicCandidateResolver;
 use App\Services\Topics\TopicNewsMentions;
 use App\Support\FinMindTokenResolver;
 use Illuminate\Support\ServiceProvider;
@@ -78,6 +79,10 @@ class AppServiceProvider extends ServiceProvider
         // 題材共同提及計數：同上。Task 3 對同一題材會連續問很多次，同一次請求內
         // 要共用那一次全站範圍的 news_items 掃描。
         $this->app->scoped(TopicNewsMentions::class);
+
+        // 候選解析：與它注入的 TopicNewsMentions 同生命週期。singleton 會讓常駐
+        // worker 跨日沿用同一份新聞快照（透過建構子注入的那一份）。
+        $this->app->scoped(TopicCandidateResolver::class);
 
         $this->app->bind(NewsProvider::class, function ($app): NewsProvider {
             return config('services.news.driver') === 'fake'
