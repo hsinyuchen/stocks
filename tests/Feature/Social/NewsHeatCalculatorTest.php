@@ -336,6 +336,72 @@ class NewsHeatCalculatorTest extends TestCase
         $this->assertFalse($heat->isHighWater);
     }
 
+    /**
+     * **現行視窗設定下 high_water_percentile 是個退化旋鈕：p80 與 p100 等價。**
+     *
+     * 段數 = high_water_window_days / heat_window_days = 60 / 14 → 最多 4 段，
+     * 而 MIN_SEGMENTS_FOR_PERCENTILE 要求至少 3 段，所以段數只可能是 3 或 4。
+     * nearest-rank 下 3 段時 p67–p100、4 段時 p76–p100 都指向最大段，80 落在
+     * 兩者的交集裡。`isHighWater` 的真正語意因此是「本期是近 3–4 個視窗中最高的
+     * （含並列）」，不是「達到 80 百分位」。
+     *
+     * 這是個令人意外的事實，寫成測試才不會被後人當成 bug 亂改；同時它會在有人
+     * 把 high_water_percentile 調到 75 以下（4 段時就不再是最大段）或把
+     * high_water_window_days 拉長到切得出第 5 段時變紅，逼下一位維護者重新確認
+     * 呈現層的文案還說不說得通。
+     */
+    #[Test]
+    public function the_configured_percentile_is_equivalent_to_taking_the_maximum_segment(): void
+    {
+        $window = (int) config('order_inventory.social.heat_window_days');
+
+        // 3 段（最舊一則在第 3 段內）：各段 3／1／2 則，最大段 3 則。
+        foreach ([0, 1, 2] as $daysAgo) {
+            $this->news($daysAgo, ['2330.TW']);
+        }
+        $this->news($window, ['2330.TW']);
+        $this->news($window * 2, ['2330.TW']);
+        $this->news($window * 3 - 1, ['2330.TW']);
+
+        // 4 段（最舊一則落在被捨棄的殘段裡，只用來把可用段數推到 4）：
+        // 各段 2／1／3／1 則，最大段 3 則。
+        foreach ([0, 1] as $daysAgo) {
+            $this->news($daysAgo, ['2454.TW']);
+        }
+        $this->news($window, ['2454.TW']);
+        foreach ([$window * 2, $window * 2 + 1, $window * 2 + 2] as $daysAgo) {
+            $this->news($daysAgo, ['2454.TW']);
+        }
+        $this->news($window * 3, ['2454.TW']);
+        $this->news($window * 4, ['2454.TW']);
+
+        $configured = (float) config('order_inventory.social.high_water_percentile');
+
+        foreach (['2330.TW' => 3, '2454.TW' => 4] as $symbol => $segments) {
+            $atConfigured = $this->thresholdAt($configured, $symbol);
+            $atMaximum = $this->thresholdAt(100.0, $symbol);
+
+            $this->assertSame(
+                3.0,
+                $atConfigured,
+                sprintf('%d 段時設定的百分位落在最大段（3 則）上，不是某個中間段', $segments),
+            );
+            $this->assertSame(
+                $atMaximum,
+                $atConfigured,
+                sprintf('%d 段時 p%s 與 p100 等價——這個旋鈕在現行視窗設定下只有 3–4 個有效檔位', $segments, $configured),
+            );
+        }
+    }
+
+    /** 以指定百分位重算某個 symbol 的高檔門檻。 */
+    private function thresholdAt(float $percentile, string $symbol): ?float
+    {
+        config(['order_inventory.social.high_water_percentile' => $percentile]);
+
+        return $this->calculator()->forSymbol($symbol, $this->now)->highWaterThreshold;
+    }
+
     #[Test]
     public function a_lone_recent_mention_is_not_a_high_water_mark(): void
     {
