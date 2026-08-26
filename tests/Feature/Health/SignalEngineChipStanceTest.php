@@ -26,7 +26,7 @@ class SignalEngineChipStanceTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** 近 20 日均量；分母是「均量 × 採計天數」，見 SignalEngine::foreignVolumeShare()。 */
+    /** 近 20 日均量；分母是「均量 × 採計天數」，見 SignalEngine::volumeShare()。 */
     private const VOLUME_MA20 = 1_000_000;
 
     #[Test]
@@ -98,6 +98,109 @@ class SignalEngineChipStanceTest extends TestCase
         );
 
         $this->assertSame('accumulating', $result['chip']['stance']);
+    }
+
+    // ---------- 投信腿與連續天數：同一條中性帶 ----------
+
+    /**
+     * **投信腿要套同一條中性帶。**
+     *
+     * 實測 2881.TW 的真實輸出：上一句剛宣告外資 234 張（0.25%）小到不算訊號，
+     * 下一句就把投信 519 張（0.55%，比外資那筆還小）無條件講成「投信買超」。
+     * 兩行並列出現在同一份理由裡，同一個方法、同一次輸出裡自相矛盾。
+     */
+    #[Test]
+    public function a_below_band_trust_flow_is_not_reported_as_net_buying(): void
+    {
+        $result = (new SignalEngine)->evaluate(
+            $this->snapshotWithVolume(),
+            $this->flowsWithTrust([1, 0, 0, 0, 0], [intdiv($this->sharesAtBand(), 5), 0, 0, 0, 0]),
+        );
+
+        $trust = $this->reasonContaining($result['chip']['reasons'], '投信');
+
+        $this->assertStringNotContainsString('投信買超', $trust, '未達門檻的投信淨額不得講成買超');
+        $this->assertStringContainsString('未達顯著門檻', $trust);
+    }
+
+    /** 對照組：超過門檻的投信淨額照樣講成買超，中性帶不能把真訊號也吃掉。 */
+    #[Test]
+    public function a_meaningful_trust_flow_is_still_reported_as_net_buying(): void
+    {
+        $result = (new SignalEngine)->evaluate(
+            $this->snapshotWithVolume(),
+            $this->flowsWithTrust([1, 0, 0, 0, 0], [$this->sharesAtBand() * 3, 0, 0, 0, 0]),
+        );
+
+        $trust = $this->reasonContaining($result['chip']['reasons'], '投信');
+
+        $this->assertStringContainsString('投信買超', $trust);
+    }
+
+    /**
+     * **連續天數的句子也要套同一把尺。**
+     *
+     * `foreign_streak >= 3` 原本沒有任何規模門檻：連續 3 天各買 1 股照樣輸出
+     * 「外資已連續 3 日買超」，而同一份理由的第一句剛說過這個量體不算訊號。
+     * 數字欄位 `chip.foreign_streak` 不動（那是已公開的欄位契約），只讓句子
+     * 在量體不顯著時改成不宣稱方向的描述。
+     */
+    #[Test]
+    public function a_below_band_streak_does_not_claim_a_direction(): void
+    {
+        $small = intdiv($this->sharesAtBand(), 25);
+
+        $result = (new SignalEngine)->evaluate(
+            $this->snapshotWithVolume(),
+            $this->flows([$small, $small, $small, $small, $small]),
+        );
+
+        $this->assertSame(5, $result['chip']['foreign_streak'], '數字欄位本身不受文案門檻影響');
+
+        $streak = $this->reasonContaining($result['chip']['reasons'], '連續');
+
+        $this->assertStringNotContainsString('日買超', $streak, '量體不顯著時不得宣稱連續買超');
+        $this->assertStringNotContainsString('日賣超', $streak);
+        $this->assertStringContainsString('未達顯著門檻', $streak);
+    }
+
+    /** 對照組：量體顯著時連續買超照樣講得出方向。 */
+    #[Test]
+    public function a_meaningful_streak_still_names_its_direction(): void
+    {
+        $large = $this->sharesAtBand();
+
+        $result = (new SignalEngine)->evaluate(
+            $this->snapshotWithVolume(),
+            $this->flows([$large, $large, $large, $large, $large]),
+        );
+
+        $streak = $this->reasonContaining($result['chip']['reasons'], '連續');
+
+        $this->assertStringContainsString('日買超', $streak);
+    }
+
+    // ---------- 分母是估計值 ----------
+
+    /**
+     * **面向使用者的文案要說出佔比是估計值。**
+     *
+     * 分母是「近 20 日均量 × 採計天數」，不是逐日對齊的成交量合計。實測 21 檔
+     * 有籌碼資料的標的，估計值與真實值最多差 3.1 倍（8033.TW 為 0.32×、
+     * 2303.TW 為 1.64×），而中性帶寬度只有 0.01。SignalFieldGuide 已對 LLM 說明
+     * 這一點，但**個股頁沒有 field guide**：使用者讀到的是「僅佔同期成交量 0.25%」
+     * 這個以兩位小數陳述的「事實」。
+     */
+    #[Test]
+    public function the_user_facing_share_copy_says_it_is_an_estimate(): void
+    {
+        $result = (new SignalEngine)->evaluate($this->snapshotWithVolume(), $this->flows([1, 0, 0, 0, 0]));
+
+        $joined = implode(' | ', $result['chip']['reasons']);
+
+        $this->assertStringContainsString('約佔同期成交量', $joined, '兩位小數的佔比要標明是約值');
+        $this->assertStringContainsString('估計值', $joined);
+        $this->assertStringContainsString('近 20 日均量', $joined, '要說得出估計是怎麼算的');
     }
 
     // ---------- 至少兩個消費端 ----------
@@ -174,6 +277,39 @@ class SignalEngineChipStanceTest extends TestCase
         $this->assertIsNumeric($band, 'health.chip.neutral_band_volume_share 必須存在，否則本測試量的不是門檻');
 
         return (int) round((float) $band * self::VOLUME_MA20 * 5);
+    }
+
+    /**
+     * 在一組理由裡取出唯一含有某個關鍵字的那一條。
+     *
+     * @param  list<string>  $reasons
+     */
+    private function reasonContaining(array $reasons, string $needle): string
+    {
+        $matches = array_values(array_filter($reasons, fn (string $reason): bool => str_contains($reason, $needle)));
+
+        $this->assertCount(1, $matches, "理由裡應該剛好有一條含有「{$needle}」：".implode(' | ', $reasons));
+
+        return $matches[0];
+    }
+
+    /**
+     * 外資與投信各自一組淨額序列（升冪），自營固定 0。
+     *
+     * @param  list<int>  $foreignNets
+     * @param  list<int>  $trustNets
+     * @return list<ChipFlowData>
+     */
+    private function flowsWithTrust(array $foreignNets, array $trustNets): array
+    {
+        $out = [];
+
+        foreach ($foreignNets as $i => $net) {
+            $trust = $trustNets[$i] ?? 0;
+            $out[] = new ChipFlowData(sprintf('2026-06-%02d', $i + 16), $net, $trust, 0, $net + $trust);
+        }
+
+        return $out;
     }
 
     /**

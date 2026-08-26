@@ -289,12 +289,18 @@ class SignalEngine
             $dealerNet += $flow->dealerNet;
         }
 
-        $volumeShare = $this->foreignVolumeShare($foreignNet, count($window), $snapshot);
+        $volumeShare = $this->volumeShare($foreignNet, count($window), $snapshot);
         $chipStance = $this->chipStance($foreignNet, $volumeShare);
 
         $streak = $this->foreignStreak($chipFlows);
         $lastForeign = $chipFlows[count($chipFlows) - 1]->foreignNet;
         $streakDirection = $lastForeign > 0 ? '買超' : '賣超';
+
+        // 投信腿與連續天數的句子套**同一條**中性帶（同一個分母、同一個門檻）。
+        // 少了這兩把尺，同一份理由會自相矛盾：第一句剛宣告外資 234 張（0.25%）
+        // 小到不算訊號，下一句就把投信 519 張（0.55%，更小）講成「投信買超」。
+        $trustShare = $this->volumeShare($trustNet, count($window), $snapshot);
+        $streakShare = $this->volumeShare($this->streakNet($chipFlows, $streak), max($streak, 1), $snapshot);
 
         $result['chip'] = [
             'stance' => $chipStance,
@@ -308,7 +314,17 @@ class SignalEngine
             // 立場之所以是這個立場的依據；null 代表規模基準不明（K 棒不足 20 根）。
             'foreign_volume_share' => $volumeShare === null ? null : round($volumeShare, 4),
             'as_of' => $chipFlows[count($chipFlows) - 1]->date,
-            'reasons' => $this->chipReasons($chipStance, $foreignNet, $trustNet, count($window), $streak, $streakDirection, $volumeShare),
+            'reasons' => $this->chipReasons(
+                $chipStance,
+                $foreignNet,
+                $trustNet,
+                count($window),
+                $streak,
+                $streakDirection,
+                $volumeShare,
+                $trustShare,
+                $streakShare,
+            ),
         ];
 
         $result['alignment'] = $this->alignment($result['stance'], $chipStance);
@@ -345,7 +361,10 @@ class SignalEngine
     }
 
     /**
-     * 外資淨買超佔同期成交量的比例。規模基準不明時回 null。
+     * 一筆淨額佔同期成交量的比例。規模基準不明時回 null。
+     *
+     * 外資、投信與連續天數的句子共用這一把尺：分母相同、門檻相同，同一份理由
+     * 才不會一句說「量太小不算訊號」、下一句又對更小的量宣稱方向。
      *
      * 分母是「近 20 日平均日成交量 × 採計天數」而不是逐日對齊的成交量合計。
      * 兩個理由：
@@ -361,7 +380,7 @@ class SignalEngine
      *
      * @param  array<string, mixed>  $snapshot
      */
-    private function foreignVolumeShare(int $foreignNet, int $days, array $snapshot): ?float
+    private function volumeShare(int $net, int $days, array $snapshot): ?float
     {
         $averageVolume = $snapshot['volume_ma20'] ?? null;
 
@@ -369,7 +388,26 @@ class SignalEngine
             return null;
         }
 
-        return $foreignNet / ((float) $averageVolume * $days);
+        return $net / ((float) $averageVolume * $days);
+    }
+
+    /**
+     * 連續同向那幾天的外資淨額合計。
+     *
+     * 只取連續段本身，不取五日視窗：句子講的是「連續 N 日」，量體就該以那 N 天
+     * 為準，拿別的期間去衡量它會得到一個與句子無關的比例。
+     *
+     * @param  list<ChipFlowData>  $chipFlows
+     */
+    private function streakNet(array $chipFlows, int $streak): int
+    {
+        $net = 0;
+
+        foreach (array_slice($chipFlows, -max($streak, 0)) as $flow) {
+            $net += $flow->foreignNet;
+        }
+
+        return $streak < 1 ? 0 : $net;
     }
 
     /**
@@ -551,22 +589,58 @@ class SignalEngine
         return $reasons;
     }
 
-    /** @return list<string> */
-    private function chipReasons(string $chipStance, int $foreignNet, int $trustNet, int $days, int $streak, string $streakDirection, ?float $volumeShare): array
-    {
+    /**
+     * 籌碼立場的理由。
+     *
+     * **三條腿套同一條中性帶**：外資期間合計、投信期間合計、外資連續天數。
+     * 分母與門檻都相同，同一份理由才不會自相矛盾——實測 2881.TW 的舊輸出裡，
+     * 上一句剛宣告外資 234 張（0.25%）小到不算訊號，下一句就把投信 519 張
+     * （0.55%，比外資那筆還小）無條件講成「投信買超」。
+     *
+     * **佔比一律寫「約」並在句尾說明估計性質。** 分母是「近 20 日均量 × 採計
+     * 天數」而不是逐日對齊的成交量合計（理由見 {@see volumeShare()}），實測誤差
+     * 可達 3.1 倍，而中性帶只有 0.01。SignalFieldGuide 已對 LLM 說明這一點，
+     * 但**個股頁沒有 field guide**，使用者讀到的就是這裡的字。
+     *
+     * `chip.foreign_streak` 這個**數字欄位不受本方法影響**：它是已公開的欄位契約，
+     * 改動語意會讓既有消費端與歷史資料的解讀失真。這裡只管句子怎麼講。
+     *
+     * @return list<string>
+     */
+    private function chipReasons(
+        string $chipStance,
+        int $foreignNet,
+        int $trustNet,
+        int $days,
+        int $streak,
+        string $streakDirection,
+        ?float $volumeShare,
+        ?float $trustShare,
+        ?float $streakShare,
+    ): array {
         // 對外文案用「張」（台股慣例，1 張 = 1000 股）；資料層一律存股。
         $lots = static fn (int $shares): string => number_format($shares / 1000);
+        $estimated = false;
+        $share = function (?float $value) use (&$estimated): string {
+            $estimated = true;
+
+            return sprintf('約佔同期成交量 %.2f%%', abs($value ?? 0.0) * 100);
+        };
+
+        // 規模基準不明（K 棒不足 20 根）時退回只看正負，與 chipStance() 一致：
+        // 此時沒有任何依據把小額與大額分開，硬判中性等於把籌碼資訊一起丟掉。
+        $belowBand = fn (?float $value): bool => $value !== null && abs($value) < $this->neutralBand();
 
         // 中性有兩種成因，文案必須分開：「相抵」代表買賣雙方都動過而抵銷，
         // 「量太小」代表根本沒動。混講會讓使用者以為法人有在裡面較勁。
         $neutralReason = $foreignNet === 0
             ? "近 {$days} 日外資買賣超相抵，資金流向中性。"
             : sprintf(
-                '近 %d 日外資淨%s %s 張，僅佔同期成交量 %.2f%%，未達顯著門檻，視為中性。',
+                '近 %d 日外資淨%s %s 張，%s，未達顯著門檻，視為中性。',
                 $days,
                 $foreignNet > 0 ? '買超' : '賣超',
                 $lots(abs($foreignNet)),
-                abs($volumeShare ?? 0.0) * 100,
+                $share($volumeShare),
             );
 
         $reasons = [match ($chipStance) {
@@ -578,13 +652,25 @@ class SignalEngine
         if ($streak >= 3) {
             // 方向必須取自最後一日，不能用期間合計：近五日合計仍為買超、但最後
             // 三日已連續賣超是常見情境，用合計會輸出「連續 3 日買超」的反向文案。
-            $reasons[] = "外資已連續 {$streak} 日{$streakDirection}。";
+            $reasons[] = $belowBand($streakShare)
+                // 量體不顯著時不宣稱方向：連續 3 天各買 1 股仍然是連續 3 天，
+                // 但把它講成「連續買超」等於用天數把雜訊包裝成訊號。
+                ? sprintf('外資已連續 %d 日同向進出，惟合計%s，未達顯著門檻，不視為方向訊號。', $streak, $share($streakShare))
+                : "外資已連續 {$streak} 日{$streakDirection}。";
         }
 
         if ($trustNet !== 0) {
-            $reasons[] = $trustNet > 0
-                ? '同期投信買超 '.$lots($trustNet).' 張。'
-                : '同期投信賣超 '.$lots(abs($trustNet)).' 張。';
+            $reasons[] = $belowBand($trustShare)
+                ? sprintf('同期投信淨%s %s 張，%s，未達顯著門檻，視為中性。', $trustNet > 0 ? '買超' : '賣超', $lots(abs($trustNet)), $share($trustShare))
+                : ($trustNet > 0
+                    ? '同期投信買超 '.$lots($trustNet).' 張。'
+                    : '同期投信賣超 '.$lots(abs($trustNet)).' 張。');
+        }
+
+        // 佔比只要出現過一次就把估計性質講出來——個股頁沒有 field guide，
+        // 這一句是使用者唯一會看到的說明。逐句重複則會把理由區塊灌爆。
+        if ($estimated) {
+            $reasons[] = '上述成交量佔比為估計值（分母為近 20 日均量 × 採計天數，非逐日對齊的成交量合計），僅用於分辨量體是否顯著。';
         }
 
         return $reasons;
