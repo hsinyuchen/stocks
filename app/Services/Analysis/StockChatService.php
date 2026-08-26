@@ -64,6 +64,7 @@ final class StockChatService
         private readonly SopGuide $sop = new SopGuide,
         private readonly OrderInventoryGuide $orderInventoryGuide = new OrderInventoryGuide,
         private readonly SocialArbitrageGuide $socialGuide = new SocialArbitrageGuide,
+        private readonly HealthGuide $healthGuide = new HealthGuide,
     ) {}
 
     /**
@@ -104,6 +105,7 @@ final class StockChatService
             'rates' => $base['rates'],
             'order_inventory' => $base['order_inventory'],
             'social' => $base['social'],
+            'health' => $base['health'],
             'fundamentals' => $fundamentals === null ? null : [
                 'per' => $fundamentals->per,
                 'pbr' => $fundamentals->pbr,
@@ -183,6 +185,25 @@ final class StockChatService
             ? ''
             : $this->socialGuide->discipline($locale)."\n";
 
+        // 體質判讀的引用紀律同樣屬於規則，因此也走 system role；判讀區塊本身是資料，
+        // 走 user message（見 buildUserPrompt）。查無 Instrument 時整段不輸出——
+        // 沒有區塊可引用時，那五條紀律只會讓模型去猜一個不存在的區塊。
+        $healthDiscipline = ($context['health'] ?? null) === null
+            ? ''
+            : $this->healthGuide->discipline($locale)."\n";
+
+        // 規則判讀與模型自己那個評級的優先級。條件與 $healthDiscipline 相同
+        // （沒有 BEGIN_HEALTH_READ 區塊時這三條沒有對象），但**不能因此省略**：
+        // 上面的 $ratingLine 明確允許模型給出評級，而 healthGuide->discipline()
+        // 第 1 條只擋得住「改判方向」——命名混用與「把四塊加總成一個評分」這兩件事
+        // 在問答裡原本沒有任何規則擋。
+        //
+        // 只接這三條，不接整段 scoringRubric()：問答不做八面向加權，接整段等於把
+        // 一張用不到的權重表塞進每一次問答，還會誘導模型去算它沒有資料算的總分。
+        $ruleReadPriority = ($context['health'] ?? null) === null
+            ? ''
+            : $this->sop->ruleReadPriority($locale)."\n";
+
         if ($locale === 'en') {
             return <<<SYSTEM
 You are the dedicated AI investment advisor for the single stock "{$symbol}　{$name}", and you serve only this stock.
@@ -216,7 +237,7 @@ BEGIN_SOP_DISCIPLINE
 {$dataSufficiency}
 {$antiManipulation}
 {$ratingLine}
-{$orderInventoryDiscipline}{$socialDiscipline}END_SOP_DISCIPLINE
+{$ruleReadPriority}{$orderInventoryDiscipline}{$socialDiscipline}{$healthDiscipline}END_SOP_DISCIPLINE
 BEGIN_OUTPUT_CONTRACT
 Return only one JSON object, with no other text before or after and no code fences:
 {"decision":"answer","answer":"your answer"}
@@ -262,7 +283,7 @@ BEGIN_SOP_DISCIPLINE
 {$dataSufficiency}
 {$antiManipulation}
 {$ratingLine}
-{$orderInventoryDiscipline}{$socialDiscipline}END_SOP_DISCIPLINE
+{$ruleReadPriority}{$orderInventoryDiscipline}{$socialDiscipline}{$healthDiscipline}END_SOP_DISCIPLINE
 BEGIN_OUTPUT_CONTRACT
 只回傳一個 JSON 物件，前後不要有任何其他文字，也不要包程式碼圍欄：
 {"decision":"answer","answer":"回答內容"}
@@ -333,6 +354,17 @@ SYSTEM;
                 .$this->socialGuide->momentumBlock($social['momentum'], $locale)
                 ."\nEND_INDUSTRY_MOMENTUM\n";
 
+        // 體質判讀區塊。查無 Instrument 時**整段不輸出**，連標頭都不留，理由與
+        // 訂單／庫存、社交套利同一條：空標頭會被 LLM 讀成「這項資料查過而且是
+        // 空的」。判讀本身不會「沒有」——查得到標的就一定有兩個立場與四塊
+        // （最差是全部不可評估＋成因），所以條件是「有沒有標的」不是「有沒有結論」。
+        $health = $context['health'] ?? null;
+        $healthSection = $health === null
+            ? ''
+            : "BEGIN_HEALTH_READ\n"
+                .$this->healthGuide->block($health['short'], $health['long'], $health['snapshot'], $locale)
+                ."\nEND_HEALTH_READ\n";
+
         $newsBlock = $this->newsBlock($context['news'] ?? []);
         $historyBlock = $this->historyBlock($history);
         $safeQuestion = $this->sanitize($question);
@@ -361,7 +393,7 @@ END_FUNDAMENTALS
 BEGIN_VALUATION_PERCENTILE
 {$valuationJson}
 END_VALUATION_PERCENTILE
-{$orderInventorySection}{$socialSection}BEGIN_CHIP_FLOWS
+{$orderInventorySection}{$socialSection}{$healthSection}BEGIN_CHIP_FLOWS
 {$chipJson}
 END_CHIP_FLOWS
 BEGIN_MARGIN_FLOWS

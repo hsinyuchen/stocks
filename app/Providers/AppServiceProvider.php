@@ -35,6 +35,7 @@ use App\Services\Fundamentals\SecEdgarFinancialsProvider;
 use App\Services\Fundamentals\SecTickerCikResolver;
 use App\Services\Fundamentals\TaiwanIndustryResolver;
 use App\Services\Futures\FinMindFuturesDataProvider;
+use App\Services\Health\HealthSnapshotBuilder;
 use App\Services\Margin\FinMindMarginDataProvider;
 use App\Services\Market\CachedMarketDataProvider;
 use App\Services\Market\FinMindMarketDataProvider;
@@ -80,6 +81,12 @@ class AppServiceProvider extends ServiceProvider
         // 建構子。singleton 會讓常駐 worker 跨請求沿用那一份 provider 綁定，
         // scoped 則讓同一次請求共用、跨請求重建。
         $this->app->scoped(TopicCandidateResolver::class);
+
+        // 體質判讀的快照層：每個 request／每個 queued job 一份新實例。同一次請求裡
+        // 個股頁、prompt 與呈現層必須序列化**同一份**快照，各自重組會讓它們對同一檔
+        // 說出不同的立場（實測各消費端的技術面視窗不同，尾值可能跨過門檻）；
+        // 但常駐 worker 不該跨請求沿用昨天的行情，所以是 scoped 不是 singleton。
+        $this->app->scoped(HealthSnapshotBuilder::class);
 
         $this->app->bind(NewsProvider::class, function ($app): NewsProvider {
             return config('services.news.driver') === 'fake'

@@ -79,6 +79,51 @@ class FundamentalsService
     }
 
     /**
+     * 只讀的估值快照：最新一列的指標、它是**什麼時候抓的**，以及那個時間點
+     * 在估值自己的新鮮度尺上算不算過期。
+     *
+     * 與 forInstrument() 的差別只有一件事——**不抓、一次上游都不打**。
+     * 為體質判讀的 cachedFor() 入口而存在，理由與 cachedOrderInventoryFor() 相同：
+     * 那條路徑跑在同步 web 請求裡，而 PHP 的 max_execution_time 不是例外、
+     * 呼叫端的 try/catch 攔不到。
+     *
+     * fetched_at 與 FundamentalsData 一起回，而不是讓呼叫端自己再查一次列：
+     * 兩次查詢可能挑到不同的列（同一檔有多列歷史），那時呈現層說出來的
+     * 「資料日期」就不屬於它旁邊那組數字。
+     *
+     * **`stale` 由這裡算，不交給呼叫端**，兩個理由：
+     *
+     * 1. 判準是估值路徑自己的（{@see DailyDataFreshness::isStale()}「今天盤後的
+     *    公佈了沒」，與 {@see isStale()} 同一條）。散到消費端就會出現第二套尺。
+     * 2. `fetched_at` 對外只給日期字串，而這條尺比的是**時刻**：一列今天 20:00
+     *    抓的資料，只留日期就會在 15:00 的公佈時刻前被判成過期。時刻不出這個
+     *    方法，答案才不會因為精度流失而反轉。
+     *
+     * 這裡刻意**不走 isStale()** 本身：那個方法答的是「該不該重抓」，含
+     * failure_ttl 的重試節流——一列一小時前剛抓失敗的資料會被算成「不必重抓」，
+     * 但它的內容照樣是三個月前的。消費端要問的是資料多舊，不是要不要重試。
+     *
+     * @return array{data: FundamentalsData, fetched_at: ?string, stale: bool}|null
+     */
+    public function cachedValuationFor(Instrument $instrument): ?array
+    {
+        $row = $this->latestRow($instrument);
+
+        if ($row === null) {
+            return null;
+        }
+
+        return [
+            'data' => $this->toData($row),
+            'fetched_at' => $row->fetched_at?->toDateString(),
+            'stale' => DailyDataFreshness::isStale(
+                $row->fetched_at,
+                (int) config('fundamentals.publish_hour', 15),
+            ),
+        ];
+    }
+
+    /**
      * 訂單／庫存判斷用的財報序列，兩個市場都走這個入口。
      *
      * 與 forInstrument() 分家而不是擴充它：已查證 5 個消費端都以

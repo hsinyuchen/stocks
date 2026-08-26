@@ -16,6 +16,7 @@ class StockAnalysis extends Model
         'prompt_version',
         'status',
         'rule_signal',
+        'health_read',
         'llm_output',
         'data_as_of',
     ];
@@ -25,6 +26,9 @@ class StockAnalysis extends Model
         return [
             'status' => AnalysisStatus::class,
             'rule_signal' => 'array',
+            // 生成當下的體質判讀（short／long／snapshot 三份）。舊列為 null，
+            // 代表「當時還沒有這個功能」，與「算了但四塊全不可評估」不同。
+            'health_read' => 'array',
             'llm_output' => 'array',
             'data_as_of' => 'datetime',
         ];

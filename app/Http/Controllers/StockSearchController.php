@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
+use App\Data\HealthInputSnapshot;
 use App\Data\IndustryMomentum;
 use App\Data\MarginFlowData;
 use App\Data\SocialArbitrage;
@@ -18,10 +19,14 @@ use App\Models\StockAnalysis;
 use App\Models\StockChatTurn;
 use App\Models\User;
 use App\Services\Analysis\SocialArbitrageGuide;
+use App\Services\Analysis\SymbolContextService;
 use App\Services\BrokerBranch\BrokerBranchDataService;
 use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
 use App\Services\Fundamentals\IndustryMomentumSampler;
+use App\Services\Health\HealthSnapshotBuilder;
+use App\Services\Health\LongTermHealthReader;
+use App\Services\Health\ShortTermHealthReader;
 use App\Services\Margin\MarginDataService;
 use App\Services\News\SymbolNewsService;
 use App\Services\Search\StockSearchService;
@@ -38,6 +43,18 @@ class StockSearchController extends Controller
 {
     /** 個股頁顯示的問答輪數。 */
     private const CHAT_TURNS_ON_PAGE = 12;
+
+    /**
+     * 體質判讀採計的 K 棒數，與 {@see SymbolContextService} 送進 prompt 的視窗
+     * 相同（80 根）。
+     *
+     * **視窗必須一致，否則同一檔在頁面與報告裡會有兩個技術立場**：KD 從輸入序列
+     * 第一根以 50 播種，視窗長度不同足以讓尾值跨過門檻（見
+     * {@see HealthInputSnapshot} 的 docblock）。首載不再輸出 prices/indicators
+     * 之後這裡是個股頁唯一取用 K 棒的地方，而 `cachedFor()` 直接讀
+     * `daily_prices`，多取 80 列不會多打一次上游。
+     */
+    public const HEALTH_BARS = 80;
 
     public function __construct(
         private readonly MarketDataProvider $marketData,
@@ -104,6 +121,17 @@ class StockSearchController extends Controller
         $arbitrage = app(SocialArbitrageAssessor::class)->forInstrument($instrument);
         $momentum = app(IndustryMomentumSampler::class)->cachedFor($instrument);
 
+        // 體質判讀，同樣只讀（見 healthPayload()）。
+        //
+        // **先落到區域變數，不要寫成 `'health' => $this->healthPayload($instrument)`。**
+        // 那個寫法會讓本機的 PHP 8.4.8（Windows）在 `StockChatTest` 跑到個股頁那一
+        // 條時穩定 segfault（實測 0/8 通過，改成區域變數後 8/8 通過，同期未加本功能
+        // 的 HEAD 是 5/8——那台機器本來就有間歇性 segfault）。崩潰點不在本方法內：
+        // 加一行 `fwrite(STDERR, ...)` 或改 `--order-by=reverse` 就不再重現，是引擎
+        // 層的記憶體問題而不是這裡的邏輯。上面幾個較重的 payload 本來也都先落到區域
+        // 變數，這樣寫同時也與它們一致。
+        $health = $this->healthPayload($instrument);
+
         // 首載瘦身：不再輸出 prices/indicators，前端掛載後另打 stocks.chart endpoint
         // 取 5 年日/週/月 K 與完整指標序列，避免首頁 payload 過大。
         return Inertia::render('Stocks/Search', [
@@ -145,6 +173,7 @@ class StockSearchController extends Controller
             'brokerBranch' => $brokerBranch,
             'socialArbitrage' => $this->socialArbitragePayload($arbitrage),
             'industryMomentum' => $this->industryMomentumPayload($momentum),
+            'health' => $health,
         ]);
     }
 
@@ -245,6 +274,34 @@ class StockSearchController extends Controller
             'brokerBranch' => null,
             'socialArbitrage' => null,
             'industryMomentum' => null,
+            'health' => null,
+        ];
+    }
+
+    /**
+     * 短線／中長線體質判讀的前端 payload。
+     *
+     * **形狀就是兩個 reader 與快照自己的 `toArray()`，這裡一個欄位都不重組。**
+     * 階段 4 的 I4 是同一份 payload 的形狀被抄在兩個 controller 裡，加欄位時只
+     * 改到一邊；判讀還多一層風險——送進 prompt 的那份與畫面上這份必須是同一個
+     * 形狀，否則使用者看到的與 LLM 讀到的會逐漸漂移。
+     *
+     * **走 `cachedFor()` 不是 `freshFor()`。** 個股頁是同步 web 請求，那條路徑
+     * 沒有分析 job 的 timeout 或掃描的時間預算可用，而 PHP 的
+     * `max_execution_time` 不是例外、`try/catch` 攔不到（階段 3 的 C1 就是這個
+     * 形狀）。代價是判讀可能不是最新的——所以 `cached_only` 會是 true，前端
+     * 必須把那句說明顯示出來。首次被搜尋、快取還是空的標的因此每一塊都是
+     * 不可評估，那是誠實的：資料真的還沒有，跑一次個股分析（走 `freshFor()`）
+     * 就會落地。
+     */
+    private function healthPayload(Instrument $instrument): array
+    {
+        $snapshot = app(HealthSnapshotBuilder::class)->cachedFor($instrument, self::HEALTH_BARS);
+
+        return [
+            'short' => app(ShortTermHealthReader::class)->read($snapshot)->toArray(),
+            'long' => app(LongTermHealthReader::class)->read($snapshot)->toArray(),
+            'snapshot' => $snapshot->toArray(),
         ];
     }
 
@@ -538,6 +595,11 @@ class StockSearchController extends Controller
                 'prompt_version' => $analysis->prompt_version,
                 'status' => $analysis->status->value,
                 'rule_signal' => $analysis->rule_signal,
+                // 生成當下的判讀。**必須逐筆帶出來**：同一個頁面另外渲染一份
+                // 「現在」算出來的判讀面板，不帶的話歷史分析的文字會一直引用一份
+                // 畫面上看不到的舊結論，而使用者無從得知哪一個算數。
+                // 舊列為 null（migration 之前沒有這個功能），呈現層據此整段不顯示。
+                'health_read' => $analysis->health_read,
                 'llm_output' => $analysis->llm_output,
                 'data_as_of' => $analysis->data_as_of?->toIso8601String(),
                 'created_at' => $analysis->created_at?->toIso8601String(),

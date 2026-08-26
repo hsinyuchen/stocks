@@ -19,6 +19,7 @@ class TechnicalIndicatorService
         );
 
         $closes = array_column($normalized, 'close');
+        $volumes = array_column($normalized, 'volume');
         $count = count($closes);
 
         // 不足週期就回 null，不用手上僅有的幾根冒充 MA。
@@ -54,6 +55,14 @@ class TechnicalIndicatorService
             'obv' => $kdSeries['obv'][$n] ?? null,
             'obv_prev' => $kdSeries['obv'][max(0, $n - 20)] ?? null,
             'close_prev' => $closes[max(0, $n - 20)] ?? null,
+            // 成交量是價格之外的另一個原始量，過去只以 OBV 的形式間接出現。
+            // volume_ma20 是 SignalEngine 判斷「這筆買賣超相對這檔的量算不算大」
+            // 的分母來源——籌碼中性帶需要一個規模基準，而 SignalEngine 是純計算、
+            // 不得為此去查資料庫，唯一能帶進去的就是這份快照。
+            // 不足 20 根時為 null（與 ma20／rsi／布林同樣的暖身處理），
+            // 呼叫端會據此退回「規模不明」而不是拿殘缺的均量當基準。
+            'volume' => (int) $volumes[$n],
+            'volume_ma20' => $count >= 20 ? round($this->average(array_slice($volumes, -20)), 2) : null,
         ];
     }
 

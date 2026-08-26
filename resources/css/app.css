@@ -4370,3 +4370,223 @@ select:focus-visible {
     color: var(--muted);
     font-style: italic;
 }
+
+/* ---------------------------------------------------------------
+   體質判讀面板（個股頁）
+   --------------------------------------------------------------- */
+
+.health-subheading {
+    font-size: 0.9rem;
+    margin: 16px 0 8px;
+}
+
+.health-stances,
+.health-blocks {
+    display: grid;
+    gap: 8px;
+}
+
+.health-stance,
+.health-block {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    padding: 8px 12px;
+}
+
+.health-stance {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+}
+
+.health-block__head {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+}
+
+.health-stance__name,
+.health-block__name {
+    font-weight: 600;
+    min-width: 7em;
+}
+
+/* 資料日壓低對比但**永遠在版面上**：價格、籌碼、財報停在不同日期，
+   少了它使用者會以為整份判讀是同一天算的。 */
+.health-as-of {
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+.health-reasons {
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    margin: 6px 0 0;
+    padding-left: 18px;
+    width: 100%;
+}
+
+.health-verdict {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.72rem;
+    padding: 2px 10px;
+    white-space: nowrap;
+}
+
+.health-verdict--positive {
+    background: var(--pos-soft);
+    color: var(--text);
+}
+
+.health-verdict--negative {
+    background: var(--neg-soft);
+    color: var(--text);
+}
+
+/* 「中性」與「不可評估」必須一眼分得開：前者是看過了、沒有偏向（實線、
+   有底色），後者是不知道（虛線、灰字、無底色）。同一種灰會讓「沒算過」
+   被讀成「算過而且沒有偏向」。 */
+.health-verdict--neutral {
+    background: var(--neutral-soft);
+    color: var(--text);
+}
+
+.health-verdict--unavailable {
+    background: transparent;
+    border-style: dashed;
+    color: var(--muted);
+    font-style: italic;
+}
+
+.health-unavailable {
+    font-size: 0.8rem;
+    line-height: 1.5;
+    margin: 6px 0 0;
+}
+
+/* 成因五態，樣式分三組——文案本身已經把五種講清楚，樣式只負責讓
+   「永遠不會有」「等得到」「等上游」三種行動一眼分得開，不再編碼一次。 */
+.health-unavailable--not-in-universe,
+.health-unavailable--not-applicable {
+    background: var(--neutral-soft);
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    font-style: italic;
+    padding: 6px 10px;
+}
+
+.health-unavailable--not-yet,
+.health-unavailable--indeterminate {
+    border-left: 2px dashed var(--border);
+    color: var(--muted);
+    padding-left: 10px;
+}
+
+.health-unavailable--stale {
+    border-left: 2px solid var(--warning);
+    color: var(--muted);
+    padding-left: 10px;
+}
+
+.health-divergence,
+.health-context,
+.health-provenance,
+.health-cached-only {
+    font-size: 0.82rem;
+    line-height: 1.6;
+    margin: 10px 0 0;
+}
+
+.health-divergence__label,
+.health-context__label {
+    color: var(--muted);
+    margin-right: 8px;
+}
+
+.health-provenance {
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+.health-cached-only {
+    color: var(--muted);
+}
+
+/* 六則必要說明：不摺疊、不縮成 tooltip，所以給它與內文相同的字級與滿版寬度。
+   與 .social-coverage 同一套處理，理由也相同——藏起來等於沒說。 */
+.health-notes {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-top: 14px;
+    padding: 10px 12px;
+}
+
+.health-notes__item {
+    font-size: 0.82rem;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.health-notes__item + .health-notes__item {
+    margin-top: 8px;
+}
+
+/* ---------------------------------------------------------------
+   歷史分析卡片裡「生成當下」的判讀
+   --------------------------------------------------------------- */
+
+/* 與同一頁那份「現在」的判讀面板刻意長得不一樣：左側標線 + 內縮背景。
+   兩者若看起來相同，使用者會把六年前那份讀成現況，而這一段存在的理由正是
+   要讓「生成當下」與「現在」分得開。 */
+.analysis-health-read {
+    background: var(--surface-strong);
+    border-left: 3px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-top: 12px;
+    padding: 10px 12px;
+}
+
+.analysis-health-read__label {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin: 0 0 8px;
+}
+
+.analysis-health-read__stances {
+    display: grid;
+    gap: 6px;
+}
+
+.analysis-health-read__blocks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-top: 8px;
+}
+
+.analysis-health-read__block {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    gap: 4px 6px;
+}
+
+.analysis-health-read__block-name {
+    font-weight: 600;
+}
+
+.analysis-health-read__snapshot {
+    color: var(--muted);
+    font-size: 0.75rem;
+    line-height: 1.6;
+    margin: 8px 0 0;
+}

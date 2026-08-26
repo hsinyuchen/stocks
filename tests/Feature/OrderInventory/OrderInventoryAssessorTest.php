@@ -131,6 +131,10 @@ class OrderInventoryAssessorTest extends TestCase
             $stale['revenue_unknown_reason'],
             '序列累積完整了、只是太舊，再跑一百次掃描季末日也不會往前走',
         );
+        // 時效旗標要跟著窄回傳一起出去：體質判讀只拿得到 metrics，看不到
+        // assessment 的 freshness，少了這個鍵它會拿一份已被判定過舊的序列
+        // 給出「成長：正面」。
+        $this->assertTrue($stale['series_too_old']);
 
         // 對照組：同一份序列換成適用的產業就取得結論，證明上面那些 null 是
         // 產業或時效造成的，不是序列本身有問題。
@@ -138,6 +142,8 @@ class OrderInventoryAssessorTest extends TestCase
 
         $this->assertNull($suited['revenue_unknown_reason'], '有結論就不該再給原因');
         $this->assertNotNull($suited['revenue_verified'], '適用產業必須得到 true 或 false，不是 null');
+        $this->assertFalse($suited['series_too_old'], '不夠舊的序列不得被標成過舊');
+        $this->assertFalse($missing['series_too_old'], '序列拿不到時談不上「太舊」，那是「還沒有」');
     }
 
     /**

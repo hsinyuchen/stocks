@@ -568,6 +568,10 @@ function AnalysisHistory({ analyses, stalled = false }) {
                                     ))}
                                 </ul>
                             ) : null}
+                            {/* 這一筆分析生成當下的判讀，取自它自己的 health_read。
+                                接成頁面上那份即時判讀的話，每一筆歷史分析旁邊都會
+                                是同一份「現在」的結論——那正是要修的不一致。 */}
+                            <AnalysisHealthRead healthRead={analysis.health_read} />
                         </article>
                     );
                 })}
@@ -1359,6 +1363,388 @@ function IndustryMomentumPanel({ momentum }) {
     );
 }
 
+/* ---------------------------------------------------------------
+   短線／中長線體質判讀（階段 5b）
+   --------------------------------------------------------------- */
+
+// 立場與塊名一律走對照表：機器鍵（bullish、return_on_equity）不得直接印給使用者。
+const HEALTH_TECHNICAL_STANCE_LABELS = {
+    bullish: 'health.stanceBullish',
+    bearish: 'health.stanceBearish',
+    watch: 'health.stanceWatch',
+    neutral: 'health.stanceNeutral',
+};
+
+const HEALTH_CHIP_STANCE_LABELS = {
+    accumulating: 'health.chipAccumulating',
+    distributing: 'health.chipDistributing',
+    neutral: 'health.chipNeutral',
+};
+
+const HEALTH_BLOCK_LABELS = {
+    valuation: 'health.blockValuation',
+    return_on_equity: 'health.blockReturnOnEquity',
+    growth: 'health.blockGrowth',
+    quality: 'health.blockQuality',
+};
+
+/** 缺值印破折號，**不印 0**：0 在 RSI 的量尺上是極度超賣，語意完全相反。 */
+function healthNumber(value, digits) {
+    if (value === null || value === undefined) {
+        return '—';
+    }
+
+    return Number(value).toFixed(digits);
+}
+
+/**
+ * 一項的資料日。**null 也要明講「無」**，不是整段省略——省略會讓讀者以為這一項
+ * 與前一項是同一天算的，而實測價格、籌碼、財報分別停在三個不同的日期
+ * （2026-08-25／08-17／08-05）。
+ */
+function HealthAsOf({ date }) {
+    const { t } = useI18n();
+
+    return (
+        <span className="health-as-of">
+            {t('health.asOfLabel', { date: date ? date : t('health.asOfUnknown') })}
+        </span>
+    );
+}
+
+/**
+ * 立場或判定的理由。
+ *
+ * **已知的雙語缺口：標籤是英文，理由維持中文。** 這些字串由後端的 SignalEngine
+ * 與 LongTermHealthReader 直接以繁中產生（兩者都不吃 locale，也沒有機器鍵對照
+ * 表），到呈現層已經是定稿，沒有可翻譯的空間。**不能因此在英文路徑把它們丟掉**
+ * ——理由正是使用者判斷可信度的依據，只給判定不給理由等於要求使用者無條件相信
+ * 一組未經回測的門檻。沿用 OrderInventoryGuide 對 fixedCaveats／industryNote 的
+ * 既有裁決：丟掉資訊比語言混雜更糟。正解是讓兩個 reader 改輸出機器鍵、由呈現層
+ * 依 locale 渲染，那要動階段 5b Task 3、4 已定稿的純計算類別。
+ */
+function HealthReasons({ reasons }) {
+    if (!reasons || !reasons.length) {
+        return null;
+    }
+
+    return (
+        <ul className="health-reasons">
+            {reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+            ))}
+        </ul>
+    );
+}
+
+/**
+ * 判定徽章。**四個分支，「中性」與「不可評估」絕不共用。**
+ *
+ * 「中性」是看過了、沒有偏向；「不可評估」是不知道——對使用者是兩種不同的行動。
+ * 讓 null 沿著分支落到中性那一支，系統就會對一件根本沒算過的事宣稱「沒有偏向」，
+ * 而使用者沒有任何線索能察覺。
+ */
+function HealthVerdictBadge({ verdict }) {
+    const { t } = useI18n();
+
+    if (verdict === 'positive') {
+        return (
+            <span className="health-verdict health-verdict--positive">{t('health.verdictPositive')}</span>
+        );
+    }
+
+    if (verdict === 'negative') {
+        return (
+            <span className="health-verdict health-verdict--negative">{t('health.verdictNegative')}</span>
+        );
+    }
+
+    if (verdict === 'neutral') {
+        return (
+            <span className="health-verdict health-verdict--neutral">{t('health.verdictNeutral')}</span>
+        );
+    }
+
+    return (
+        <span className="health-verdict health-verdict--unavailable">{t('health.verdictUnavailable')}</span>
+    );
+}
+
+/**
+ * 不可評估的成因。**五態，五個分支，不得合併任何兩個。**
+ *
+ * 五種對使用者是五種不同的行動：`not_in_universe` 與 `not_applicable` 永遠不會
+ * 有；`not_yet` 等分析或掃描再跑幾次就有；`stale` 要等上游更新；`indeterminate`
+ * 是資料到齊了但這一項本身算不出來。把任兩種講成同一句，使用者要嘛一直等一個
+ * 不會來的東西，要嘛放棄一個再跑一次就有的東西。
+ *
+ * `indeterminate` 放在最後兼作兜底：「資料到齊但這一項算不出來」是任何未預期值
+ * 的誠實上位描述，落到別的分支才會說錯話（與 Topics 的 RevenueBadge 同一手法）。
+ */
+function HealthUnavailableNote({ reason }) {
+    const { t } = useI18n();
+
+    if (reason === 'not_in_universe') {
+        return (
+            <p className="health-unavailable health-unavailable--not-in-universe">{t('health.reasonNotInUniverse')}</p>
+        );
+    }
+
+    if (reason === 'not_applicable') {
+        return (
+            <p className="health-unavailable health-unavailable--not-applicable">{t('health.reasonNotApplicable')}</p>
+        );
+    }
+
+    if (reason === 'stale') {
+        return (
+            <p className="health-unavailable health-unavailable--stale">{t('health.reasonStale')}</p>
+        );
+    }
+
+    if (reason === 'not_yet') {
+        return (
+            <p className="health-unavailable health-unavailable--not-yet">{t('health.reasonNotYet')}</p>
+        );
+    }
+
+    return (
+        <p className="health-unavailable health-unavailable--indeterminate">{t('health.reasonIndeterminate')}</p>
+    );
+}
+
+/**
+ * 短線的一個立場：名稱、立場、資料日、理由。
+ *
+ * 立場為 null 時走與四塊完全相同的「不可評估」徽章：ShortTermRead 已把
+ * SignalEngine 的 'insufficient_data' 轉成 null，呈現層只需處理一種缺席。
+ */
+function HealthStanceRow({ name, stance, labels, asOf, reasons }) {
+    const { t } = useI18n();
+    const labelKey = labels[stance];
+
+    return (
+        <div className="health-stance">
+            <span className="health-stance__name">{name}</span>
+            {labelKey === undefined ? (
+                <HealthVerdictBadge verdict={null} />
+            ) : (
+                <span className="health-stance__value">{t(labelKey)}</span>
+            )}
+            <HealthAsOf date={asOf} />
+            <HealthReasons reasons={reasons} />
+        </div>
+    );
+}
+
+/**
+ * 中長線的一塊：名稱、判定、**自己的**資料日，以及理由或不可評估成因。
+ *
+ * 不可評估的塊照樣列出：刪掉它們，使用者只會看到一份比較短的清單，
+ * 而不知道少了什麼、為什麼少。
+ */
+function HealthBlockRow({ block }) {
+    const { t } = useI18n();
+    const labelKey = HEALTH_BLOCK_LABELS[block.block];
+
+    return (
+        <div className="health-block">
+            <div className="health-block__head">
+                <span className="health-block__name">{labelKey === undefined ? block.block : t(labelKey)}</span>
+                <HealthVerdictBadge verdict={block.verdict} />
+                <HealthAsOf date={block.as_of} />
+            </div>
+            {block.unavailable_reason ? (
+                <HealthUnavailableNote reason={block.unavailable_reason} />
+            ) : (
+                <HealthReasons reasons={block.reasons} />
+            )}
+        </div>
+    );
+}
+
+/**
+ * 一筆歷史分析**生成當下**的判讀摘要。
+ *
+ * 存在理由是一個真實的不一致：同一個頁面同時渲染歷史分析的文字（其內容引用生成
+ * 當下的判讀）與一份**現在**用 cachedFor() 算出來的面板。判讀已隨分析保存
+ * （stock_analyses.health_read），但在此之前沒有任何地方讀它，於是那個不一致
+ * 原封不動——使用者看到的是幾天前的推論配今天的判讀，而無從得知哪一個算數。
+ *
+ * **顯示的每一格都取自 healthRead，一格都不重算。** 重算等於把這個元件變回
+ * 「現在」的判讀，那正是要修的東西。
+ *
+ * **healthRead 為 null 時整段不渲染，不印「無資料」。** migration 之前的分析
+ * 生成時根本沒有這個功能；印一句「不可評估」會讓使用者以為當時算過而且算不出來。
+ */
+function AnalysisHealthRead({ healthRead }) {
+    const { t } = useI18n();
+
+    if (!healthRead) {
+        return null;
+    }
+
+    const { short, long, snapshot } = healthRead;
+
+    return (
+        <div className="analysis-health-read">
+            <p className="analysis-health-read__label">{t('health.savedReadLabel')}</p>
+            <div className="analysis-health-read__stances">
+                <HealthStanceRow
+                    asOf={short.price_as_of}
+                    labels={HEALTH_TECHNICAL_STANCE_LABELS}
+                    name={t('health.technicalStanceLabel')}
+                    stance={short.technical_stance}
+                />
+                <HealthStanceRow
+                    asOf={short.chip_as_of}
+                    labels={HEALTH_CHIP_STANCE_LABELS}
+                    name={t('health.chipStanceLabel')}
+                    stance={short.chip_stance}
+                />
+            </div>
+            <div className="analysis-health-read__blocks">
+                {long.blocks.map((block) => (
+                    <span className="analysis-health-read__block" key={block.block}>
+                        <span className="analysis-health-read__block-name">
+                            {HEALTH_BLOCK_LABELS[block.block] ? t(HEALTH_BLOCK_LABELS[block.block]) : block.block}
+                        </span>
+                        <HealthVerdictBadge verdict={block.verdict} />
+                        <HealthAsOf date={block.as_of} />
+                    </span>
+                ))}
+            </div>
+            {/* 快照的資料日期：這一份判讀是拿哪幾天的資料、哪一版公式算的。
+                價格、籌碼、財報三者的更新頻率不同，實測本來就停在不同的日期。 */}
+            <p className="analysis-health-read__snapshot">
+                {t('health.savedReadSnapshot', {
+                    price: snapshot.price_as_of ?? t('health.asOfUnknown'),
+                    chip: snapshot.chip_as_of ?? t('health.asOfUnknown'),
+                    fundamentals: snapshot.fundamentals_as_of ?? t('health.asOfUnknown'),
+                    version: long.formula_version,
+                })}
+            </p>
+        </div>
+    );
+}
+
+/**
+ * 六則必要說明。**無條件顯示、不可摺疊、不接受任何 prop。**
+ *
+ * 沿用階段 4／5a 的標準：藏進 details 或縮成 tooltip 等於沒說。不收 prop 是刻意
+ * 的——收了就有辦法做成「只在有判讀時顯示」，而這些說明最需要被看到的時刻，正是
+ * 判讀最薄弱、最容易被過度解讀的時候。
+ */
+function HealthNotes() {
+    const { t } = useI18n();
+
+    return (
+        <div className="health-notes">
+            <p className="health-notes__item">{t('health.noteNoBacktest')}</p>
+            <p className="health-notes__item">{t('health.noteTechnicalCollinear')}</p>
+            <p className="health-notes__item">{t('health.noteDivergenceNotNetted')}</p>
+            <p className="health-notes__item">{t('health.noteDatesDiffer')}</p>
+            <p className="health-notes__item">{t('health.noteUnavailableIsNotNegative')}</p>
+            <p className="health-notes__item">{t('health.notePricesUnadjusted')}</p>
+        </div>
+    );
+}
+
+/**
+ * 體質判讀面板：短線兩維立場 + 中長線四塊。**沒有總分、沒有排名。**
+ *
+ * 技術與籌碼**並列**、背離時明確標示：兩者背離不互相抵銷，壓成一個數字會讓
+ * 「技術偏多但法人在賣」與「兩邊都沒訊號」變成同一格。
+ *
+ * 本元件一個門檻都不比。判定全部由後端的兩個 reader 決定，送進 prompt 的是同一
+ * 份輸出（HealthGuide）——前端自己重判會出現「畫面顯示的」與「LLM 讀到的」不一
+ * 致，同一份資料兩套結論，而使用者無從得知哪一個算數。
+ */
+function HealthPanel({ health }) {
+    const { t } = useI18n();
+
+    if (!health) {
+        return null;
+    }
+
+    const { short, long, snapshot } = health;
+
+    return (
+        <section className="stock-panel health-panel">
+            <div className="panel-heading">
+                <div>
+                    <p className="section-kicker">{t('health.kicker')}</p>
+                    <h2>{t('health.title')}</h2>
+                </div>
+                <span className="field-hint">{t('health.barsLabel', { bars: snapshot.bars })}</span>
+            </div>
+
+            <h3 className="health-subheading">{t('health.shortTermHeading')}</h3>
+
+            <div className="health-stances">
+                <HealthStanceRow
+                    asOf={short.price_as_of}
+                    labels={HEALTH_TECHNICAL_STANCE_LABELS}
+                    name={t('health.technicalStanceLabel')}
+                    reasons={short.technical_reasons}
+                    stance={short.technical_stance}
+                />
+                <HealthStanceRow
+                    asOf={short.chip_as_of}
+                    labels={HEALTH_CHIP_STANCE_LABELS}
+                    name={t('health.chipStanceLabel')}
+                    reasons={short.chip_reasons}
+                    stance={short.chip_stance}
+                />
+            </div>
+
+            {/* 背離是三態：alignment 為 null（SignalEngine 的 none）是「無法判定」，
+                走與四塊相同的不可評估徽章。印成「否」等於對一檔連一列籌碼都沒有的
+                標的宣稱技術與籌碼一致——同一頁對 rule_signal.alignment 的既有處理
+                本來就是三態，這裡不能倒退成兩態。 */}
+            <p className="health-divergence">
+                <span className="health-divergence__label">{t('health.divergenceLabel')}</span>
+                {short.alignment ? (
+                    <strong>{short.alignment === 'diverge' ? t('health.divergingYes') : t('health.divergingNo')}</strong>
+                ) : (
+                    <HealthVerdictBadge verdict={null} />
+                )}
+            </p>
+
+            {/* RSI 與量能就地標明未參與判定：它們與 KD／MACD／均線同為價格動能的
+                衍生量、彼此高度共線，列在同一個區塊裡而不加註會被讀成第四、第五項
+                佐證。 */}
+            <p className="health-context">
+                <span className="health-context__label">{t('health.contextLabel')}</span>
+                {t('health.contextValues', {
+                    rsi: healthNumber(short.rsi, 1),
+                    volume: healthNumber(short.volume_ratio, 2),
+                })}
+                {' '}
+                {t('health.contextNote')}
+            </p>
+
+            <h3 className="health-subheading">{t('health.longTermHeading')}</h3>
+
+            <div className="health-blocks">
+                {long.blocks.map((block) => (
+                    <HealthBlockRow block={block} key={block.block} />
+                ))}
+            </div>
+
+            <p className="health-provenance">{t('health.formulaVersion', { version: long.formula_version })}</p>
+
+            {/* 個股頁走 cachedFor()（零上游），所以這句幾乎一定會出現。它是換來
+                「同步 web 請求不會被 max_execution_time 砍掉」的代價，必須說出口。 */}
+            {snapshot.cached_only ? <p className="health-cached-only">{t('health.cachedOnlyNote')}</p> : null}
+
+            <HealthNotes />
+
+            <p className="fundamentals-disclaimer">{t('health.disclaimer')}</p>
+        </section>
+    );
+}
+
 export default function StockSearch({
     symbol = null,
     instrument = null,
@@ -1373,6 +1759,7 @@ export default function StockSearch({
     brokerBranch = null,
     socialArbitrage = null,
     industryMomentum = null,
+    health = null,
 }) {
     const { t } = useI18n();
 
@@ -1399,6 +1786,7 @@ export default function StockSearch({
                     <div className="stock-workspace__main">
                         <QuotePanel instrument={instrument} quote={quote} />
                         {instrument ? <ChartSection instrument={instrument} /> : null}
+                        <HealthPanel health={health} />
                         <FundamentalsPanel fundamentals={fundamentals} />
                         <ChipPanel chipFlows={chipFlows} />
                         <BrokerBranchPanel brokerBranch={brokerBranch} market={instrument?.market} />

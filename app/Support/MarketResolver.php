@@ -106,6 +106,15 @@ class MarketResolver
      * 漏掉的美股 ETF 會被標成 `stock`，於是被套用 ROE、營收成長、CCC 這類對
      * ETF 沒有意義的判準。那是已知限制，根治要把 `quoteType` 一路接到每一個
      * 建列點。
+     *
+     * **這個限制不只停在資料層，它會以一句假話的形式外洩給使用者。**
+     * `LongTermHealthReader` 對 `AssetType::Stock` 走完整條四塊判定，`roe` 為 null
+     * 於是落到 `HealthUnavailableReason::NotYet`，畫面與 prompt 上的文案是
+     * 「資料還沒累積到可判定的量，等分析或掃描再跑幾次就會有」。ETF 永遠不會有
+     * ROE，那句話是假的。實測 SPCX 現在就是這樣。
+     *
+     * **不要試圖補全清單**——沒有一份手抄清單能追上新掛牌的 ETF，補到一半只會
+     * 讓下一個人以為它是完整的。要修就修建列點。
      */
     public static function isEtf(string $symbol): bool
     {

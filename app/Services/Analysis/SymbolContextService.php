@@ -5,15 +5,21 @@ namespace App\Services\Analysis;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
+use App\Data\HealthInputSnapshot;
 use App\Data\IndustryMomentum;
+use App\Data\LongTermRead;
 use App\Data\MarginFlowData;
 use App\Data\MarketQuoteData;
 use App\Data\NewsItemData;
 use App\Data\OrderInventoryAssessment;
+use App\Data\ShortTermRead;
 use App\Data\SocialArbitrage;
 use App\Models\Instrument;
 use App\Services\Fundamentals\IndustryMomentumSampler;
 use App\Services\Fundamentals\OrderInventoryAssessor;
+use App\Services\Health\HealthSnapshotBuilder;
+use App\Services\Health\LongTermHealthReader;
+use App\Services\Health\ShortTermHealthReader;
 use App\Services\Rates\RatesNarrative;
 use App\Services\SignalEngine;
 use App\Services\Social\SocialArbitrageAssessor;
@@ -49,6 +55,9 @@ final class SymbolContextService
         private readonly OrderInventoryAssessor $orderInventory,
         private readonly SocialArbitrageAssessor $socialArbitrage,
         private readonly IndustryMomentumSampler $industryMomentum,
+        private readonly HealthSnapshotBuilder $healthSnapshots,
+        private readonly ShortTermHealthReader $shortTermHealth,
+        private readonly LongTermHealthReader $longTermHealth,
     ) {}
 
     /**
@@ -78,7 +87,8 @@ final class SymbolContextService
      *     has_prices: bool,
      *     rates: array{block: string, affected: list<array<string, mixed>>},
      *     order_inventory: array{assessment: OrderInventoryAssessment, peer_samples: int}|null,
-     *     social: array{arbitrage: SocialArbitrage, momentum: IndustryMomentum}|null
+     *     social: array{arbitrage: SocialArbitrage, momentum: IndustryMomentum}|null,
+     *     health: array{short: ShortTermRead, long: LongTermRead, snapshot: HealthInputSnapshot}|null
      * }
      */
     public function forSymbol(string $symbol, array $chipFlows = [], array $marginFlows = [], ?array $brokerBranch = null, string $locale = 'zh'): array
@@ -100,6 +110,7 @@ final class SymbolContextService
         // 這條順序由 SocialArbitragePromptTest::the_symbol_context_carries_the_social_assessment
         // 釘住（那個 fixture 一列 fundamentals 都沒有）。
         $social = $this->socialContext($symbol);
+        $health = $this->healthContext($symbol);
 
         if ($prices === []) {
             return [
@@ -117,6 +128,7 @@ final class SymbolContextService
                 'rates' => $rates,
                 'order_inventory' => $orderInventory,
                 'social' => $social,
+                'health' => $health,
             ];
         }
 
@@ -136,6 +148,47 @@ final class SymbolContextService
             'rates' => $rates,
             'order_inventory' => $orderInventory,
             'social' => $social,
+            'health' => $health,
+        ];
+    }
+
+    /**
+     * 短線／中長線體質判讀（best-effort，查無標的回 null）。
+     *
+     * 與 orderInventoryContext()／socialContext() 一樣要自己以代號反查 Instrument，
+     * 理由相同：`forSymbol()` 的輸入只有代號，而快照層吃 `Instrument`。查無標的時
+     * 回 null 而非建檔——搜尋結果頁可能對尚未建檔的代號組脈絡。
+     *
+     * **走 `freshFor()` 不是 `cachedFor()`**：本方法的兩個消費端（個股分析、個股
+     * 問答）都跑在有自己 timeout 的 queued job 裡，而 `cachedFor()` 是為同步 web
+     * 請求準備的零上游入口（見 HealthSnapshotBuilder 的 docblock）。首次被分析的
+     * 標的在 `cachedFor()` 眼裡什麼都沒有，而使用者看到的正是第一份報告。
+     *
+     * 快照層會再取一次行情、籌碼與財報，與本方法上面那幾行重複——那些重複由各
+     * 服務自身的新鮮度視窗吸收（`CachedMarketDataProvider` 在 TTL 內直接讀 DB、
+     * `ChipDataService`／`FundamentalsService` 同理），不會變成第二次上游呼叫。
+     * 換成把已取到的序列傳進去，就得在快照層開一個繞過它自己取用政策的入口，
+     * 「同一份快照決定輸出」這個不變式會失去唯一的組裝點。
+     *
+     * 視窗用 self::PRICE_BARS：判讀必須與同一份脈絡裡的 rule_signal 看同一段
+     * K 棒，否則同一次分析裡兩處會對同一檔給出不同的技術立場。
+     *
+     * @return array{short: ShortTermRead, long: LongTermRead, snapshot: HealthInputSnapshot}|null
+     */
+    private function healthContext(string $symbol): ?array
+    {
+        $instrument = Instrument::query()->where('symbol', $symbol)->first();
+
+        if ($instrument === null) {
+            return null;
+        }
+
+        $snapshot = $this->healthSnapshots->freshFor($instrument, self::PRICE_BARS);
+
+        return [
+            'short' => $this->shortTermHealth->read($snapshot),
+            'long' => $this->longTermHealth->read($snapshot),
+            'snapshot' => $snapshot,
         ];
     }
 

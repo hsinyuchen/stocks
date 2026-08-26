@@ -6,12 +6,16 @@ use App\Contracts\LlmProvider;
 use App\Contracts\MarketDataProvider;
 use App\Contracts\NewsProvider;
 use App\Data\ChipFlowData;
+use App\Data\HealthInputSnapshot;
 use App\Data\IndustryMomentum;
+use App\Data\LongTermRead;
 use App\Data\MarginFlowData;
 use App\Data\OrderInventoryAssessment;
+use App\Data\ShortTermRead;
 use App\Data\SocialArbitrage;
 use App\Enums\LlmFailureReason;
 use App\Exceptions\LlmRequestException;
+use App\Services\Analysis\HealthGuide;
 use App\Services\Analysis\OrderInventoryGuide;
 use App\Services\Analysis\SignalFieldGuide;
 use App\Services\Analysis\SocialArbitrageGuide;
@@ -19,6 +23,9 @@ use App\Services\Analysis\SopGuide;
 use App\Services\Analysis\SymbolContextService;
 use App\Services\Fundamentals\IndustryMomentumSampler;
 use App\Services\Fundamentals\OrderInventoryAssessor;
+use App\Services\Health\HealthSnapshotBuilder;
+use App\Services\Health\LongTermHealthReader;
+use App\Services\Health\ShortTermHealthReader;
 use App\Services\Rates\RatesNarrative;
 use App\Services\Social\SocialArbitrageAssessor;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -47,6 +54,7 @@ class StockAnalysisService
         private readonly SopGuide $sop = new SopGuide,
         private readonly OrderInventoryGuide $orderInventoryGuide = new OrderInventoryGuide,
         private readonly SocialArbitrageGuide $socialGuide = new SocialArbitrageGuide,
+        private readonly HealthGuide $healthGuide = new HealthGuide,
     ) {
         $this->context = $context ?? new SymbolContextService(
             $marketData,
@@ -57,6 +65,9 @@ class StockAnalysisService
             app(OrderInventoryAssessor::class),
             app(SocialArbitrageAssessor::class),
             app(IndustryMomentumSampler::class),
+            app(HealthSnapshotBuilder::class),
+            app(ShortTermHealthReader::class),
+            app(LongTermHealthReader::class),
         );
     }
 
@@ -120,7 +131,7 @@ class StockAnalysisService
             ];
         }
 
-        $prompt = $this->buildPrompt($symbol, $quote, $technicalSnapshot, $ruleSignal, $news, $locale, $fundamentals, $valuation, $context['rates'], $context['order_inventory'], $context['social']);
+        $prompt = $this->buildPrompt($symbol, $quote, $technicalSnapshot, $ruleSignal, $news, $locale, $fundamentals, $valuation, $context['rates'], $context['order_inventory'], $context['social'], $context['health']);
 
         try {
             $response = $llm->complete($model, $prompt);
@@ -174,6 +185,34 @@ class StockAnalysisService
             'technical_snapshot' => $context['technical_snapshot'],
             'rule_signal' => $context['rule_signal'],
             'news' => $context['news'],
+            'health_read' => $this->healthPayload($context['health'] ?? null),
+        ];
+    }
+
+    /**
+     * 判讀的可保存形狀：三份 toArray()。
+     *
+     * **三條回傳路徑都要帶**（無價格、未設定 LLM、正常）：判讀與價格歷史是否
+     * 齊全無關，缺了就是那一筆分析永遠說不出自己當時看到什麼。
+     *
+     * 只存判讀結果與出處，**不存能重算的輸入**：`HealthInputSnapshot::toArray()`
+     * 刻意只輸出 metadata。要能重算就得把 80 根 K 棒、籌碼序列與整份財報指標
+     * 一起存進每一筆分析，那是每筆數十 KB 的重複資料，而且沒有人會去重算——
+     * 真正需要的是「這份判讀是哪一天的資料、哪一版公式算的」，那些全在 metadata 裡。
+     *
+     * @param  array{short: ShortTermRead, long: LongTermRead, snapshot: HealthInputSnapshot}|null  $health
+     * @return array<string, mixed>|null
+     */
+    private function healthPayload(?array $health): ?array
+    {
+        if ($health === null) {
+            return null;
+        }
+
+        return [
+            'short' => $health['short']->toArray(),
+            'long' => $health['long']->toArray(),
+            'snapshot' => $health['snapshot']->toArray(),
         ];
     }
 
@@ -181,6 +220,7 @@ class StockAnalysisService
      * @param  array{block: string, affected: list<array<string, mixed>>}  $rates
      * @param  array{assessment: OrderInventoryAssessment, peer_samples: int}|null  $orderInventory
      * @param  array{arbitrage: SocialArbitrage, momentum: IndustryMomentum}|null  $social
+     * @param  array{short: ShortTermRead, long: LongTermRead, snapshot: HealthInputSnapshot}|null  $health
      */
     private function buildPrompt(
         string $symbol,
@@ -194,6 +234,7 @@ class StockAnalysisService
         array $rates = [],
         ?array $orderInventory = null,
         ?array $social = null,
+        ?array $health = null,
     ): string {
         $en = $locale === 'en';
         $technicalSnapshotJson = json_encode($technicalSnapshot, JSON_UNESCAPED_UNICODE);
@@ -252,6 +293,21 @@ class StockAnalysisService
             $socialDiscipline = $this->socialGuide->discipline($locale)."\n";
         }
 
+        // 體質判讀區塊與引用紀律。查無 Instrument 時**整段不輸出**，連標頭都不留，
+        // 理由與訂單／庫存、社交套利同一條：空標頭會被 LLM 讀成「這項資料查過而且
+        // 是空的」，而沒有區塊可引用時，那五條紀律只會讓模型去猜一個不存在的區塊。
+        //
+        // 判讀本身不會「沒有」：查得到標的就一定有兩個立場與四塊（最差是全部
+        // 不可評估＋成因），所以這裡的條件是「有沒有標的」而不是「有沒有結論」。
+        $healthSection = '';
+        $healthDiscipline = '';
+
+        if ($health !== null) {
+            $healthBlock = $this->healthGuide->block($health['short'], $health['long'], $health['snapshot'], $locale);
+            $healthSection = "BEGIN_HEALTH_READ\n{$healthBlock}\nEND_HEALTH_READ\n";
+            $healthDiscipline = $this->healthGuide->discipline($locale)."\n";
+        }
+
         // SOP v2 區塊（依 locale）。nowdoc 承載，內含字面 $ 亦安全。
         $disclaimer = $this->sop->disclaimer($locale);
         $sourceTiers = $this->sop->sourceTiers($locale);
@@ -280,7 +336,7 @@ BEGIN_SOURCE_TIERS
 END_SOURCE_TIERS
 BEGIN_FIELD_GUIDE
 {$fieldGuide}
-{$orderInventoryDiscipline}{$socialDiscipline}END_FIELD_GUIDE
+{$orderInventoryDiscipline}{$socialDiscipline}{$healthDiscipline}END_FIELD_GUIDE
 BEGIN_SYMBOL
 Symbol: {$symbol}
 END_SYMBOL
@@ -302,7 +358,7 @@ END_FUNDAMENTALS
 BEGIN_VALUATION
 {$valuationJson}
 END_VALUATION
-{$orderInventorySection}{$socialSection}BEGIN_RELATED_NEWS
+{$orderInventorySection}{$socialSection}{$healthSection}BEGIN_RELATED_NEWS
 {$newsTitles}
 END_RELATED_NEWS
 BEGIN_SCORING_RUBRIC

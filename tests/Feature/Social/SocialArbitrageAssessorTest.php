@@ -10,6 +10,7 @@ use App\Data\DailyPriceData;
 use App\Data\FundamentalsData;
 use App\Data\MarketQuoteData;
 use App\Data\OrderInventoryData;
+use App\Data\OrderInventoryMetrics;
 use App\Data\QuarterlyFinancials;
 use App\Enums\SocialArbitrageStage;
 use App\Models\ChipFlow;
@@ -322,12 +323,20 @@ class SocialArbitrageAssessorTest extends TestCase
             {
                 $this->seriesCalls++;
 
-                // 三個鍵都給：spy 少一個鍵時本類別今天不讀所以不會炸，但契約
+                // 每個鍵都給：spy 少一個鍵時本類別今天不讀所以不會炸，但契約
                 // 已經漂移，下一個消費端讀到的會是 undefined index。
+                // metrics 與 industry_bucket 是體質判讀（階段 5b）加的；
+                // 兩者的值要與同一份回傳裡的其他欄位一致，否則這個 spy 描述的是
+                // 一份不可能存在的序列。
                 return [
                     'revenue_verified' => true,
                     'gross_margin_qoq_pp' => -2.5,
                     'revenue_unknown_reason' => null,
+                    'metrics' => new OrderInventoryMetrics(grossMarginQoqPp: -2.5),
+                    'industry_bucket' => 'general',
+                    // series_too_old 是體質判讀（階段 5b 審查修正）加的；這裡回 false
+                    // 才與同一份回傳裡 revenue_verified 有結論這件事一致。
+                    'series_too_old' => false,
                 ];
             }
 

@@ -41,7 +41,10 @@ final class SignalFieldGuide
 
         $lines[] = '- rule_signal.chip 為台股三大法人買賣超，單位是「股」（1 張 = 1000 股），正值買超、負值賣超；數值為買進減賣出的淨額。';
         $lines[] = '- chip.foreign_net 含外資自營商；chip.dealer_net 含自營商自行買賣與避險兩本帳。chip.days 為採計的交易日數。';
-        $lines[] = '- chip.stance：accumulating 為該期間外資淨買超、distributing 為淨賣超、neutral 為相抵。chip.foreign_streak 為外資連續同向天數，淨額 0 視為中斷。';
+        $lines[] = '- chip.stance：accumulating 為該期間外資淨買超、distributing 為淨賣超、neutral 為買賣相抵**或淨額小到不具意義**。chip.foreign_streak 為外資連續同向天數，淨額 0 視為中斷。';
+        $lines[] = '- chip.foreign_volume_share 是外資淨額佔同期成交量的比例（正買負賣），也是 stance 的判定依據：絕對值未達門檻一律 neutral。它是估計值（分母為近 20 日均量 × 採計天數），只用來分辨「量體是否顯著」，不要拿去做更精細的比較；null 代表 K 棒不足、規模基準不明。';
+        $lines[] = '- stance 為 neutral 時不得描述成「法人買超」或「法人賣超」，即使 chip.foreign_net 不為 0——那個淨額相對成交量小到無法與雜訊區分。';
+        $lines[] = '- chip.reasons 裡的投信淨額與「外資已連續 N 日」兩句套用**同一條門檻與同一個分母**：量體未達門檻時只描述金額並標為「未達顯著門檻」，不宣稱方向。所以那兩句沒有講方向時，代表量體不顯著，不是資料缺漏，也不得由你補上方向。';
         $lines[] = '- rule_signal.alignment 描述技術面與籌碼面的關係：confirm 為同向、diverge 為背離、none 為無法判定。';
         $lines[] = '- 背離比同向更有資訊量：價格偏弱但外資買進，可能是打底；價格偏強但外資賣出，可能是出貨。若 alignment 為 diverge，請明確說明這個矛盾及其兩種可能解讀，不要只挑一邊。';
         $lines[] = '- 單日買賣超雜訊大。請以 chip.days 期間的合計與 foreign_streak 為主要依據，不要只憑最後一日下結論。';
