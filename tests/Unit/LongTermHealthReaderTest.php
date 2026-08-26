@@ -416,6 +416,46 @@ class LongTermHealthReaderTest extends TestCase
         $this->assertSame(HealthVerdict::Negative, $block->verdict);
     }
 
+    /**
+     * **虧損且營運現金流出時，OCF／淨利的比率會是正的。**
+     *
+     * OCF −100、淨利 −80 → 比率 1.25，高於 strong 門檻，只讀比率會判「正面」並
+     * 對使用者說「營業現金流為淨利的 1.25 倍」——而公司其實同時虧損且現金流出。
+     * OrderInventoryMetrics 的 docblock 與 OrderInventoryRadar 的 C8 都已經為這個
+     * 陷阱留了 operatingCashFlowNegative 旗標，這一塊要走同一條短路。
+     */
+    #[Test]
+    public function quality_is_negative_when_operating_cash_flow_is_negative_even_though_the_ratio_looks_healthy(): void
+    {
+        $block = $this->block(HealthBlock::Quality, [
+            'metrics' => new OrderInventoryMetrics(
+                ocfToNetIncome: $this->threshold('quality.ocf_to_net_income_strong') + 0.25,
+                operatingCashFlowNegative: true,
+            ),
+        ]);
+
+        $this->assertSame(HealthVerdict::Negative, $block->verdict);
+        $this->assertReasonContains($block, '營業現金流為負');
+    }
+
+    /**
+     * 對照組：**同一個比率**、旗標為 false 就是正面。
+     *
+     * 少了這條，「品質恆回負面」的實作照樣讓上一條全綠。
+     */
+    #[Test]
+    public function quality_reads_the_same_ratio_as_positive_when_operating_cash_flow_is_not_negative(): void
+    {
+        $block = $this->block(HealthBlock::Quality, [
+            'metrics' => new OrderInventoryMetrics(
+                ocfToNetIncome: $this->threshold('quality.ocf_to_net_income_strong') + 0.25,
+                operatingCashFlowNegative: false,
+            ),
+        ]);
+
+        $this->assertSame(HealthVerdict::Positive, $block->verdict);
+    }
+
     /** 序列整個沒有：NotYet。 */
     #[Test]
     public function quality_is_unavailable_as_not_yet_without_metrics(): void

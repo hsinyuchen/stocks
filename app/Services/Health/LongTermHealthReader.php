@@ -217,6 +217,10 @@ class LongTermHealthReader
     /**
      * 財務品質：OCF／淨利，以及應收帳款週轉天數的變化。
      *
+     * **OCF 為負時比率不算數。** 淨利同為負會讓 OCF／淨利變成正數，看起來反而
+     * 健康——OrderInventoryMetrics 的 docblock 已寫明這個陷阱，OrderInventoryRadar
+     * 的 C8 也已經在讀比率之前先看 operatingCashFlowNegative。這裡走同一條短路。
+     *
      * **用 DSO 不用合成 CCC 變化。** OrderInventoryMetrics 有 ccc 與三個 delta，
      * 合成 dio + dso - dpo 的變化是做得到的，但 DPO 的分母是 COGS——
      * **階段 2 抓過一個真實的假宣稱就出在這裡**：COGS 下滑會讓 DPO 上升而
@@ -245,7 +249,17 @@ class LongTermHealthReader
         $votes = [];
         $ocf = $snapshot->metrics->ocfToNetIncome;
 
-        if (is_numeric($ocf)) {
+        // OCF 為負一律負面，**在看比率之前短路**：淨利同為負時比率會變成正數，
+        // 只讀比率會把「虧損且營運現金流出」講成「營業現金流為淨利的 1.25 倍」。
+        // 形狀照抄 OrderInventoryRadar 的 C8，不另立第二套判準。
+        if ($snapshot->metrics->operatingCashFlowNegative) {
+            $votes['營業現金流／淨利'] = [
+                'verdict' => HealthVerdict::Negative,
+                'text' => is_numeric($ocf) && (float) $ocf > 0.0
+                    ? sprintf('營業現金流為負，比率之所以是 %.2f 倍是因為淨利同為負，不代表現金流健康', (float) $ocf)
+                    : '營業現金流為負，本期營運現金流出',
+            ];
+        } elseif (is_numeric($ocf)) {
             $votes['營業現金流／淨利'] = [
                 'verdict' => $this->band(
                     (float) $ocf,
