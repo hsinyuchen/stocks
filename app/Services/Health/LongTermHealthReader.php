@@ -5,6 +5,7 @@ namespace App\Services\Health;
 use App\Data\HealthBlockResult;
 use App\Data\HealthInputSnapshot;
 use App\Data\LongTermRead;
+use App\Enums\AssetType;
 use App\Enums\HealthBlock;
 use App\Enums\HealthUnavailableReason;
 use App\Enums\HealthVerdict;
@@ -36,13 +37,41 @@ class LongTermHealthReader
     public function read(HealthInputSnapshot $snapshot): LongTermRead
     {
         return new LongTermRead(
-            blocks: [
-                $this->valuation($snapshot),
-                $this->returnOnEquity($snapshot),
-                $this->growth($snapshot),
-                $this->quality($snapshot),
-            ],
+            blocks: $snapshot->assetType === AssetType::Stock
+                ? [
+                    $this->valuation($snapshot),
+                    $this->returnOnEquity($snapshot),
+                    $this->growth($snapshot),
+                    $this->quality($snapshot),
+                ]
+                : $this->notACompany(),
             formulaVersion: (string) config('health.formula_version'),
+        );
+    }
+
+    /**
+     * ETF 與指數：四塊全部不適用。
+     *
+     * **不是四塊各自 gate，是整份 gate。** 這四塊量的都是「一家公司體質如何」，
+     * 而 ETF 與指數不是公司——沒有 ROE、沒有營收、沒有應收帳款。
+     *
+     * 少了這道 gate，`0050.TW` 會走完整條路：`MarketResolver::region()` 回台股、
+     * 通過 ROE 的市場 gate、`roe` 為 null 於是落到 `NotYet`——而 `NotYet` 的
+     * 語意是「等分析或掃描跑過就會有」。ETF 永遠不會有 ROE，那句話是假的。
+     *
+     * `MarketResolver::assetType()` 自 `bf444b6` 起認得 ETF（台股靠 00 開頭的規則、
+     * 美股靠一份明確不完整的清單），資訊由組快照的那一層帶進來。
+     *
+     * @return list<HealthBlockResult>
+     */
+    private function notACompany(): array
+    {
+        return array_map(
+            fn (HealthBlock $block): HealthBlockResult => HealthBlockResult::unavailable(
+                $block,
+                HealthUnavailableReason::NotApplicable,
+            ),
+            HealthBlock::cases(),
         );
     }
 

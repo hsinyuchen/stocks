@@ -8,6 +8,7 @@ use App\Data\HealthInputSnapshot;
 use App\Data\LongTermRead;
 use App\Data\OrderInventoryMetrics;
 use App\Data\ShortTermRead;
+use App\Enums\AssetType;
 use App\Enums\HealthBlock;
 use App\Enums\HealthUnavailableReason;
 use App\Enums\HealthVerdict;
@@ -98,7 +99,7 @@ class HealthDataTest extends TestCase
             fundamentalsAsOf: '2026-08-05',
             financialPeriod: '2026Q2',
             cachedOnly: true,
-            formulaVersion: '2026-08-26.1',
+            assetType: AssetType::Stock,
         );
 
         $array = $snapshot->toArray();
@@ -108,7 +109,7 @@ class HealthDataTest extends TestCase
         $this->assertSame('2026-08-05', $array['fundamentals_as_of']);
         $this->assertSame(80, $array['bars']);
         $this->assertTrue($array['cached_only']);
-        $this->assertSame('2026-08-26.1', $array['formula_version']);
+        $this->assertSame('stock', $array['asset_type']);
 
         // 三個日期各自成鍵。少掉任何一個，呈現層就只能拿另一個日期去講這一項，
         // 而實測三者相差三週。

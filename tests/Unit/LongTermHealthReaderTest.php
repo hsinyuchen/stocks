@@ -6,6 +6,7 @@ use App\Data\FundamentalsData;
 use App\Data\HealthBlockResult;
 use App\Data\HealthInputSnapshot;
 use App\Data\OrderInventoryMetrics;
+use App\Enums\AssetType;
 use App\Enums\HealthBlock;
 use App\Enums\HealthUnavailableReason;
 use App\Enums\HealthVerdict;
@@ -27,6 +28,40 @@ use Tests\TestCase;
 class LongTermHealthReaderTest extends TestCase
 {
     // ---------- 估值 ----------
+
+    /**
+     * ETF 與指數：四塊全部不適用，成因是 NotApplicable 不是 NotYet。
+     *
+     * 少了 asset type 這道 gate，`0050.TW` 會走完整條路——region 回台股、
+     * 通過 ROE 的市場 gate、`roe` 為 null 於是落到 `NotYet`，而 `NotYet` 的語意是
+     * 「等分析或掃描跑過就會有」。**ETF 永遠不會有 ROE，那句話是假的。**
+     *
+     * 對照組是同一份輸入配 `AssetType::Stock`，證明四塊不可評估是資產類型造成的，
+     * 不是輸入本身有問題。
+     */
+    #[Test]
+    public function an_etf_or_index_is_not_a_company_and_no_block_applies(): void
+    {
+        foreach ([AssetType::Etf, AssetType::Index] as $assetType) {
+            $read = (new LongTermHealthReader)->read(new HealthInputSnapshot(
+                symbol: '0050.TW',
+                market: 'tw',
+                bars: 80,
+                assetType: $assetType,
+            ));
+
+            $this->assertCount(4, $read->blocks);
+
+            foreach ($read->blocks as $block) {
+                $this->assertNull($block->verdict, $assetType->value);
+                $this->assertSame(
+                    HealthUnavailableReason::NotApplicable,
+                    $block->unavailableReason,
+                    $assetType->value.' 的每一塊都必須是「不適用」而不是「還沒累積」',
+                );
+            }
+        }
+    }
 
     #[Test]
     public function valuation_is_positive_when_both_percentiles_sit_below_the_cheap_threshold(): void

@@ -2,6 +2,8 @@
 
 namespace App\Data;
 
+use App\Enums\AssetType;
+
 /**
  * 判讀的**全部輸入**，不可變。
  *
@@ -18,6 +20,18 @@ namespace App\Data;
  * 兩個 reader 才能是真正的純計算。
  * 所有消費端序列化同一份 snapshot 的結果；送進 prompt 的那份要隨
  * StockAnalysis 保存，否則幾天後頁面顯示新判讀、歷史分析的文字仍引用舊的。
+ *
+ * **不帶 `formulaVersion`。** 版本號描述的是「用哪一版公式算」，而公式是在
+ * read 時從 config 套用的——它是**公式的屬性不是輸入資料的屬性**。放在快照上
+ * 會製造第二個來源：快照填一個、reader 讀另一個，兩份都會被序列化保存，
+ * config 一改而快照是舊的，存下來的紀錄裡兩個版本號就不一致，
+ * 而那正是版本號要防的事。版本號只出現在
+ * {@see LongTermRead::$formulaVersion} 一處。
+ *
+ * **帶 `assetType`。** ETF 與指數不是公司，公司財報的四個面向對它們全都不適用
+ * ——而 `MarketResolver::region('0050.TW')` 回台股、`roe` 為 null，
+ * 少了這個欄位就會落到「還沒累積」那條路，對使用者說「等一下就有」，
+ * 但 ETF 永遠不會有 ROE。
  *
  * `cachedOnly` 明確分離取用政策：true 代表這份 snapshot 只由已快取資料組成、
  * 一次上游都沒打。呈現層要據此說明「這份判讀可能不是最新的」。
@@ -44,7 +58,7 @@ final readonly class HealthInputSnapshot
         public ?string $fundamentalsAsOf = null,
         public ?string $financialPeriod = null,
         public bool $cachedOnly = true,
-        public string $formulaVersion = '',
+        public AssetType $assetType = AssetType::Stock,
     ) {}
 
     /** @return array<string, mixed> */
@@ -59,7 +73,7 @@ final readonly class HealthInputSnapshot
             'fundamentals_as_of' => $this->fundamentalsAsOf,
             'financial_period' => $this->financialPeriod,
             'cached_only' => $this->cachedOnly,
-            'formula_version' => $this->formulaVersion,
+            'asset_type' => $this->assetType->value,
         ];
     }
 }
