@@ -91,17 +91,26 @@ return [
      * 「現金循環改善」。DSO 直接對應規格寫的「應收品質」，只需一個非 null 欄位，
      * 也沒有那個分母問題。
      *
-     * **產業適用性沿用 order_inventory 的既有名單**，不在這裡另立一套：
+     * **產業適用性沿用 order_inventory 的既有名單**（`config/order_inventory.php`
+     * 的 `industry` 區塊，由 OrderInventoryIndustryPolicy 讀），不在這裡另立一套：
      * CCC／DSO 對金融、證券、銀行、航運、觀光餐旅等服務業沒有意義，
-     * 而 OrderInventoryIndustryPolicy 已經知道哪些產業不適用。
-     * 這個鍵只是把「去問誰」寫成資料，讓測試釘得住。
+     * 而那份名單已經存在。同一件事兩份判準遲早漂移。
+     *
+     * **這裡刻意沒有 `industry_policy_source` 這種鍵。** 曾經有過一個，值是字串
+     * `'order_inventory.industry'`，但沒有任何生產程式碼讀它——真正決定行為的是
+     * `HealthSnapshotBuilder` 從 `seriesSignalsFor()` 帶進快照的 `industry_bucket`，
+     * 而 OrderInventoryIndustryPolicy 是直接 `config('order_inventory.industry.…')`
+     * 取值的類別（有比對順序、有 unknown 的處理），不是一份可以靠改字串抽換的資料。
+     * 留著只會多一條「驗一個字串常數等於它自己」的測試，讓下一個人以為那裡有防護。
+     * 真正的防護在 `HealthSnapshotBuilderTest` 的
+     * `the_snapshot_carries_the_industry_bucket_from_the_existing_policy`：
+     * 走真實鏈路，金融保險判 not_applicable、半導體判 suited。
      */
     'quality' => [
         'ocf_to_net_income_weak' => 0.6,
         'ocf_to_net_income_strong' => 1.0,
         'dso_change_days_worse' => 10.0,
         'dso_change_days_better' => -10.0,
-        'industry_policy_source' => 'order_inventory.industry',
     ],
 
     /*

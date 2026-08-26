@@ -375,6 +375,48 @@ class HealthSnapshotBuilderTest extends TestCase
         $this->fail('blocks 裡缺少 return_on_equity。');
     }
 
+    /**
+     * **真正決定品質那塊適不適用的是快照的 `industryBucket`，這條走真實鏈路釘住它。**
+     *
+     * `LongTermHealthReader::quality()` 讀的是 `$snapshot->industryBucket`，而它由
+     * `HealthSnapshotBuilder` 從 `seriesSignalsFor()` 的 `industry_bucket` 帶進來。
+     * 這一行原本沒有任何斷言：改成 `null`，金融／航運股從此拿到 DSO 判定，而
+     * `LongTermHealthReaderTest`（自己餵 `'not_applicable'`）與那條驗 config 鍵
+     * 等於自己的測試**全綠**。
+     *
+     * 兩檔對照才殺得死「恆回某一桶」的實作：金融保險是既有名單裡的
+     * not_applicable，半導體是 suited。名單本身歸 OrderInventoryIndustryPolicy 管，
+     * 這裡驗的是那個答案有沒有一路傳到判讀。
+     */
+    #[Test]
+    public function the_snapshot_carries_the_industry_bucket_from_the_existing_policy(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 09:00:00'));
+        Http::fake();
+
+        $this->bindUpstreamCallingProviders();
+
+        $bank = $this->seedSeries('2881.TW', '2026Q2', '2026-06-30', '金融保險業');
+        $chip = $this->seedSeries('2330.TW', '2026Q2', '2026-06-30', '半導體業');
+
+        $builder = app(HealthSnapshotBuilder::class);
+        $bankSnapshot = $builder->cachedFor($bank, 80);
+        $chipSnapshot = $builder->cachedFor($chip, 80);
+
+        $this->assertSame('not_applicable', $bankSnapshot->industryBucket);
+        $this->assertSame('suited', $chipSnapshot->industryBucket);
+
+        // 傳到判讀為止：財務品質對金融保險不適用，對半導體照樣評估。
+        $this->assertSame(
+            HealthUnavailableReason::NotApplicable,
+            $this->reasonsFor($bankSnapshot, [HealthBlock::Quality])[0],
+        );
+        $this->assertNotSame(
+            HealthUnavailableReason::NotApplicable,
+            $this->reasonsFor($chipSnapshot, [HealthBlock::Quality])[0],
+        );
+    }
+
     // ---------- helpers ----------
     /**
      * 一檔有 `$rows` 列估值歷史的台股，最新一列的 `fetched_at` 由呼叫端決定。
@@ -407,12 +449,12 @@ class HealthSnapshotBuilderTest extends TestCase
     }
 
     /**
-     * 四季完整、產業適用（半導體）的序列，季末日由呼叫端決定。
+     * 四季完整的序列，季末日與產業別由呼叫端決定（預設半導體業＝框架適用）。
      *
-     * 兩條測試共用同一份序列，差別**只在季末日**——其他欄位若也跟著變，
-     * 判定的差異就說不清是時效造成的還是資料本身造成的。
+     * 時效那兩條測試共用同一份序列，差別**只在季末日**；產業那條共用同一份序列，
+     * 差別**只在產業別**。其他欄位若也跟著變，判定的差異就說不清是哪一項造成的。
      */
-    private function seedSeries(string $symbol, string $period, string $endDate): Instrument
+    private function seedSeries(string $symbol, string $period, string $endDate, string $industry = '半導體業'): Instrument
     {
         $instrument = Instrument::factory()->create([
             'symbol' => $symbol, 'name' => $symbol, 'market' => 'TW', 'currency' => 'TWD',
@@ -441,7 +483,7 @@ class HealthSnapshotBuilderTest extends TestCase
                     $quarter($period, $endDate),
                 ],
                 market: 'tw',
-                industry: '半導體業',
+                industry: $industry,
                 dataAsOf: $endDate,
             ))->toArray(),
         ]);

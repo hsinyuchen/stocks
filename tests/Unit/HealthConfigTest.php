@@ -83,16 +83,25 @@ class HealthConfigTest extends TestCase
     }
 
     /**
-     * 品質那塊的產業適用性必須沿用 order_inventory 的既有名單，
-     * 不得在這裡另立一套——同一件事兩份判準遲早漂移。
+     * 品質那塊的產業適用性沿用 order_inventory 的既有名單，**不在 health 這邊
+     * 另立一套**——同一件事兩份判準遲早漂移。
+     *
+     * 這裡驗的是「health 沒有自己的產業名單」，不是「有一個指向別人的字串」：
+     * 原本那條斷言的對象是一個沒有任何生產程式碼讀的 config 鍵，等於驗一個字串
+     * 常數等於它自己（詳見 config/health.php 的說明）。真正的接線由
+     * `HealthSnapshotBuilderTest::the_snapshot_carries_the_industry_bucket_from_the_existing_policy`
+     * 走真實鏈路驗證。
      */
     #[Test]
-    public function quality_defers_to_the_existing_industry_policy(): void
+    public function health_does_not_define_its_own_industry_list(): void
     {
-        $this->assertSame(
-            'order_inventory.industry',
-            config('health.quality.industry_policy_source'),
-            '品質的產業適用性必須指向既有的 order_inventory 判準',
-        );
+        $quality = (array) config('health.quality');
+
+        foreach ($quality as $key => $value) {
+            $this->assertIsNumeric(
+                $value,
+                "health.quality.{$key} 不是門檻。產業適用性一律問 order_inventory 的既有名單，不得在此另立。",
+            );
+        }
     }
 }
