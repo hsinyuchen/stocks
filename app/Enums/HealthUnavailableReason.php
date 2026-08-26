@@ -15,7 +15,7 @@ enum HealthUnavailableReason: string
     /** 這個市場沒有這個資料源（例：ROE 只有台股）。永遠不會有。 */
     case NotInUniverse = 'not_in_universe';
 
-    /** 這個產業不適用（例：CCC 對金融、航運）。永遠不會有。 */
+    /** 這個產業不適用（例：應收帳款週轉天數對金融、航運）。永遠不會有。 */
     case NotApplicable = 'not_applicable';
 
     /** 資料還沒累積（例：估值分位需每檔 ≥20 列）。等分析或掃描跑過就會有。 */
