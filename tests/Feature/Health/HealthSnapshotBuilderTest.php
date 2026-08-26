@@ -167,6 +167,45 @@ class HealthSnapshotBuilderTest extends TestCase
         );
     }
 
+    /**
+     * `bars` 是**實際採計的根數**，不是請求的根數。
+     *
+     * 舊實作直接記參數，從不記 count($prices)。實測 SPCX：snapshot->bars = 80，
+     * 而 DB 實際只有 49 列。頁面因此顯示「技術面採計 80 根 K 棒」、prompt 寫
+     * 「採計 K 棒數：80」——而這個欄位正是為了「跨消費端視窗一致」而存在的，
+     * 用它判斷兩份判讀是否可比會得到錯誤結論。每一檔首次被搜尋、尚未跑過分析的
+     * 標的都是這個處境。
+     *
+     * seedStaleCaches() 只寫 30 列，請求 80 根，兩個數字刻意不同才測得出來。
+     */
+    #[Test]
+    public function bars_records_how_many_rows_were_actually_used(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 09:00:00'));
+        Http::fake();
+
+        $this->bindUpstreamCallingProviders();
+        $instrument = $this->seedStaleCaches();
+
+        $snapshot = app(HealthSnapshotBuilder::class)->cachedFor($instrument, 80);
+
+        $this->assertCount(30, $instrument->dailyPrices()->get(), '前提：DB 的列數少於請求的根數');
+        $this->assertSame(30, $snapshot->bars);
+    }
+
+    /** 一根都沒有時是 0，不是請求的根數——「還沒有行情」不得看起來像有 80 根。 */
+    #[Test]
+    public function bars_is_zero_when_nothing_has_been_cached_yet(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 09:00:00'));
+        Http::fake();
+
+        $this->bindUpstreamCallingProviders();
+        $fresh = Instrument::factory()->create(['symbol' => '2317.TW', 'name' => '鴻海', 'market' => 'TW', 'currency' => 'TWD']);
+
+        $this->assertSame(0, app(HealthSnapshotBuilder::class)->cachedFor($fresh, 80)->bars);
+    }
+
     // ---------- helpers ----------
 
     /**

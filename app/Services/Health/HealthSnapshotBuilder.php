@@ -110,7 +110,11 @@ class HealthSnapshotBuilder
         return new HealthInputSnapshot(
             symbol: $instrument->symbol,
             market: MarketResolver::region($instrument->symbol) === MarketRegion::Taiwan ? 'tw' : 'us',
-            bars: $bars,
+            // **記實際根數，不是請求的根數。** 這個欄位是為了「跨消費端視窗一致」
+            // 而存在的，用它判斷兩份判讀可不可比；記參數的話，一檔 DB 只有 49 列
+            // 的標的照樣宣稱採計 80 根（實測 SPCX 就是這樣），而每一檔首次被搜尋、
+            // 尚未跑過分析的標的都是這個處境。
+            bars: count($prices),
             // K 棒不足時 calculate() 會拋，而「這一檔還沒有行情」不是例外情況——
             // 首次被搜尋到的標的必然如此。空指標讓 reader 判成技術面不可評估。
             indicators: $prices === [] ? [] : $this->indicators->calculate($prices),

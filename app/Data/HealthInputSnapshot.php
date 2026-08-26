@@ -39,6 +39,10 @@ use App\Enums\AssetType;
 final readonly class HealthInputSnapshot
 {
     /**
+     * @param  int  $bars  **實際採計的日線根數**（`count($prices)`），不是請求的根數。
+     *                     這個欄位存在的理由是「跨消費端視窗一致」——用它判斷兩份判讀
+     *                     可不可比。記成請求值時，一檔 DB 只有 49 列的標的會宣稱採計
+     *                     80 根，那個比較就是錯的。
      * @param  array<string, mixed>  $indicators  TechnicalIndicatorService::calculate() 的輸出
      * @param  list<ChipFlowData>  $chipFlows
      * @param  array<string, array{value: float, percentile: float, min: float, median: float, max: float, samples: int}>|null  $valuationPercentiles
