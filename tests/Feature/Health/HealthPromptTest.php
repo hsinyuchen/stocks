@@ -559,6 +559,46 @@ class HealthPromptTest extends TestCase
         $this->assertStringNotContainsString($note, $fresh);
     }
 
+    /**
+     * 背離那一行是**三態**：確認／背離／無法判定，三者輸出互不相同。
+     *
+     * `SignalEngine::alignment()` 的 `none` 是「無法判定」（SignalFieldGuide 自己
+     * 這樣定義）。把它與 `confirm` 併成同一句「否」，等於對一檔連一列籌碼都沒有的
+     * 標的宣稱「技術與籌碼一致」——而引用紀律第 3 條又要模型在背離時兩者都講，
+     * 模型讀到「背離：否」的自然結論就是兩者同向。全部美股都走這一支。
+     */
+    #[Test]
+    public function the_divergence_line_distinguishes_unknown_from_confirmed(): void
+    {
+        $guide = new HealthGuide;
+        $long = new LongTermRead([], '2026-08-26.1');
+        $snapshot = $this->snapshot(cachedOnly: false);
+
+        $line = function (?string $alignment) use ($guide, $long, $snapshot): string {
+            $block = $guide->block(
+                new ShortTermRead(technicalStance: 'bullish', chipStance: 'accumulating', alignment: $alignment),
+                $long,
+                $snapshot,
+            );
+
+            $this->assertSame(1, preg_match('/^- 技術與籌碼是否背離：.*$/m', $block, $matches));
+
+            return $matches[0];
+        };
+
+        $confirm = $line('confirm');
+        $diverge = $line('diverge');
+        $unknown = $line(null);
+
+        $this->assertSame('- 技術與籌碼是否背離：'.config('health.narrative.diverging_no'), $confirm);
+        $this->assertSame('- 技術與籌碼是否背離：'.config('health.narrative.diverging_yes'), $diverge);
+        // 「不可評估」與四塊的不可評估同一個字，呈現層只需處理一種缺席。
+        $this->assertSame('- 技術與籌碼是否背離：'.config('health.narrative.verdict_unavailable'), $unknown);
+
+        $this->assertNotSame($confirm, $unknown, '無法判定不得與「同向確認」印成同一句');
+        $this->assertNotSame($diverge, $unknown);
+    }
+
     private function snapshot(bool $cachedOnly): HealthInputSnapshot
     {
         return new HealthInputSnapshot(

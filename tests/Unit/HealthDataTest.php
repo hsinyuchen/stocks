@@ -159,46 +159,59 @@ class HealthDataTest extends TestCase
     }
 
     /**
-     * 背離是獨立旗標，不是「兩個立場相加為 0」。
+     * 背離是獨立欄位，不是「兩個立場相加為 0」。
      * SignalEngine 刻意把籌碼排除在 score 之外、另外輸出 alignment，
      * 正是因為背離比同向更有資訊量；壓成一個數字會把它抹掉。
+     *
+     * **而且是三態不是布林。** SignalEngine::alignment() 的 `none` 是「無法判定」，
+     * 壓成 `bool $diverging` 會讓 `confirm` 與 `none` 併成同一格，於是一檔連一列
+     * 籌碼都沒有的美股會得到「是否背離：否」這個肯定的否定答案。
      */
     #[Test]
-    public function divergence_is_its_own_flag(): void
+    public function divergence_is_its_own_three_state_field(): void
     {
         $read = new ShortTermRead(
             technicalStance: 'bullish',
             chipStance: 'distributing',
-            diverging: true,
+            alignment: 'diverge',
             technicalReasons: ['KD 黃金交叉'],
             chipReasons: ['外資近五日淨賣超'],
         );
 
         $array = $read->toArray();
 
-        $this->assertTrue($array['diverging']);
+        $this->assertSame('diverge', $array['alignment']);
         $this->assertSame('bullish', $array['technical_stance']);
         $this->assertSame('distributing', $array['chip_stance']);
 
-        // 兩邊都中性不是背離，是「兩邊都沒訊號」。若 diverging 改由兩個立場
-        // 相加推導（相加為 0 即 true），這一格會與上面那格同值，而那正是
-        // 這個旗標存在的理由——它要分開的就是這兩種處境。
+        // 兩邊都中性不是背離，是「兩邊都沒訊號」——而那在 SignalEngine 裡是
+        // `none`，不是 `confirm`。若三態被壓成布林，這一格會與下一格同值。
         $bothNeutral = new ShortTermRead(
             technicalStance: 'neutral',
             chipStance: 'neutral',
-            diverging: false,
+            alignment: null,
         );
 
-        $this->assertFalse($bothNeutral->toArray()['diverging']);
+        $this->assertNull($bothNeutral->toArray()['alignment']);
 
-        // 沒有籌碼資料（美股）也不是背離：一邊算不出來就無從背離。
+        // 同向確認：與「無法判定」必須是兩個不同的值。
+        $confirm = new ShortTermRead(
+            technicalStance: 'bullish',
+            chipStance: 'accumulating',
+            alignment: 'confirm',
+        );
+
+        $this->assertSame('confirm', $confirm->toArray()['alignment']);
+        $this->assertNotSame($bothNeutral->toArray()['alignment'], $confirm->toArray()['alignment']);
+
+        // 沒有籌碼資料（美股）不是「不背離」，是無從判定。
         $noChip = new ShortTermRead(
             technicalStance: null,
             chipStance: null,
-            diverging: false,
+            alignment: null,
         );
 
-        $this->assertFalse($noChip->toArray()['diverging']);
+        $this->assertNull($noChip->toArray()['alignment']);
     }
 
     #[Test]

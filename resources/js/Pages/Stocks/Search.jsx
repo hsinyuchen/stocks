@@ -1629,9 +1629,17 @@ function HealthPanel({ health }) {
                 />
             </div>
 
+            {/* 背離是三態：alignment 為 null（SignalEngine 的 none）是「無法判定」，
+                走與四塊相同的不可評估徽章。印成「否」等於對一檔連一列籌碼都沒有的
+                標的宣稱技術與籌碼一致——同一頁對 rule_signal.alignment 的既有處理
+                本來就是三態，這裡不能倒退成兩態。 */}
             <p className="health-divergence">
                 <span className="health-divergence__label">{t('health.divergenceLabel')}</span>
-                <strong>{short.diverging ? t('health.divergingYes') : t('health.divergingNo')}</strong>
+                {short.alignment ? (
+                    <strong>{short.alignment === 'diverge' ? t('health.divergingYes') : t('health.divergingNo')}</strong>
+                ) : (
+                    <HealthVerdictBadge verdict={null} />
+                )}
             </p>
 
             {/* RSI 與量能就地標明未參與判定：它們與 KD／MACD／均線同為價格動能的

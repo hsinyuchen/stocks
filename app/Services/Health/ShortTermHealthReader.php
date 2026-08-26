@@ -36,7 +36,10 @@ class ShortTermHealthReader
             // 一律轉成 null，與中長線四塊的 null 同一語意，呈現層才只需處理一種。
             technicalStance: $technicalStance === 'insufficient_data' ? null : $technicalStance,
             chipStance: $chip === null ? null : (string) $chip['stance'],
-            diverging: ($signal['alignment'] ?? 'none') === 'diverge',
+            // 'none' 是 SignalEngine 用字串表示的「無法判定」（SignalFieldGuide
+            // 自己這樣定義），同樣轉成 null。壓成 bool 會讓它與 'confirm' 併成
+            // 同一格，等於對沒有籌碼資料的標的宣稱「技術與籌碼一致」。
+            alignment: $this->alignment($signal['alignment'] ?? 'none'),
             technicalReasons: array_values($signal['reasons'] ?? []),
             chipReasons: array_values($chip['reasons'] ?? []),
             rsi: $this->float($snapshot->indicators['rsi'] ?? null),
@@ -44,6 +47,17 @@ class ShortTermHealthReader
             priceAsOf: $snapshot->priceAsOf,
             chipAsOf: $snapshot->chipAsOf,
         );
+    }
+
+    /**
+     * SignalEngine 的三態 alignment；`none`（無法判定）轉成 null。
+     *
+     * 未知的鍵一律當成無法判定：多一個未知狀態時，寧可少講一句，也不要把它
+     * 當成「同向」而對使用者宣稱一件沒有依據的事。
+     */
+    private function alignment(mixed $alignment): ?string
+    {
+        return in_array($alignment, ['confirm', 'diverge'], true) ? $alignment : null;
     }
 
     /**

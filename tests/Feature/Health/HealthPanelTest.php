@@ -318,17 +318,31 @@ class HealthPanelTest extends TestCase
         $this->assertStringContainsString("t('health.contextNote')", $panel);
     }
 
-    /** 技術與籌碼並列，背離時明確標示——背離不互相抵銷是本設計的核心。 */
+    /**
+     * 技術與籌碼並列，背離時明確標示——背離不互相抵銷是本設計的核心。
+     *
+     * 而且背離是**三態**：`alignment` 為 null 代表無法判定，必須走與四塊相同的
+     * 「不可評估」徽章，不得印成「否」。同一頁對 `rule_signal.alignment` 的既有
+     * 處理（`alignment && alignment !== 'none'`）本來就是三態，新面板不能倒退。
+     */
     #[Test]
-    public function the_two_stances_are_shown_side_by_side_with_an_explicit_divergence_flag(): void
+    public function the_two_stances_are_shown_side_by_side_with_a_three_state_divergence_flag(): void
     {
         $panel = $this->functionBody('HealthPanel');
 
         $this->assertStringContainsString('short.technical_stance', $panel);
         $this->assertStringContainsString('short.chip_stance', $panel);
-        $this->assertStringContainsString('short.diverging', $panel);
+        $this->assertStringContainsString('short.alignment', $panel);
         $this->assertStringContainsString("t('health.divergingYes')", $panel);
         $this->assertStringContainsString("t('health.divergingNo')", $panel);
+
+        // 三態的第三態：null 走不可評估徽章，與「否」不同的一條分支。
+        $this->assertMatchesRegularExpression(
+            '/short\.alignment\s*\?/',
+            $panel,
+            'alignment 為 null 時必須走另一條分支，不得直接印「是／否」',
+        );
+        $this->assertStringContainsString('<HealthVerdictBadge verdict={null} />', $panel);
     }
 
     // ------------------------------------------------------------------

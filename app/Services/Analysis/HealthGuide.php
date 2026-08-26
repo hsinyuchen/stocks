@@ -196,10 +196,16 @@ class HealthGuide
             .$this->stance($short->chipStance, 'chip_stance', $en)
             .$this->asOf($short->chipAsOf, $en);
 
-        // 2. 背離旗標。這是本設計的核心：兩者背離時不互相抵銷，壓成一個數字會讓
+        // 2. 背離狀態。這是本設計的核心：兩者背離時不互相抵銷，壓成一個數字會讓
         // 「技術偏多但法人在賣」與「兩邊都沒訊號」變成同一格。
+        //
+        // **三態不是布林**：null（SignalEngine 的 `none`）是「無法判定」，走與四塊
+        // 相同的「不可評估」文案。印成「否」等於對一檔連一列籌碼都沒有的標的
+        // 宣稱技術與籌碼一致，而下面第 3 條紀律又要模型在背離時兩者都講。
         $lines[] = ($en ? '- Technical vs chip divergence: ' : '- 技術與籌碼是否背離：')
-            .$this->copy($short->diverging ? 'diverging_yes' : 'diverging_no', $en);
+            .($short->alignment === null
+                ? $this->copy('verdict_unavailable', $en)
+                : $this->copy($short->alignment === 'diverge' ? 'diverging_yes' : 'diverging_no', $en));
 
         // 3. 立場的理由。只給立場不給理由，使用者無從判斷可信度。
         if ($short->technicalReasons !== []) {

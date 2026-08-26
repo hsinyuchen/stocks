@@ -52,7 +52,7 @@ class ShortTermHealthReaderTest extends TestCase
     }
 
     #[Test]
-    public function a_bullish_snapshot_with_heavy_buying_is_not_diverging(): void
+    public function a_bullish_snapshot_with_heavy_buying_confirms(): void
     {
         $read = (new ShortTermHealthReader(new SignalEngine))->read(
             $this->snapshot($this->bullishIndicators(), $this->flows([9_000_000])),
@@ -60,7 +60,7 @@ class ShortTermHealthReaderTest extends TestCase
 
         $this->assertSame('bullish', $read->technicalStance);
         $this->assertSame('accumulating', $read->chipStance);
-        $this->assertFalse($read->diverging);
+        $this->assertSame('confirm', $read->alignment);
     }
 
     /** 背離：技術偏多但法人在賣。這是兩個維度分開輸出的全部理由。 */
@@ -73,17 +73,19 @@ class ShortTermHealthReaderTest extends TestCase
 
         $this->assertSame('bullish', $read->technicalStance);
         $this->assertSame('distributing', $read->chipStance);
-        $this->assertTrue($read->diverging);
+        $this->assertSame('diverge', $read->alignment);
     }
 
     /**
-     * **不知道不算背離。**
+     * **不知道不是「不背離」。**
      *
-     * 任一維度不可評估時 diverging 必須是 false：把「其中一邊沒有資料」講成
-     * 「兩邊互相矛盾」，是憑空造出一個資料沒有支持的宣稱。
+     * SignalEngine::alignment() 的第三態 `none` 是「無法判定」（SignalFieldGuide
+     * 自己這樣定義）。把它壓成 `false` 會與 `confirm` 併成同一格——於是一檔連一列
+     * 籌碼都沒有的美股會得到「是否背離：否」，而那是對著沒有資料的一邊給出肯定的
+     * 否定答案。**全部美股與所有尚無籌碼快取的台股都走這一支。**
      */
     #[Test]
-    public function an_unavailable_stance_never_counts_as_divergence(): void
+    public function an_unavailable_stance_makes_the_alignment_unknown_not_confirmed(): void
     {
         $reader = new ShortTermHealthReader(new SignalEngine);
 
@@ -92,14 +94,20 @@ class ShortTermHealthReaderTest extends TestCase
 
         $this->assertSame('bullish', $withoutChip->technicalStance);
         $this->assertNull($withoutChip->chipStance);
-        $this->assertFalse($withoutChip->diverging);
+        $this->assertNull($withoutChip->alignment);
 
         // 技術面不可評估（K 棒不足、指標仍在暖身期）。
         $withoutTechnical = $reader->read($this->snapshot([], $this->flows([-9_000_000])));
 
         $this->assertNull($withoutTechnical->technicalStance);
         $this->assertSame('distributing', $withoutTechnical->chipStance);
-        $this->assertFalse($withoutTechnical->diverging);
+        $this->assertNull($withoutTechnical->alignment);
+
+        // 對照組：三態必須真的是三個不同的值，否則上面兩條殺不死「恆回 null」。
+        $confirming = $reader->read($this->snapshot($this->bullishIndicators(), $this->flows([9_000_000])));
+
+        $this->assertSame('confirm', $confirming->alignment);
+        $this->assertNotSame($confirming->alignment, $withoutChip->alignment);
     }
 
     /** 技術面資料不足是 null（不可評估），不是 'insufficient_data' 這個字串。 */
@@ -122,7 +130,7 @@ class ShortTermHealthReaderTest extends TestCase
         );
 
         $this->assertSame('neutral', $read->chipStance);
-        $this->assertFalse($read->diverging);
+        $this->assertNull($read->alignment);
     }
 
     /** rsi 與 volume_ratio 是脈絡欄位，照抄快照、不參與判定。 */
