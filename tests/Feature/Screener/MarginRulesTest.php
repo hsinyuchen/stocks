@@ -49,10 +49,20 @@ class MarginRulesTest extends TestCase
         );
     }
 
-    /** @param  array<string, mixed>  $context */
+    /**
+     * 五根 K 棒的序列。
+     *
+     * 成交量不可省略：交叉規則的外資腿以「淨額佔同期成交量比」判定，缺了它一律
+     * 不命中。量刻意訂得夠大，chip() 的淨額仍能過門檻，讓斷言的變數只剩融資那一腿。
+     *
+     * @return array<string, list<int|string>>
+     */
     private function series(): array
     {
-        return ['dates' => array_map(fn (int $i) => sprintf('2026-07-%02d', $i + 1), range(0, 4))];
+        return [
+            'dates' => array_map(fn (int $i) => sprintf('2026-07-%02d', $i + 1), range(0, 4)),
+            'volume' => array_fill(0, 5, 10_000_000),
+        ];
     }
 
     public function test_margin_rules_do_not_match_without_data(): void
@@ -97,19 +107,19 @@ class MarginRulesTest extends TestCase
         $rule = new SmartMoneyAbsorbing;
         $down = $this->margin(1_000_000, 900_000);
 
-        $this->assertTrue($rule->matches([], [
+        $this->assertTrue($rule->matches($this->series(), [
             ScreenRule::NEEDS_MARGIN => $down,
             ScreenRule::NEEDS_CHIP => $this->chip(500_000),
         ]));
 
         // 外資也在賣 → 不是換手，是多殺多。
-        $this->assertFalse($rule->matches([], [
+        $this->assertFalse($rule->matches($this->series(), [
             ScreenRule::NEEDS_MARGIN => $down,
             ScreenRule::NEEDS_CHIP => $this->chip(-500_000),
         ]));
 
         // 沒有籌碼資料 → 交叉條件無從成立。
-        $this->assertFalse($rule->matches([], [ScreenRule::NEEDS_MARGIN => $down]));
+        $this->assertFalse($rule->matches($this->series(), [ScreenRule::NEEDS_MARGIN => $down]));
     }
 
     public function test_retail_chasing_needs_both_sides(): void
@@ -117,13 +127,13 @@ class MarginRulesTest extends TestCase
         $rule = new RetailChasing;
         $up = $this->margin(1_000_000, 1_100_000);
 
-        $this->assertTrue($rule->matches([], [
+        $this->assertTrue($rule->matches($this->series(), [
             ScreenRule::NEEDS_MARGIN => $up,
             ScreenRule::NEEDS_CHIP => $this->chip(-500_000),
         ]));
 
         // 融資增但外資也在買＝同步做多，不是散戶接刀。
-        $this->assertFalse($rule->matches([], [
+        $this->assertFalse($rule->matches($this->series(), [
             ScreenRule::NEEDS_MARGIN => $up,
             ScreenRule::NEEDS_CHIP => $this->chip(500_000),
         ]));
@@ -133,7 +143,7 @@ class MarginRulesTest extends TestCase
     {
         $flat = $this->margin(1_000_000, 1_005_000);   // 0.5%，低於門檻
 
-        $this->assertFalse((new RetailChasing)->matches([], [
+        $this->assertFalse((new RetailChasing)->matches($this->series(), [
             ScreenRule::NEEDS_MARGIN => $flat,
             ScreenRule::NEEDS_CHIP => $this->chip(-500_000),
         ]));

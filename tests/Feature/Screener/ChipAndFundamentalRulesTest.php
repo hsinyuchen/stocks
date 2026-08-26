@@ -40,10 +40,19 @@ class ChipAndFundamentalRulesTest extends TestCase
         return $out;
     }
 
-    /** 只吃價格序列的規則不需要額外資料，才不會為每檔都去查籌碼。 */
+    /**
+     * 只吃價格序列的規則不需要額外資料，才不會為每檔都去查籌碼。
+     *
+     * 成交量不可省略：籌碼規則的中性帶以「淨額佔同期成交量比」判定，缺了它一律
+     * 不命中。TechnicalIndicatorService::series() 一定會有這個鍵，測資也要照實給。
+     * 這裡的量刻意遠小於各案例的淨額，讓斷言的變數只剩規則本身的條件。
+     */
     private function series(): array
     {
-        return ['close' => array_fill(0, 40, 100.0)];
+        return [
+            'close' => array_fill(0, 40, 100.0),
+            'volume' => array_fill(0, 40, 10_000),
+        ];
     }
 
     // --- 籌碼規則 ---

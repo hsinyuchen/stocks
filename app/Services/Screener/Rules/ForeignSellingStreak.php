@@ -17,10 +17,18 @@ class ForeignSellingStreak extends ChipRule
         return '外資連續賣超 3 日';
     }
 
-    protected function evaluateChip(array $window, array $all): bool
+    /**
+     * 連續段的淨額合計要過中性帶，分母是同一段天數的成交量。
+     *
+     * 只數天數的話，一天買 1 股連買三天也算「連續買超」。以整段而非逐日判定的
+     * 理由見 ChipRule::streakNet()。
+     */
+    protected function evaluateChip(array $window, array $all, array $volumes): bool
     {
         [$streak, $isBuying] = $this->foreignStreak($all);
 
-        return ! $isBuying && $streak >= self::MIN_STREAK;
+        return ! $isBuying
+            && $streak >= self::MIN_STREAK
+            && $this->isSignificantNet($this->streakNet($all, $streak), $volumes, $streak);
     }
 }

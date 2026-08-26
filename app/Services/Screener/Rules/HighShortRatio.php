@@ -20,7 +20,7 @@ class HighShortRatio extends MarginRule
         return '券資比偏高（軋空條件）';
     }
 
-    protected function evaluateMargin(array $window, array $all, array $context): bool
+    protected function evaluateMargin(array $window, array $all, array $context, array $volumes): bool
     {
         $ratio = $this->latest($window)->shortToMarginPercent();
 

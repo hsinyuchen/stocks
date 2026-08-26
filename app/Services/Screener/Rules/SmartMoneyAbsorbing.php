@@ -33,7 +33,7 @@ class SmartMoneyAbsorbing extends MarginRule
         return '融資減＋外資買（籌碼換手）';
     }
 
-    protected function evaluateMargin(array $window, array $all, array $context): bool
+    protected function evaluateMargin(array $window, array $all, array $context, array $volumes): bool
     {
         $change = $this->changePercent($window);
         $threshold = (float) config('margin.signal.change_threshold', 3.0);
@@ -43,15 +43,20 @@ class SmartMoneyAbsorbing extends MarginRule
             return false;
         }
 
-        return $this->foreignNet($context) > 0;
+        return $this->significantForeignNet($context, $volumes) > 0;
     }
 
     /**
-     * 窗口內外資淨買賣超。無籌碼資料時回 0，交叉條件因此不成立。
+     * 窗口內外資淨買賣超，未達中性帶時回 0。
+     *
+     * 融資減少的那一腿已經要求「顯著」，外資這一腿卻只看正負，於是外資淨買 1 股
+     * 也算「法人在接」。回 0 而不是另開一個布林：兩個子類分別要判正負，回淨額
+     * 讓兩邊共用同一個入口，未達門檻時 0 對兩邊都不成立。
      *
      * @param  array<string, mixed>  $context
+     * @param  list<int|float>  $volumes
      */
-    protected function foreignNet(array $context): int
+    protected function significantForeignNet(array $context, array $volumes): int
     {
         $chip = $context[ScreenRule::NEEDS_CHIP] ?? null;
 
@@ -59,14 +64,15 @@ class SmartMoneyAbsorbing extends MarginRule
             return 0;
         }
 
+        $window = array_slice($chip, -self::WINDOW);
         $net = 0;
 
-        foreach (array_slice($chip, -self::WINDOW) as $flow) {
+        foreach ($window as $flow) {
             if ($flow instanceof ChipFlowData) {
                 $net += $flow->foreignNet;
             }
         }
 
-        return $net;
+        return $this->isSignificantNet($net, $volumes, count($window)) ? $net : 0;
     }
 }
