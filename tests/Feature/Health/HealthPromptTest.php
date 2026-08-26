@@ -675,6 +675,48 @@ class HealthPromptTest extends TestCase
         $this->assertNotSame($diverge, $unknown);
     }
 
+    /**
+     * **兩個立場的理由要逐字進區塊，中英兩條路徑都要。**
+     *
+     * 期望值是字面值不是 `read($snapshot)->toArray()`：既有的 prompt 與面板測試
+     * 都自算期望值，於是刪掉 {@see HealthGuide::block()} 那兩個輸出理由的 `if`
+     * 區塊照樣全綠——而那正是該檔 docblock 明令不可為之事（只給立場不給理由，
+     * 使用者無從判斷可信度）。
+     *
+     * 英文路徑標籤是英文、理由逐字保留中文：兩個 reader 都不吃 locale，到呈現層
+     * 已是定稿，丟掉資訊比語言混雜更糟。
+     */
+    #[Test]
+    public function the_block_carries_the_reasons_behind_each_stance(): void
+    {
+        $guide = new HealthGuide;
+        $long = new LongTermRead([], '2026-08-26.1');
+        $snapshot = $this->snapshot(cachedOnly: false);
+        $short = new ShortTermRead(
+            technicalStance: 'bullish',
+            chipStance: 'accumulating',
+            alignment: 'confirm',
+            technicalReasons: ['KD 偏多，K 高於 D 7.5 點。', 'MACD 柱狀體明確為正，動能偏多。'],
+            chipReasons: ['近 5 日外資合計買超 1,234 張。'],
+        );
+
+        $zh = $guide->block($short, $long, $snapshot);
+
+        $this->assertStringContainsString(
+            '- 技術面理由：KD 偏多，K 高於 D 7.5 點。；MACD 柱狀體明確為正，動能偏多。',
+            $zh,
+        );
+        $this->assertStringContainsString('- 籌碼面理由：近 5 日外資合計買超 1,234 張。', $zh);
+
+        $en = $guide->block($short, $long, $snapshot, 'en');
+
+        $this->assertStringContainsString(
+            '- Technical reasons: KD 偏多，K 高於 D 7.5 點。; MACD 柱狀體明確為正，動能偏多。',
+            $en,
+        );
+        $this->assertStringContainsString('- Chip reasons: 近 5 日外資合計買超 1,234 張。', $en);
+    }
+
     private function snapshot(bool $cachedOnly): HealthInputSnapshot
     {
         return new HealthInputSnapshot(

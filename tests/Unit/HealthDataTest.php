@@ -214,6 +214,35 @@ class HealthDataTest extends TestCase
         $this->assertNull($noChip->toArray()['alignment']);
     }
 
+    /**
+     * **兩個立場的理由要跟著序列化出去。**
+     *
+     * 全鏈路原本零斷言：`grep -rn "technical_reasons|chip_reasons" tests/` 只命中
+     * 建構參數，之後沒有任何斷言讀它；面板與 prompt 的既有測試又都拿
+     * `read($snapshot)->toArray()` 當期望值——**與被測值同一份程式碼，欄位一起
+     * 消失一起綠**。這裡用字面值，刪掉 toArray() 的兩個鍵就會紅。
+     *
+     * 只給立場不給理由，使用者無從判斷可信度，等於要求他無條件相信一組未經回測
+     * 的門檻。
+     */
+    #[Test]
+    public function the_reasons_behind_each_stance_survive_serialisation(): void
+    {
+        $array = (new ShortTermRead(
+            technicalStance: 'bullish',
+            chipStance: 'accumulating',
+            alignment: 'confirm',
+            technicalReasons: ['KD 偏多，K 高於 D 7.5 點。', 'MACD 柱狀體明確為正，動能偏多。'],
+            chipReasons: ['近 5 日外資合計買超 1,234 張。'],
+        ))->toArray();
+
+        $this->assertSame(
+            ['KD 偏多，K 高於 D 7.5 點。', 'MACD 柱狀體明確為正，動能偏多。'],
+            $array['technical_reasons'],
+        );
+        $this->assertSame(['近 5 日外資合計買超 1,234 張。'], $array['chip_reasons']);
+    }
+
     #[Test]
     public function a_long_term_read_keeps_every_block_even_when_unavailable(): void
     {

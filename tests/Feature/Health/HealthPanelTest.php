@@ -347,6 +347,30 @@ class HealthPanelTest extends TestCase
         $this->assertStringContainsString('<HealthVerdictBadge verdict={null} />', $panel);
     }
 
+    /**
+     * **兩個立場的理由要真的傳到畫面上。**
+     *
+     * 這條的期望值刻意是 JSX 的字面接線，不是 payload 的值：既有的面板測試拿
+     * `read($snapshot)->toArray()` 當期望值，把 `reasons={short.technical_reasons}`
+     * 改成 `reasons={[]}` 完全不會紅——payload 那一端照樣有欄位，只是沒人用。
+     *
+     * 只給立場不給理由，使用者無從判斷可信度。
+     */
+    #[Test]
+    public function each_stance_row_receives_its_reasons(): void
+    {
+        $panel = $this->functionBody('HealthPanel');
+
+        $this->assertStringContainsString('reasons={short.technical_reasons}', $panel);
+        $this->assertStringContainsString('reasons={short.chip_reasons}', $panel);
+
+        // 收下之後要真的渲染出去，不是收了就丟。
+        $this->assertStringContainsString(
+            '<HealthReasons reasons={reasons} />',
+            $this->functionBody('HealthStanceRow'),
+        );
+    }
+
     // ------------------------------------------------------------------
     // 歷史分析保存下來的判讀
     // ------------------------------------------------------------------
