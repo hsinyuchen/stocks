@@ -334,6 +334,9 @@ class SocialArbitrageAssessorTest extends TestCase
                     'revenue_unknown_reason' => null,
                     'metrics' => new OrderInventoryMetrics(grossMarginQoqPp: -2.5),
                     'industry_bucket' => 'general',
+                    // series_too_old 是體質判讀（階段 5b 審查修正）加的；這裡回 false
+                    // 才與同一份回傳裡 revenue_verified 有結論這件事一致。
+                    'series_too_old' => false,
                 ];
             }
 

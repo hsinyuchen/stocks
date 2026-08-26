@@ -35,6 +35,12 @@ use App\Enums\AssetType;
  *
  * `cachedOnly` 明確分離取用政策：true 代表這份 snapshot 只由已快取資料組成、
  * 一次上游都沒打。呈現層要據此說明「這份判讀可能不是最新的」。
+ *
+ * **帶 `seriesStale`。** `OrderInventoryRadar::assess()` 在季末日超過
+ * `order_inventory.freshness.max_quarter_age_days` 時短路成 Insufficient，但
+ * `seriesSignalsFor()` 照樣回傳算好的 metrics。少了這個旗標，成長與品質會拿一份
+ * 已被姊妹框架判定為 `RevenueUnknownReason::Stale` 的序列給出「正面」。
+ * 用的是既有那把尺，不另訂新門檻。
  */
 final readonly class HealthInputSnapshot
 {
@@ -63,6 +69,7 @@ final readonly class HealthInputSnapshot
         public ?string $financialPeriod = null,
         public bool $cachedOnly = true,
         public AssetType $assetType = AssetType::Stock,
+        public bool $seriesStale = false,
     ) {}
 
     /** @return array<string, mixed> */

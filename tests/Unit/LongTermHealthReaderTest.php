@@ -625,6 +625,58 @@ class LongTermHealthReaderTest extends TestCase
         );
     }
 
+    // ---------- 序列過舊 ----------
+
+    /**
+     * **序列太舊時成長與品質是 Stale，不是照樣給答案。**
+     *
+     * `OrderInventoryRadar::assess()` 先算 metrics，再因 `$freshness['too_old']`
+     * （`order_inventory.freshness.max_quarter_age_days`）短路成 Insufficient；
+     * 但 `seriesSignalsFor()` 無條件回傳那份 metrics。姊妹框架把同一份資料對使用者
+     * 講成 `RevenueUnknownReason::Stale`，體質判讀卻用它給出「成長：正面」。
+     *
+     * 測資刻意帶一組算得出來、且會判 Positive 的 metrics——忽略旗標的實作會回
+     * 一個非 null 的判定，這條就紅。
+     */
+    #[Test]
+    public function growth_and_quality_are_stale_when_the_series_is_too_old(): void
+    {
+        $overrides = [
+            'metrics' => new OrderInventoryMetrics(
+                dsoChangeDays: $this->threshold('quality.dso_change_days_better') - 5.0,
+                ocfToNetIncome: $this->threshold('quality.ocf_to_net_income_strong') + 0.5,
+                revenueYoy: $this->threshold('growth.strong') + 0.1,
+            ),
+            'financialPeriod' => '2024Q2',
+            'seriesStale' => true,
+        ];
+
+        foreach ([HealthBlock::Growth, HealthBlock::Quality] as $wanted) {
+            $block = $this->block($wanted, $overrides);
+
+            $this->assertNull($block->verdict, $wanted->value);
+            $this->assertSame(HealthUnavailableReason::Stale, $block->unavailableReason, $wanted->value);
+            $this->assertSame('2024Q2', $block->asOf, $wanted->value.' 要說得出舊到什麼時候');
+        }
+    }
+
+    /**
+     * 對照組：**序列還沒累積是 NotYet，不是 Stale。**
+     *
+     * 兩者對使用者是不同的行動——「等分析跑過就會有」與「等上游更新財報」。
+     * 少了這一條，「凡是不可評估就回 Stale」的實作照樣讓上一條全綠。
+     */
+    #[Test]
+    public function a_missing_series_is_not_yet_rather_than_stale(): void
+    {
+        foreach ([HealthBlock::Growth, HealthBlock::Quality] as $wanted) {
+            $block = $this->block($wanted, ['industryBucket' => 'suited', 'metrics' => null]);
+
+            $this->assertSame(HealthUnavailableReason::NotYet, $block->unavailableReason, $wanted->value);
+            $this->assertNotSame(HealthUnavailableReason::Stale, $block->unavailableReason, $wanted->value);
+        }
+    }
+
     // ---------- helpers ----------
 
     private function threshold(string $key): float

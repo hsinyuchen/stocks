@@ -122,6 +122,8 @@ class OrderInventoryAssessor
                 // 「不適用」是一個需要證據才能下的結論。
                 'metrics' => null,
                 'industry_bucket' => null,
+                // 序列拿不到時談不上「太舊」，那是「還沒有」。
+                'series_too_old' => false,
             ];
         }
 
@@ -137,6 +139,12 @@ class OrderInventoryAssessor
             'revenue_unknown_reason' => $verified === null ? $this->unknownReason($assessment) : null,
             'metrics' => $assessment->metrics,
             'industry_bucket' => $assessment->industryBucket,
+            // **時效旗標必須跟 metrics 一起出去。** assess() 在季末日超過
+            // order_inventory.freshness.max_quarter_age_days 時短路成 Insufficient，
+            // 但這裡照樣回傳算好的 metrics；消費端看不到 assessment 的 freshness，
+            // 少了這個鍵就會拿一份已被判定過舊的序列去下結論——同一份資料在營收那邊
+            // 叫 RevenueUnknownReason::Stale、在體質判讀那邊卻變成「成長：正面」。
+            'series_too_old' => (bool) ($assessment->freshness['too_old'] ?? false),
         ];
     }
 

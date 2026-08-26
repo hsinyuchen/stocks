@@ -132,6 +132,9 @@ class HealthSnapshotBuilder
             cachedOnly: $cachedOnly,
             // 漏填會讓 ETF 走回「等一下就有」那條路，但 ETF 永遠不會有 ROE。
             assetType: MarketResolver::assetType($instrument->symbol),
+            // 序列的時效沿用 order_inventory.freshness 那把既有的尺。漏填會讓
+            // 一份半年前的財報照樣輸出成長與品質的 ±1。
+            seriesStale: $series['series_too_old'],
         );
     }
 

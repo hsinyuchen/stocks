@@ -185,13 +185,27 @@ class LongTermHealthReader
      * 不要誤用 `FundamentalsData::$revenueYoy`（百分比）。** 兩者同名、差 100 倍，
      * 是本階段最容易接錯的一個欄位。
      *
-     * 序列不存在是 NotYet（跑過分析就會有）；序列在但年增算不出來是 Indeterminate
-     * （缺去年同期，再跑幾次也不會變出來）。兩者對使用者是不同的行動。
+     * 序列不存在是 NotYet（跑過分析就會有）；序列在但太舊是 Stale（等上游更新財報，
+     * 尺沿用 `order_inventory.freshness.max_quarter_age_days`，不另訂新門檻）；
+     * 序列夠新但年增算不出來是 Indeterminate（缺去年同期，再跑幾次也不會變出來）。
+     * 三者對使用者是三種不同的行動。
+     *
+     * **時效不可省略**：OrderInventoryRadar 在 too_old 時短路成 Insufficient，
+     * 但 seriesSignalsFor() 照樣回傳算好的 metrics。不看旗標的話，同一份資料會在
+     * 營收那邊叫 RevenueUnknownReason::Stale、在這裡變成「成長：正面」。
      */
     private function growth(HealthInputSnapshot $snapshot): HealthBlockResult
     {
         if ($snapshot->metrics === null) {
             return HealthBlockResult::unavailable(HealthBlock::Growth, HealthUnavailableReason::NotYet);
+        }
+
+        if ($snapshot->seriesStale) {
+            return HealthBlockResult::unavailable(
+                HealthBlock::Growth,
+                HealthUnavailableReason::Stale,
+                $snapshot->financialPeriod,
+            );
         }
 
         $yoy = $snapshot->metrics->revenueYoy;
@@ -244,6 +258,14 @@ class LongTermHealthReader
 
         if ($snapshot->metrics === null) {
             return HealthBlockResult::unavailable(HealthBlock::Quality, HealthUnavailableReason::NotYet);
+        }
+
+        if ($snapshot->seriesStale) {
+            return HealthBlockResult::unavailable(
+                HealthBlock::Quality,
+                HealthUnavailableReason::Stale,
+                $snapshot->financialPeriod,
+            );
         }
 
         $votes = [];

@@ -9,14 +9,19 @@ use App\Contracts\MarketDataProvider;
 use App\Data\ChipFlowData;
 use App\Data\DailyPriceData;
 use App\Data\FundamentalsData;
+use App\Data\HealthInputSnapshot;
 use App\Data\MarketQuoteData;
 use App\Data\OrderInventoryData;
+use App\Data\QuarterlyFinancials;
 use App\Enums\AssetType;
+use App\Enums\HealthBlock;
+use App\Enums\HealthUnavailableReason;
 use App\Models\ChipFlow;
 use App\Models\DailyPrice;
 use App\Models\Fundamental;
 use App\Models\Instrument;
 use App\Services\Health\HealthSnapshotBuilder;
+use App\Services\Health\LongTermHealthReader;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -206,7 +211,123 @@ class HealthSnapshotBuilderTest extends TestCase
         $this->assertSame(0, app(HealthSnapshotBuilder::class)->cachedFor($fresh, 80)->bars);
     }
 
+    /**
+     * **財報序列過舊要一路傳到成長與品質，並判成 Stale。**
+     *
+     * `HealthUnavailableReason::Stale` 原本沒有任何生產路徑會產出它——
+     * `grep -rn "HealthUnavailableReason::Stale" app/` 只找得到 enum 定義本身。
+     * `OrderInventoryRadar::assess()` 在 `freshness['too_old']` 時短路成
+     * Insufficient，姊妹框架據此對使用者說 `RevenueUnknownReason::Stale`；
+     * 但 `seriesSignalsFor()` 無條件回傳那份 metrics，體質判讀完全不看 freshness，
+     * 於是同一份資料在一個地方叫「太舊」、在另一個地方給出「成長：正面」。
+     *
+     * 這條走完整鏈路（DB 的 order_inventory → assessor → 快照 → reader），
+     * 只在 reader 上單測會漏掉中間任何一段沒接上。
+     */
+    #[Test]
+    public function a_series_that_is_too_old_makes_growth_and_quality_stale(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 09:00:00'));
+        Http::fake();
+
+        $this->bindUpstreamCallingProviders();
+        $instrument = $this->seedSeries('2303.TW', '2023Q2', '2023-06-30');
+
+        $snapshot = app(HealthSnapshotBuilder::class)->cachedFor($instrument, 80);
+
+        $this->assertTrue($snapshot->seriesStale, '快照要帶得出「序列太舊」這件事');
+        $this->assertNotNull($snapshot->metrics, '前提：metrics 照樣算得出來，才可能被誤用');
+
+        $this->assertSame(
+            [HealthUnavailableReason::Stale, HealthUnavailableReason::Stale],
+            $this->reasonsFor($snapshot, [HealthBlock::Growth, HealthBlock::Quality]),
+        );
+    }
+
+    /**
+     * 對照組：同一份序列只是把季末日換到最近，就**不是** Stale。
+     *
+     * 少了這條，「成長與品質恆回 Stale」的實作照樣讓上一條全綠。
+     */
+    #[Test]
+    public function a_recent_series_is_not_stale(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 09:00:00'));
+        Http::fake();
+
+        $this->bindUpstreamCallingProviders();
+        $instrument = $this->seedSeries('2454.TW', '2026Q2', '2026-06-30');
+
+        $snapshot = app(HealthSnapshotBuilder::class)->cachedFor($instrument, 80);
+
+        $this->assertFalse($snapshot->seriesStale);
+
+        foreach ($this->reasonsFor($snapshot, [HealthBlock::Growth, HealthBlock::Quality]) as $reason) {
+            $this->assertNotSame(HealthUnavailableReason::Stale, $reason);
+        }
+    }
+
     // ---------- helpers ----------
+
+    /**
+     * 四季完整、產業適用（半導體）的序列，季末日由呼叫端決定。
+     *
+     * 兩條測試共用同一份序列，差別**只在季末日**——其他欄位若也跟著變，
+     * 判定的差異就說不清是時效造成的還是資料本身造成的。
+     */
+    private function seedSeries(string $symbol, string $period, string $endDate): Instrument
+    {
+        $instrument = Instrument::factory()->create([
+            'symbol' => $symbol, 'name' => $symbol, 'market' => 'TW', 'currency' => 'TWD',
+        ]);
+
+        $quarter = fn (string $period, string $endDate): QuarterlyFinancials => new QuarterlyFinancials(
+            period: $period,
+            endDate: $endDate,
+            revenue: 1000.0,
+            costOfGoodsSold: 700.0,
+            grossProfit: 300.0,
+            inventories: 350.0,
+        );
+
+        $shift = CarbonImmutable::parse($endDate);
+
+        Fundamental::query()->create([
+            'instrument_id' => $instrument->id,
+            'data_as_of' => $endDate,
+            'fetched_at' => CarbonImmutable::parse(self::FUNDAMENTALS_AS_OF.' 20:00:00'),
+            'per' => 15.0,
+            'order_inventory' => (new OrderInventoryData(
+                quarters: [
+                    $quarter($period, $shift->subYear()->toDateString()),
+                    $quarter($period, $shift->subMonths(3)->toDateString()),
+                    $quarter($period, $endDate),
+                ],
+                market: 'tw',
+                industry: '半導體業',
+                dataAsOf: $endDate,
+            ))->toArray(),
+        ]);
+
+        return $instrument;
+    }
+
+    /**
+     * 指定幾塊的不可評估成因（可評估時為 null）。
+     *
+     * @param  list<HealthBlock>  $wanted
+     * @return list<?HealthUnavailableReason>
+     */
+    private function reasonsFor(HealthInputSnapshot $snapshot, array $wanted): array
+    {
+        $blocks = [];
+
+        foreach (app(LongTermHealthReader::class)->read($snapshot)->blocks as $block) {
+            $blocks[$block->block->value] = $block->unavailableReason;
+        }
+
+        return array_map(fn (HealthBlock $block): ?HealthUnavailableReason => $blocks[$block->value], $wanted);
+    }
 
     /**
      * 四個會真的發 HTTP 的 spy。
