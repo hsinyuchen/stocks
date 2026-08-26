@@ -267,7 +267,145 @@ class HealthSnapshotBuilderTest extends TestCase
         }
     }
 
+    /**
+     * **估值列過期時估值那一塊回 Stale。**
+     *
+     * PER／PBR 的分位依**當前股價**，本來就是每日量。一份三個月前的列說
+     * 「目前本益比位於歷史第 30 百分位」，講的是三個月前的股價——那不是舊資訊，
+     * 是錯資訊。尺沿用估值路徑自己那條（`DailyDataFreshness::isStale()` 問
+     * 「今天盤後的公佈了沒」，即 `FundamentalsService::isStale()` 用的那條），
+     * **不另訂門檻**，尤其不能套季度序列那把 `max_quarter_age_days`：那一把量的是
+     * 財報季末日，與快取列的 fetched_at 是兩種不同的量。
+     */
+    #[Test]
+    public function a_stale_valuation_row_makes_the_valuation_block_stale(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 09:00:00'));
+        Http::fake();
+
+        $this->bindUpstreamCallingProviders();
+        // 20 列才算得出分位；沒有它，這一塊會停在 NotYet 而看不出時效有沒有接上。
+        $instrument = $this->seedValuationHistory('2412.TW', 20, '2026-08-05 20:00:00');
+
+        $snapshot = app(HealthSnapshotBuilder::class)->cachedFor($instrument, 80);
+
+        $this->assertTrue($snapshot->valuationStale, '快照要帶得出「估值列過期」這件事');
+        $this->assertNotNull($snapshot->valuationPercentiles, '前提：分位算得出來，才可能被誤用');
+
+        $this->assertSame(
+            HealthUnavailableReason::Stale,
+            $this->reasonsFor($snapshot, [HealthBlock::Valuation])[0],
+        );
+    }
+
+    /**
+     * 對照組：同一份歷史只是把 `fetched_at` 換成今天盤後，估值就照樣給判定。
+     *
+     * 少了這條，「估值恆回 Stale」的實作照樣讓上一條全綠。
+     */
+    #[Test]
+    public function a_fresh_valuation_row_still_produces_a_verdict(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 20:00:00'));
+        Http::fake();
+
+        $this->bindUpstreamCallingProviders();
+        $instrument = $this->seedValuationHistory('2454.TW', 20, '2026-08-26 19:00:00');
+
+        $snapshot = app(HealthSnapshotBuilder::class)->cachedFor($instrument, 80);
+
+        $this->assertFalse($snapshot->valuationStale);
+        $this->assertNull($this->reasonsFor($snapshot, [HealthBlock::Valuation])[0]);
+    }
+
+    /**
+     * **樣本不足是 NotYet，不是 Stale**——即使那一列同樣過期。
+     *
+     * 兩者對使用者是不同的行動：「再累積幾天就有」與「等上游更新」。分位需每檔
+     * ≥20 列而每日只寫一列，上線初期每一檔都落在這一支；把它講成「太舊」等於叫
+     * 使用者去等一個不會解決問題的更新。
+     */
+    #[Test]
+    public function too_few_samples_stays_not_yet_even_when_the_row_is_stale(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 09:00:00'));
+        Http::fake();
+
+        $this->bindUpstreamCallingProviders();
+        $instrument = $this->seedValuationHistory('2603.TW', 3, '2026-08-05 20:00:00');
+
+        $snapshot = app(HealthSnapshotBuilder::class)->cachedFor($instrument, 80);
+
+        $this->assertTrue($snapshot->valuationStale, '前提：這一列確實過期');
+        $this->assertSame(
+            HealthUnavailableReason::NotYet,
+            $this->reasonsFor($snapshot, [HealthBlock::Valuation])[0],
+        );
+    }
+
+    /**
+     * **同一份過期的列，ROE 仍然給出判定。**
+     *
+     * 兩塊讀同一列卻兩種處理，這條就是為了釘住那不是筆誤：ROE 是 TTM 數字、
+     * 每季才變，一份日級過期的列上那個 ROE 仍然有效；估值依當前股價，日級過期
+     * 就已經在講另一個股價下的分位。理由寫在 `LongTermHealthReader` 的兩個
+     * docblock 裡。
+     */
+    #[Test]
+    public function the_same_stale_row_still_produces_a_return_on_equity_verdict(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-26 09:00:00'));
+        Http::fake();
+
+        $this->bindUpstreamCallingProviders();
+        $instrument = $this->seedValuationHistory('2308.TW', 20, '2026-08-05 20:00:00');
+
+        $snapshot = app(HealthSnapshotBuilder::class)->cachedFor($instrument, 80);
+        $blocks = app(LongTermHealthReader::class)->read($snapshot)->blocks;
+
+        foreach ($blocks as $block) {
+            if ($block->block === HealthBlock::ReturnOnEquity) {
+                $this->assertNotNull($block->verdict, '過期的列上，ROE 仍然算得出來');
+                $this->assertNull($block->unavailableReason);
+
+                return;
+            }
+        }
+
+        $this->fail('blocks 裡缺少 return_on_equity。');
+    }
+
     // ---------- helpers ----------
+    /**
+     * 一檔有 `$rows` 列估值歷史的台股，最新一列的 `fetched_at` 由呼叫端決定。
+     *
+     * 每列的 PER／PBR 逐日遞增，讓最新值落在歷史高分位——判定本身不是這幾條測試
+     * 的重點，重點是「算得出判定」與「因過期而不給判定」分得開。
+     */
+    private function seedValuationHistory(string $symbol, int $rows, string $fetchedAt): Instrument
+    {
+        $instrument = Instrument::factory()->create([
+            'symbol' => $symbol, 'name' => $symbol, 'market' => 'TW', 'currency' => 'TWD',
+        ]);
+
+        $latest = CarbonImmutable::parse($fetchedAt);
+
+        for ($i = $rows - 1; $i >= 0; $i--) {
+            Fundamental::query()->create([
+                'instrument_id' => $instrument->id,
+                'data_as_of' => $latest->subDays($i)->toDateString(),
+                // 歷史列的抓取時間不影響判定（只看最新一列），但寫成同一天會讓
+                // 「取哪一列」這件事變得不可觀測。
+                'fetched_at' => $latest->subDays($i),
+                'per' => 10.0 + ($rows - $i) * 0.5,
+                'pbr' => 1.0 + ($rows - $i) * 0.05,
+                'roe' => 20.0,
+            ]);
+        }
+
+        return $instrument;
+    }
+
 
     /**
      * 四季完整、產業適用（半導體）的序列，季末日由呼叫端決定。

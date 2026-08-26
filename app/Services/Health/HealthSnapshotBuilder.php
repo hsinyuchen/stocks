@@ -135,6 +135,12 @@ class HealthSnapshotBuilder
             // 序列的時效沿用 order_inventory.freshness 那把既有的尺。漏填會讓
             // 一份半年前的財報照樣輸出成長與品質的 ±1。
             seriesStale: $series['series_too_old'],
+            // 估值走**另一把尺**（估值路徑自己的「今天盤後的公佈了沒」），不是
+            // 上面那一把：PER／PBR 依當前股價、每日變動，套季度序列的門檻會讓
+            // 一份三個月前的列繼續講「目前本益比位於歷史第 30 百分位」。
+            // 沒有列時視為不過期——那時 valuationPercentiles 本來就是 null，
+            // 該塊會走 NotYet，再宣稱「太舊」等於對不存在的資料下時效判斷。
+            valuationStale: $valuation['stale'] ?? false,
         );
     }
 

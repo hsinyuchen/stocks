@@ -85,6 +85,21 @@ class LongTermHealthReader
      *
      * 兩者反向時回中性——見 combine()。只有一個算得出來時照樣判定，
      * 但理由必須寫明「僅依」哪一項，讓使用者知道這一塊只有一半的證據。
+     *
+     * **這一塊要看時效，隔壁的 ROE 不看——同一列資料兩種處理，不是漏掉。**
+     * 分位的分子是**當前股價**算出來的 PER／PBR，所以整句話是每日量：一份三個月
+     * 前的列說「目前本益比位於歷史第 30 百分位」，講的是三個月前的股價，那不是
+     * 舊資訊而是錯資訊。ROE 是 TTM 數字、每季才變，同一列上的它仍然成立
+     * （理由見 {@see returnOnEquity()}）。
+     *
+     * 尺是估值路徑自己那條（`FundamentalsService::cachedValuationFor()` 用
+     * `DailyDataFreshness::isStale()` 算好放進 `$snapshot->valuationStale`），
+     * **不是** `seriesStale` 那把——後者量的是財報季末日有多舊，與快取列的抓取
+     * 時刻是兩種不同的量，互換會讓相當比例的標的莫名其妙地少一塊判定。
+     *
+     * **順序是 NotYet 先於 Stale。** 樣本不足時根本還沒有分位可言，說它「太舊、
+     * 等上游更新」是叫使用者去等一個不會解決問題的更新——每檔每日只寫一列而分位
+     * 需 ≥20 列，上線初期每一檔都落在這一支。
      */
     private function valuation(HealthInputSnapshot $snapshot): HealthBlockResult
     {
@@ -120,6 +135,14 @@ class LongTermHealthReader
             );
         }
 
+        if ($snapshot->valuationStale) {
+            return HealthBlockResult::unavailable(
+                HealthBlock::Valuation,
+                HealthUnavailableReason::Stale,
+                $snapshot->fundamentalsAsOf,
+            );
+        }
+
         $verdicts = array_column($votes, 'verdict');
         $reasons = array_column($votes, 'text');
 
@@ -146,6 +169,13 @@ class LongTermHealthReader
      * **單位是百分比不是比率**：FinMind 那條算式是
      * `$ttmNet / $latestEquity * 100`，實測 DB 裡最大值 50.89（＝50.89%）。
      * config 的門檻因此是 5.0／15.0 而不是 0.05／0.15，理由的 sprintf 也不再乘 100。
+     *
+     * **這一塊刻意不看 `valuationStale`，儘管它與估值讀的是同一列。** 這不是漏掉：
+     * ROE 是 TTM 淨利除以最新季股東權益，兩個分量都每季才更新，一份日級過期的
+     * 快取列上那個數字仍然是最新一季的真實值。估值那一塊要 gate，是因為 PER／PBR
+     * 的分子是當前股價（見 {@see valuation()}）——同一列裡一個是每日量、一個是
+     * 季度量，用同一把日尺去 gate 會讓相當比例的標的白白少掉一塊算得出來的判定。
+     * 資料多舊由 `as_of` 揭露，那對季度量已經足夠。
      */
     private function returnOnEquity(HealthInputSnapshot $snapshot): HealthBlockResult
     {

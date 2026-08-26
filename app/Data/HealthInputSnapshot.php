@@ -41,6 +41,13 @@ use App\Enums\AssetType;
  * `seriesSignalsFor()` 照樣回傳算好的 metrics。少了這個旗標，成長與品質會拿一份
  * 已被姊妹框架判定為 `RevenueUnknownReason::Stale` 的序列給出「正面」。
  * 用的是既有那把尺，不另訂新門檻。
+ *
+ * **帶 `valuationStale`，而且它與 `seriesStale` 是兩把不同的尺。** 估值的 PER／PBR
+ * 分位依**當前股價**，是每日量，過期判準因此是估值路徑自己的
+ * 「今天盤後的公佈了沒」（`FundamentalsService::cachedValuationFor()` 算好帶進來）；
+ * 序列是季報＋月營收，量的是季末日有多舊。兩者若共用一把尺，不論套哪一邊都會錯：
+ * 用日尺量季度序列會讓昨天抓的整條序列今天就「沒有」，用季尺量估值則會讓一份
+ * 三個月前的列繼續宣稱「目前本益比位於歷史第 30 百分位」。
  */
 final readonly class HealthInputSnapshot
 {
@@ -70,6 +77,7 @@ final readonly class HealthInputSnapshot
         public bool $cachedOnly = true,
         public AssetType $assetType = AssetType::Stock,
         public bool $seriesStale = false,
+        public bool $valuationStale = false,
     ) {}
 
     /** @return array<string, mixed> */
