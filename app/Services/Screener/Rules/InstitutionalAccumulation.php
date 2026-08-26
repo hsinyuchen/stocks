@@ -20,8 +20,21 @@ class InstitutionalAccumulation extends ChipRule
         return '外資與投信同步買超';
     }
 
-    protected function evaluateChip(array $window, array $all): bool
+    /**
+     * 兩條腿都要過中性帶，不是兩邊都大於 0。
+     *
+     * 只看正負的話「外資買 1 股、投信買 1 股」也算同步買超，而呈現層會把它講成
+     * 法人同步進場。門檻與分母見 ChipNeutralBand。
+     */
+    protected function evaluateChip(array $window, array $all, array $volumes): bool
     {
-        return $this->sum($window, 'foreignNet') > 0 && $this->sum($window, 'trustNet') > 0;
+        $days = count($window);
+        $foreignNet = $this->sum($window, 'foreignNet');
+        $trustNet = $this->sum($window, 'trustNet');
+
+        return $foreignNet > 0
+            && $trustNet > 0
+            && $this->isSignificantNet($foreignNet, $volumes, $days)
+            && $this->isSignificantNet($trustNet, $volumes, $days);
     }
 }

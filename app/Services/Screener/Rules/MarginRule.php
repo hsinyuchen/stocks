@@ -3,6 +3,7 @@
 namespace App\Services\Screener\Rules;
 
 use App\Data\MarginFlowData;
+use App\Services\Screener\Rules\Concerns\ChipNeutralBand;
 use App\Services\Screener\ScreenRule;
 
 /**
@@ -16,6 +17,8 @@ use App\Services\Screener\ScreenRule;
  */
 abstract class MarginRule implements ScreenRule
 {
+    use ChipNeutralBand;
+
     /** 採計的交易日數，與 SignalEngine 的融資窗口預設一致。 */
     protected const WINDOW = 5;
 
@@ -33,7 +36,12 @@ abstract class MarginRule implements ScreenRule
             return false;
         }
 
-        return $this->evaluateMargin(array_slice($flows, -self::WINDOW), $flows, $context);
+        return $this->evaluateMargin(
+            array_slice($flows, -self::WINDOW),
+            $flows,
+            $context,
+            $this->volumeSeries($series),
+        );
     }
 
     /**
@@ -69,6 +77,10 @@ abstract class MarginRule implements ScreenRule
             array_slice($visible, -static::WINDOW),
             $visible,
             $this->contextAsOf($context, $date),
+            // 成交量也必須截到該時點。交叉規則用它當籌碼中性帶的分母，餵當下序列
+            // 的尾段等於讓回測看到未來的成交量——同一筆淨額在低量期是訊號、在爆量
+            // 期是雜訊，前視偏誤只是換個欄位發生。
+            array_slice($this->volumeSeries($series), 0, $n + 1),
         );
     }
 
@@ -98,8 +110,9 @@ abstract class MarginRule implements ScreenRule
      * @param  list<MarginFlowData>  $window  採計窗口內的融資餘額
      * @param  list<MarginFlowData>  $all  完整序列
      * @param  array<string, mixed>  $context  交叉型規則需要同時讀籌碼
+     * @param  list<int|float>  $volumes  已截到評估時點的成交量序列，供籌碼中性帶算佔比
      */
-    abstract protected function evaluateMargin(array $window, array $all, array $context): bool;
+    abstract protected function evaluateMargin(array $window, array $all, array $context, array $volumes): bool;
 
     /**
      * 窗口內融資餘額的變化率（%）。

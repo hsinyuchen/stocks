@@ -3,6 +3,7 @@
 namespace App\Services\Screener\Rules;
 
 use App\Data\ChipFlowData;
+use App\Services\Screener\Rules\Concerns\ChipNeutralBand;
 use App\Services\Screener\ScreenRule;
 
 /**
@@ -17,6 +18,8 @@ use App\Services\Screener\ScreenRule;
  */
 abstract class ChipRule implements ScreenRule
 {
+    use ChipNeutralBand;
+
     /** 採計的交易日數，與 SignalEngine 的籌碼窗口一致。 */
     protected const WINDOW = 5;
 
@@ -34,7 +37,11 @@ abstract class ChipRule implements ScreenRule
             return false;
         }
 
-        return $this->evaluateChip(array_slice($flows, -self::WINDOW), $flows);
+        return $this->evaluateChip(
+            array_slice($flows, -self::WINDOW),
+            $flows,
+            $this->volumeSeries($series),
+        );
     }
 
     /**
@@ -54,8 +61,9 @@ abstract class ChipRule implements ScreenRule
     /**
      * @param  list<ChipFlowData>  $window  採計窗口內的買賣超
      * @param  list<ChipFlowData>  $all  完整序列（連續天數需要看更早的資料）
+     * @param  list<int|float>  $volumes  同一檔的成交量序列，供中性帶算佔比
      */
-    abstract protected function evaluateChip(array $window, array $all): bool;
+    abstract protected function evaluateChip(array $window, array $all, array $volumes): bool;
 
     /** @param list<ChipFlowData> $flows */
     protected function sum(array $flows, string $field): int
@@ -98,5 +106,28 @@ abstract class ChipRule implements ScreenRule
         }
 
         return [$streak, $last > 0];
+    }
+
+    /**
+     * 連續同向那幾天的外資淨額合計。
+     *
+     * 中性帶以「整段」而非逐日判定：單日佔比約是 N 日的 1/N，逐日判會把整段
+     * 顯著、但多數日子小額的連續段誤殺。與 SignalEngine::streakNet() 一致。
+     *
+     * @param  list<ChipFlowData>  $flows
+     */
+    protected function streakNet(array $flows, int $streak): int
+    {
+        if ($streak < 1) {
+            return 0;
+        }
+
+        $net = 0;
+
+        foreach (array_slice($flows, -$streak) as $flow) {
+            $net += $flow->foreignNet;
+        }
+
+        return $net;
     }
 }
