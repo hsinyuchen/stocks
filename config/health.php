@@ -121,4 +121,129 @@ return [
     'chip' => [
         'neutral_band_volume_share' => 0.01,
     ],
+
+    /*
+     * 判讀區塊的面向使用者文案，中英各一本。
+     *
+     * **兩本必須是同一組鍵**：HealthGuide 只認鍵，缺鍵時 copy() 直接拋錯而不是
+     * 靜默略過——階段 3 踩過純量 config 缺鍵回 null、`(string) null === ''`、
+     * 整段文案無聲消失且沒有任何錯誤訊號。`HealthPromptTest` 另有兩條測試常駐
+     * 驗證：一條驗兩本對稱，一條從 HealthGuide::narrativeKeys() 這一端驗齊全
+     * （對稱不等於齊全，兩本同時漏掉同一個鍵，對稱那條照樣綠）。
+     *
+     * 機器鍵不得直接進 prompt：`not_in_universe`、`accumulating` 這種識別字送給
+     * LLM，它會照抄給使用者看。
+     */
+    'narrative' => [
+        /* 技術立場。鍵即 SignalEngine::evaluate() 的 stance 值。 */
+        'technical_stance' => [
+            'bullish' => '偏多',
+            'bearish' => '偏空',
+            'watch' => '偏多但未確認',
+            'neutral' => '中性',
+        ],
+
+        /* 籌碼立場。鍵即 SignalEngine 的 chip.stance 值。 */
+        'chip_stance' => [
+            'accumulating' => '外資買超',
+            'distributing' => '外資賣超',
+            'neutral' => '中性',
+        ],
+
+        /* 中長線四塊的判定。三態，中性不可省。 */
+        'verdicts' => [
+            'positive' => '正面',
+            'neutral' => '中性',
+            'negative' => '負面',
+        ],
+
+        'blocks' => [
+            'valuation' => '估值',
+            'return_on_equity' => '股東權益報酬率',
+            'growth' => '成長',
+            'quality' => '財務品質',
+        ],
+
+        /*
+         * 不可評估的成因。五種對使用者是五種不同的行動，文案必須讓人分得出來：
+         * 前兩種永遠不會有，not_yet 等一下就有，stale 等上游，
+         * indeterminate 是資料到齊了但這一項本身算不出來。
+         */
+        'unavailable_reasons' => [
+            'not_in_universe' => '這個市場沒有這項資料源，永遠不會有。',
+            'not_applicable' => '這個標的或產業不適用這一塊，永遠不會有。',
+            'not_yet' => '資料還沒累積到可判定的量，等分析或掃描再跑幾次就會有。',
+            'stale' => '有資料但太舊，要等上游更新。',
+            'indeterminate' => '資料到齊，但這一項本身算不出來。',
+        ],
+
+        'verdict_unavailable' => '不可評估',
+        'as_of_unknown' => '無',
+        'diverging_yes' => '是（技術面與籌碼面方向相反）',
+        'diverging_no' => '否',
+
+        /*
+         * RSI 與量能未參與判定這件事**不能不寫**：它們與 KD／MACD／均線同為價格
+         * 動能的衍生量，列在同一個區塊裡而不加註，會被讀成第四、第五項佐證。
+         */
+        'context_note' => 'RSI 與量能只是脈絡，未參與任何判定，不得當成額外的佐證。',
+
+        /* 只在 cached_only 為 true 時輸出。使用者要知道這份判讀可能不是最新的。 */
+        'cached_only_note' => '本次判讀只由已快取資料組成，一次上游都沒打，可能不是最新的。',
+
+        /* 已列為 README 的已知限制，但必要說明要寫明。 */
+        'unadjusted_price_note' => '價格未做除權息還原，除權息與拆股會在技術指標上留下真實缺口，技術面結論的可信度受此限制。',
+
+        'no_backtest_note' => '本區塊所有門檻都是未經回測的初始估計值，判定只能當描述性標籤，不得轉述成勝率、報酬或後續走勢的預測。',
+
+        /* 沒有總分這件事要對模型明講，否則它會自己把四塊加起來。 */
+        'no_total_note' => '四塊各自判定，刻意不合成總分也不排名；不得自行加權或加總成一個分數。',
+    ],
+
+    'narrative_en' => [
+        'technical_stance' => [
+            'bullish' => 'bullish',
+            'bearish' => 'bearish',
+            'watch' => 'leaning bullish but unconfirmed',
+            'neutral' => 'neutral',
+        ],
+
+        'chip_stance' => [
+            'accumulating' => 'foreign investors net buying',
+            'distributing' => 'foreign investors net selling',
+            'neutral' => 'neutral',
+        ],
+
+        'verdicts' => [
+            'positive' => 'positive',
+            'neutral' => 'neutral',
+            'negative' => 'negative',
+        ],
+
+        'blocks' => [
+            'valuation' => 'Valuation',
+            'return_on_equity' => 'Return on equity',
+            'growth' => 'Growth',
+            'quality' => 'Financial quality',
+        ],
+
+        'unavailable_reasons' => [
+            'not_in_universe' => 'this market has no source for it, so it never will be available.',
+            'not_applicable' => 'it does not apply to this instrument or industry, so it never will be available.',
+            'not_yet' => 'not enough data has accumulated yet; a few more analysis or scan runs will produce it.',
+            'stale' => 'data exists but is too old; it needs an upstream refresh.',
+            'indeterminate' => 'the data is complete, but this particular measure cannot be computed from it.',
+        ],
+
+        'verdict_unavailable' => 'cannot be evaluated',
+        'as_of_unknown' => 'unknown',
+        'diverging_yes' => 'yes (the technical and chip stances point in opposite directions)',
+        'diverging_no' => 'no',
+
+        'context_note' => 'RSI and volume are context only; they take no part in any verdict and must not be cited as extra confirmation.',
+        'cached_only_note' => 'This read was built from cached data only, with no upstream call, so it may not be current.',
+        'unadjusted_price_note' => 'Prices are not adjusted for dividends or splits, so ex-dividend dates and splits leave real gaps in the technical indicators; the confidence of any technical conclusion is limited by this.',
+        'no_backtest_note' => 'Every threshold behind this block is an unbacktested initial estimate; the verdicts are descriptive labels only and must not be restated as a hit rate, a return, or a prediction of subsequent price action.',
+        'no_total_note' => 'The four blocks are judged separately; by design there is no composite score and no ranking. Never weight or sum them into a single number.',
+    ],
 ];

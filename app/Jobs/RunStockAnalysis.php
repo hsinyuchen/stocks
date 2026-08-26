@@ -115,6 +115,12 @@ class RunStockAnalysis implements ShouldQueue
                     // 但使用者要看得出 AI 那段沒跑成功。
                     'status' => $provider === 'error' ? AnalysisStatus::Failed->value : AnalysisStatus::Completed->value,
                     'rule_signal' => json_encode($result['rule_signal'] ?? [], JSON_UNESCAPED_UNICODE),
+                    // 判讀隨分析保存，之後不再重算：重算會讓歷史分析的文字與旁邊
+                    // 顯示的判讀對不起來。查無標的時為 null（此路徑不會發生，
+                    // 上面已確認 instrument 存在），欄位維持 nullable 不寫假值。
+                    'health_read' => ($result['health_read'] ?? null) === null
+                        ? null
+                        : json_encode($result['health_read'], JSON_UNESCAPED_UNICODE),
                     'llm_output' => json_encode($result['llm'] ?? [], JSON_UNESCAPED_UNICODE),
                     'data_as_of' => CarbonImmutable::parse($result['data_as_of']),
                     'updated_at' => now(),
