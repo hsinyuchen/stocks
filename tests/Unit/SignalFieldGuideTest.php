@@ -87,6 +87,9 @@ class SignalFieldGuideTest extends TestCase
         $this->assertStringContainsString('chip.foreign_net 含外資自營商', $guide);
         $this->assertStringContainsString('confirm 為同向、diverge 為背離', $guide);
         $this->assertStringContainsString('背離比同向更有資訊量', $guide);
+        // 投信腿與連續天數也套了中性帶。少了這一句，模型讀到「同期投信買超 519 張」
+        // 這種未達門檻的敘述時，不知道那句話已經先被規模門檻篩過。
+        $this->assertStringContainsString('套用**同一條門檻與同一個分母**', $guide);
         $this->assertStringContainsString('融資增加本身不等於看空', $guide);
         $this->assertStringContainsString('retail_chasing', $guide);
     }

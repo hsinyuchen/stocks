@@ -717,6 +717,95 @@ class HealthPromptTest extends TestCase
         $this->assertStringContainsString('- Chip reasons: 近 5 日外資合計買超 1,234 張。', $en);
     }
 
+    /**
+     * **`HealthGuide::TECHNICAL_STANCES` 與 `CHIP_STANCES` 是手抄清單，這條把它們
+     * 綁回定義端。**
+     *
+     * 三個 enum（HealthVerdict／HealthBlock／HealthUnavailableReason）由
+     * `narrativeKeys()` 逐一展開，新增一個 case 忘了寫文案會立刻紅；這兩份清單沒有
+     * enum 可展開，`SignalEngine` 新增一個 stance 時**兩端會用相反的方式壞掉，而且
+     * 都不會有測試先紅**：
+     *
+     * - prompt 端：`HealthGuide::copy()` 找不到文案鍵直接拋 `RuntimeException`，
+     *   整筆個股分析 job 失敗。
+     * - 前端：`HEALTH_TECHNICAL_STANCE_LABELS` 查不到鍵，`HealthStanceRow` 靜默
+     *   顯示「不可評估」——把一個算得出來的立場講成算不出來。
+     *
+     * 因此對**定義端的原始碼**下斷言：`SignalEngine` 裡那兩個 match／方法真正寫得出
+     * 來的字面值，必須與清單完全相同（雙向）。反向那一半同樣重要：清單裡多一個
+     * `SignalEngine` 不會產出的值，會讓 config 多一則永遠不會被用到的文案，
+     * 而真正缺的那一則沒人發現。
+     */
+    #[Test]
+    public function the_guide_stance_lists_match_what_the_signal_engine_can_produce(): void
+    {
+        $source = (string) file_get_contents(app_path('Services/SignalEngine.php'));
+
+        // 技術立場：evaluate() 的 match（檔案裡第一個 `$stance = match (true) {`；
+        // withMargin() 那個在它之後），外加缺指標時那條寫死的早退。
+        $technical = $this->stanceLiterals($source, '$stance = match (true) {', "\n        };");
+        preg_match_all("/'stance' => '([a-z_]+)'/", $source, $matches);
+        $technical = array_values(array_unique([...$technical, ...$matches[1]]));
+
+        $chip = $this->stanceLiterals(
+            $source,
+            'private function chipStance(int $foreignNet, ?float $share): string',
+            "\n    }",
+        );
+
+        // 護欄：切片要真的切到技術面那一段，不是融資那一段（兩處的 match 長得一樣）。
+        $this->assertContains('bullish', $technical, '切片沒切到 evaluate() 的立場 match。');
+        $this->assertNotContains('leveraging', $technical, '切片切到 withMargin() 的融資 match 了。');
+        $this->assertContains('accumulating', $chip, '切片沒切到 chipStance()。');
+
+        // `insufficient_data` 刻意不在清單裡：ShortTermRead 已把它轉成 null，
+        // 與四塊的「不可評估」同一語意，呈現層只需處理一種缺席。
+        $this->assertSame(
+            [],
+            array_values(array_diff($technical, [...HealthGuide::TECHNICAL_STANCES, 'insufficient_data'])),
+            'SignalEngine 產得出來、但 HealthGuide 的清單沒有的技術立場：prompt 會拋錯、畫面會靜默顯示「不可評估」。',
+        );
+        $this->assertSame(
+            [],
+            array_values(array_diff($chip, HealthGuide::CHIP_STANCES)),
+            'SignalEngine 產得出來、但 HealthGuide 的清單沒有的籌碼立場。',
+        );
+
+        $this->assertSame(
+            [],
+            array_values(array_diff(HealthGuide::TECHNICAL_STANCES, $technical)),
+            '清單裡有 SignalEngine 不會產出的技術立場：那則文案永遠不會被用到。',
+        );
+        $this->assertSame(
+            [],
+            array_values(array_diff(HealthGuide::CHIP_STANCES, $chip)),
+            '清單裡有 SignalEngine 不會產出的籌碼立場。',
+        );
+    }
+
+    /**
+     * 取出一段原始碼裡的所有單引號字面值。
+     *
+     * 用起訖字串切片而不是解析 PHP：本專案既有的 JSX 結構契約測試同一手法。
+     * 切不到時直接 fail——回一個空集合會讓上面的雙向比對變成「空等於空」。
+     *
+     * @return list<string>
+     */
+    private function stanceLiterals(string $source, string $begin, string $end): array
+    {
+        $start = strpos($source, $begin);
+
+        $this->assertNotFalse($start, "SignalEngine 裡找不到「{$begin}」，立場清單的來源已改變。");
+
+        $stop = strpos($source, $end, $start);
+
+        $this->assertNotFalse($stop, "「{$begin}」之後找不到結尾，立場清單的來源已改變。");
+
+        preg_match_all("/'([a-z_]+)'/", substr($source, $start, $stop - $start), $matches);
+
+        return array_values(array_unique($matches[1]));
+    }
+
     private function snapshot(bool $cachedOnly): HealthInputSnapshot
     {
         return new HealthInputSnapshot(

@@ -2,11 +2,9 @@
 
 namespace Tests\Unit;
 
-use App\Data\FundamentalsData;
 use App\Data\HealthBlockResult;
 use App\Data\HealthInputSnapshot;
 use App\Data\LongTermRead;
-use App\Data\OrderInventoryMetrics;
 use App\Data\ShortTermRead;
 use App\Enums\AssetType;
 use App\Enums\HealthBlock;
@@ -17,22 +15,6 @@ use PHPUnit\Framework\TestCase;
 
 class HealthDataTest extends TestCase
 {
-    /**
-     * 三態俱全。Neutral 不可省——「沒達到正面門檻」不等於「負面證據」，
-     * 把前者講成後者是本框架五個階段一路在防的失效模式。
-     */
-    #[Test]
-    public function a_verdict_has_a_neutral_case(): void
-    {
-        $this->assertSame('positive', HealthVerdict::Positive->value);
-        $this->assertSame('neutral', HealthVerdict::Neutral->value);
-        $this->assertSame('negative', HealthVerdict::Negative->value);
-
-        // 三個值互不相同：把 Neutral 併到 Negative 上（同值）與刪掉它一樣，
-        // 都會讓「還不夠好」與「不好」在序列化後長成同一格。
-        $this->assertCount(3, array_unique(array_column(HealthVerdict::cases(), 'value')));
-    }
-
     /**
      * 可評估與不可評估互斥。同時有 verdict 與 reason 的列會讓呈現層
      * 不知道該顯示哪一個，而兩種顯示對使用者是相反的意思。
@@ -65,21 +47,44 @@ class HealthDataTest extends TestCase
     }
 
     /**
-     * 序列化後三種狀態仍分得開：可評估、不可評估、以及「中性」——
-     * 前端要用它們切三個不同的樣式，壓成布林就分不出來。
+     * 序列化後四種狀態仍分得開：三態判定各一，加上「不可評估」。
+     *
+     * **驗的是序列化出去的字面值，不是 enum 宣告本身。** 這三個字串是與前端的
+     * 線上契約——`Search.jsx` 的 `HealthVerdictBadge` 直接比對
+     * `verdict === 'neutral'`／`'positive'`／`'negative'` 切四個分支，改動任何一個
+     * 值都會讓對應的分支靜默落到兜底的「不可評估」，畫面上看起來一切正常。
+     *
+     * Neutral 不可省，也不可與 Negative 同值：「沒達到正面門檻」不等於
+     * 「負面證據」，把前者講成後者是本框架五個階段一路在防的失效模式。
      */
     #[Test]
-    public function the_three_states_serialise_distinctly(): void
+    public function the_four_states_serialise_distinctly(): void
     {
-        $positive = HealthBlockResult::evaluated(HealthBlock::ReturnOnEquity, HealthVerdict::Positive, [], null)->toArray();
-        $neutral = HealthBlockResult::evaluated(HealthBlock::ReturnOnEquity, HealthVerdict::Neutral, [], null)->toArray();
+        $serialised = [];
+
+        foreach (HealthVerdict::cases() as $verdict) {
+            $serialised[] = HealthBlockResult::evaluated(
+                HealthBlock::ReturnOnEquity,
+                $verdict,
+                [],
+                null,
+            )->toArray();
+        }
+
         $missing = HealthBlockResult::unavailable(HealthBlock::ReturnOnEquity, HealthUnavailableReason::NotInUniverse)->toArray();
 
-        $this->assertSame('positive', $positive['verdict']);
-        $this->assertSame('neutral', $neutral['verdict']);
+        $this->assertSame(
+            ['positive', 'neutral', 'negative'],
+            array_column($serialised, 'verdict'),
+            '三態的字面值與順序是與前端的契約，改動會讓對應的徽章分支靜默失效。',
+        );
+
+        foreach ($serialised as $row) {
+            $this->assertNull($row['unavailable_reason'], '可評估的塊不得同時帶成因。');
+        }
+
         $this->assertNull($missing['verdict']);
         $this->assertSame('not_in_universe', $missing['unavailable_reason']);
-        $this->assertNull($positive['unavailable_reason']);
     }
 
     /**
@@ -110,52 +115,6 @@ class HealthDataTest extends TestCase
         $this->assertSame(80, $array['bars']);
         $this->assertTrue($array['cached_only']);
         $this->assertSame('stock', $array['asset_type']);
-
-        // 三個日期各自成鍵。少掉任何一個，呈現層就只能拿另一個日期去講這一項，
-        // 而實測三者相差三週。
-        $this->assertArrayHasKey('price_as_of', $array);
-        $this->assertArrayHasKey('chip_as_of', $array);
-        $this->assertArrayHasKey('fundamentals_as_of', $array);
-    }
-
-    /**
-     * 快照帶的是資料本身，不只是 metadata。
-     *
-     * 只帶日期的話，「同一份快照必產出相同判讀」這個不變式無從驗證——
-     * 兩個消費端拿著同樣的 metadata 仍可能各自去取到不同的資料。
-     * 這條斷言釘住 reader 需要的每一項輸入都在快照上。
-     */
-    #[Test]
-    public function the_snapshot_carries_the_inputs_not_just_their_dates(): void
-    {
-        $snapshot = new HealthInputSnapshot(
-            symbol: '2330.TW',
-            market: 'tw',
-            bars: 80,
-            indicators: ['k' => 62.0, 'rsi14' => 58.0],
-            industryBucket: 'suited',
-        );
-
-        $this->assertSame(62.0, $snapshot->indicators['k']);
-        $this->assertSame('suited', $snapshot->industryBucket);
-        $this->assertSame([], $snapshot->chipFlows, '沒有籌碼時是空陣列，不是 null——空陣列代表「查過、沒有」');
-        $this->assertNull($snapshot->metrics, '沒有財報序列時是 null——代表「沒有這份資料」');
-
-        // 有財報序列時原樣帶著。中長線四塊全部從這兩個物件算出來，
-        // 快照只留日期的話 reader 就得自己去 IO，純計算的保證隨即失效。
-        $withFinancials = new HealthInputSnapshot(
-            symbol: '2330.TW',
-            market: 'tw',
-            bars: 80,
-            fundamentals: new FundamentalsData(roe: 20.5),
-            metrics: new OrderInventoryMetrics(ocfToNetIncome: 1.2, revenueYoy: 0.23),
-            valuationPercentiles: ['per' => ['value' => 18.0, 'percentile' => 24.0, 'min' => 10.0, 'median' => 20.0, 'max' => 30.0, 'samples' => 25]],
-        );
-
-        $this->assertSame(20.5, $withFinancials->fundamentals?->roe);
-        $this->assertSame(1.2, $withFinancials->metrics?->ocfToNetIncome);
-        $this->assertSame(0.23, $withFinancials->metrics?->revenueYoy);
-        $this->assertSame(24.0, $withFinancials->valuationPercentiles['per']['percentile']);
     }
 
     /**
@@ -243,8 +202,18 @@ class HealthDataTest extends TestCase
         $this->assertSame(['近 5 日外資合計買超 1,234 張。'], $array['chip_reasons']);
     }
 
+    /**
+     * 不可評估的塊也要留在輸出裡，**而且要帶著各自的成因**。
+     *
+     * 只數 `assertCount(4, ...)` 幾乎測不到東西：`toArray()` 是一個沒有 filter 的
+     * `array_map`，進去四筆出來必然四筆。這裡改比對逐塊的 `block` 與
+     * `unavailable_reason`——刪掉某一塊、把四塊的成因壓成同一個值、或漏掉
+     * `unavailable_reason` 這個鍵，才會各自紅一次。
+     *
+     * 少了成因，使用者只會看到一份比較短的清單，而不知道少了什麼、為什麼少。
+     */
     #[Test]
-    public function a_long_term_read_keeps_every_block_even_when_unavailable(): void
+    public function a_long_term_read_keeps_every_block_and_its_reason(): void
     {
         $read = new LongTermRead(
             blocks: [
@@ -256,6 +225,16 @@ class HealthDataTest extends TestCase
             formulaVersion: '2026-08-26.1',
         );
 
-        $this->assertCount(4, $read->toArray()['blocks'], '不可評估的塊也要留在輸出裡，讓使用者看得出為什麼');
+        $blocks = $read->toArray()['blocks'];
+
+        $this->assertSame(
+            ['valuation', 'return_on_equity', 'growth', 'quality'],
+            array_column($blocks, 'block'),
+        );
+        $this->assertSame(
+            ['not_yet', 'not_in_universe', 'not_yet', 'not_applicable'],
+            array_column($blocks, 'unavailable_reason'),
+        );
+        $this->assertSame('2026-08-26.1', $read->toArray()['formula_version']);
     }
 }

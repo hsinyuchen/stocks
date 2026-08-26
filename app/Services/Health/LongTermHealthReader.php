@@ -67,6 +67,15 @@ class LongTermHealthReader
      * `MarketResolver::assetType()` 自 `bf444b6` 起認得 ETF（台股靠 00 開頭的規則、
      * 美股靠一份明確不完整的清單），資訊由組快照的那一層帶進來。
      *
+     * **這道 gate 對美股必然有漏網，而漏網會以一句假話的形式外洩給使用者。**
+     * `MarketResolver::KNOWN_US_ETFS` 是一份明確不完整的清單（代號本身不帶類型
+     * 資訊，`QQQ` 與 `QCOM` 從字串上看不出差別），未收錄的美股 ETF ——實測
+     * SPCX ——會拿到 `AssetType::Stock`，於是四塊照走，`roe` 為 null 落到
+     * `NotYet`＝「等分析或掃描跑過就會有」。ETF 永遠不會有 ROE，那句話是假的。
+     * 清單不完整是已知限制，但它不只是「少一個標籤」：它變成畫面上一句具體的
+     * 錯誤承諾。根治在建列點（把 Yahoo 的 `quoteType` 一路接下去），不在這裡，
+     * 也**不要試圖補全清單**（理由見 {@see MarketResolver::isEtf()}）。
+     *
      * @return list<HealthBlockResult>
      */
     private function notACompany(): array
@@ -364,6 +373,21 @@ class LongTermHealthReader
      * 三態分帶。**低於 weak 才是負面**——恰好等於 weak 是中性。
      *
      * 「沒達到正面門檻」不等於「負面證據」，這條分帶就是為了讓那句話成立。
+     *
+     * **本檔有兩套端點慣例，這是刻意的，調門檻前必須先分清手上是哪一種。**
+     *
+     * - 這裡（ROE、成長、OCF／淨利）：`>= strong` 正面、`< weak` 負面。
+     *   `weak` 描述的是**好的區間的下界**——`growth.weak = 0.0` 讀作「營收沒有
+     *   衰退」，恰好持平不是衰退。端點因此歸中性，不往負面倒。
+     * - {@see valuation()} 與 {@see quality()} 的應收天數：`>= expensive`、
+     *   `>= dso_change_days_worse` 都**含等於**。那兩條門檻描述的是**壞的區間的
+     *   下界**——`valuation.expensive_percentile = 70` 讀作「歷史最貴的三成」，
+     *   第 70 百分位就在那三成裡；`dso_change_days_worse = 10` 讀作「收款慢了
+     *   10 天以上」。用 `>` 會讓實際門檻變成 70+ε／10+ε，與 config 註解不符，
+     *   而 config 註解才是調參的人讀的東西。
+     *
+     * 差別的根源是**門檻描述的是哪一側的區間**，不是對 `<` 與 `<=` 的偏好。
+     * 兩種端點各有測試常駐（`*_thresholds_include_their_own_boundary`）。
      */
     private function band(float $value, float $weak, float $strong): HealthVerdict
     {
