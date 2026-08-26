@@ -5,8 +5,11 @@ namespace Tests\Feature\Health;
 use App\Contracts\LlmProvider;
 use App\Contracts\MarketDataProvider;
 use App\Data\DailyPriceData;
+use App\Data\HealthInputSnapshot;
 use App\Data\LlmResponseData;
+use App\Data\LongTermRead;
 use App\Data\MarketQuoteData;
+use App\Data\ShortTermRead;
 use App\Enums\AnalysisStatus;
 use App\Enums\HealthBlock;
 use App\Enums\HealthUnavailableReason;
@@ -529,6 +532,41 @@ class HealthPromptTest extends TestCase
                 $this->assertNotSame('', $value, "{$dictionary}{$key} 為空字串");
             }
         }
+    }
+
+    /**
+     * `cached_only` 的說明只在該旗標為 true 時輸出。
+     *
+     * **這條無法從 prompt 端測**：兩個消費端都走 `freshFor()`（見
+     * SymbolContextService::healthContext()），旗標恆為 false。但同一個 Guide 之後
+     * 會被走 `cachedFor()` 的呈現層共用，那條路徑上「這份判讀可能不是最新的」是
+     * 必須講的一句話，所以直接對 Guide 下斷言，不等呈現層接上才有人守著它。
+     */
+    #[Test]
+    public function the_cached_only_note_appears_only_for_a_cache_only_snapshot(): void
+    {
+        $guide = new HealthGuide;
+        $short = new ShortTermRead;
+        $long = new LongTermRead([], '2026-08-26.1');
+        $note = (string) config('health.narrative.cached_only_note');
+
+        $cached = $guide->block($short, $long, $this->snapshot(cachedOnly: true));
+        $fresh = $guide->block($short, $long, $this->snapshot(cachedOnly: false));
+
+        $this->assertNotSame('', $note);
+        $this->assertStringContainsString($note, $cached);
+        // 恆常輸出這句話就等於對走 freshFor() 的路徑說謊。
+        $this->assertStringNotContainsString($note, $fresh);
+    }
+
+    private function snapshot(bool $cachedOnly): HealthInputSnapshot
+    {
+        return new HealthInputSnapshot(
+            symbol: '2330.TW',
+            market: 'tw',
+            bars: 80,
+            cachedOnly: $cachedOnly,
+        );
     }
 
     /**
