@@ -81,7 +81,7 @@ trait ChipNeutralBand
 
         $share = $this->volumeShare($net, $volumes, $days);
 
-        // 邊界不含等於：恰好等於門檻算得上訊號，少一股才落回中性帶（與 SignalEngine 同側）。
+        // 邊界含等於：恰好等於門檻算得上訊號，少一股才落回中性帶（與 SignalEngine 同側）。
         return $share !== null && abs($share) >= $this->chipNeutralBand();
     }
 
