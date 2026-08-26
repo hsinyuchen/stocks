@@ -79,6 +79,34 @@ class FundamentalsService
     }
 
     /**
+     * 只讀的估值快照：最新一列的指標，外加它是**什麼時候抓的**。
+     *
+     * 與 forInstrument() 的差別只有一件事——**不判新鮮度、一次上游都不打**。
+     * 為體質判讀的 cachedFor() 入口而存在，理由與 cachedOrderInventoryFor() 相同：
+     * 那條路徑跑在同步 web 請求裡，而 PHP 的 max_execution_time 不是例外、
+     * 呼叫端的 try/catch 攔不到。
+     *
+     * fetched_at 與 FundamentalsData 一起回，而不是讓呼叫端自己再查一次列：
+     * 兩次查詢可能挑到不同的列（同一檔有多列歷史），那時呈現層說出來的
+     * 「資料日期」就不屬於它旁邊那組數字。
+     *
+     * @return array{data: FundamentalsData, fetched_at: ?string}|null
+     */
+    public function cachedValuationFor(Instrument $instrument): ?array
+    {
+        $row = $this->latestRow($instrument);
+
+        if ($row === null) {
+            return null;
+        }
+
+        return [
+            'data' => $this->toData($row),
+            'fetched_at' => $row->fetched_at?->toDateString(),
+        ];
+    }
+
+    /**
      * 訂單／庫存判斷用的財報序列，兩個市場都走這個入口。
      *
      * 與 forInstrument() 分家而不是擴充它：已查證 5 個消費端都以

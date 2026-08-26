@@ -22,7 +22,7 @@ class SignalEngine
                 'stance' => 'insufficient_data',
                 'score' => 0,
                 'reasons' => ['缺少必要技術指標或指標格式無效，暫時無法評估訊號。'],
-            ], $chipFlows), $marginFlows, $chipFlows);
+            ], $chipFlows, $snapshot), $marginFlows, $chipFlows);
         }
 
         $k = (float) $snapshot['k'];
@@ -90,7 +90,7 @@ class SignalEngine
                 'stance' => $stance,
                 'score' => $score,
                 'reasons' => $reasons,
-            ], $snapshot), $chipFlows),
+            ], $snapshot), $chipFlows, $snapshot),
             $marginFlows,
             $chipFlows,
         );
@@ -268,9 +268,10 @@ class SignalEngine
      *
      * @param  array<string, mixed>  $result
      * @param  list<ChipFlowData>  $chipFlows
+     * @param  array<string, mixed>  $snapshot  技術指標快照，只為了取 volume_ma20 當規模基準
      * @return array<string, mixed>
      */
-    private function withChip(array $result, array $chipFlows): array
+    private function withChip(array $result, array $chipFlows, array $snapshot): array
     {
         if ($chipFlows === []) {
             return $result;
@@ -288,11 +289,8 @@ class SignalEngine
             $dealerNet += $flow->dealerNet;
         }
 
-        $chipStance = match (true) {
-            $foreignNet > 0 => 'accumulating',
-            $foreignNet < 0 => 'distributing',
-            default => 'neutral',
-        };
+        $volumeShare = $this->foreignVolumeShare($foreignNet, count($window), $snapshot);
+        $chipStance = $this->chipStance($foreignNet, $volumeShare);
 
         $streak = $this->foreignStreak($chipFlows);
         $lastForeign = $chipFlows[count($chipFlows) - 1]->foreignNet;
@@ -307,13 +305,88 @@ class SignalEngine
             // 這個欄位存在，缺了會讓模型對不存在的數值做推測。
             'dealer_net' => $dealerNet,
             'foreign_streak' => $streak,
+            // 立場之所以是這個立場的依據；null 代表規模基準不明（K 棒不足 20 根）。
+            'foreign_volume_share' => $volumeShare === null ? null : round($volumeShare, 4),
             'as_of' => $chipFlows[count($chipFlows) - 1]->date,
-            'reasons' => $this->chipReasons($chipStance, $foreignNet, $trustNet, count($window), $streak, $streakDirection),
+            'reasons' => $this->chipReasons($chipStance, $foreignNet, $trustNet, count($window), $streak, $streakDirection, $volumeShare),
         ];
 
         $result['alignment'] = $this->alignment($result['stance'], $chipStance);
 
         return $result;
+    }
+
+    /**
+     * 籌碼立場。**淨額的正負不足以判定方向，還要看它相對這檔的量算不算大。**
+     *
+     * 修正前只看 `$foreignNet` 的正負，外資淨買 1 股就判 accumulating，而呈現層
+     * 與 prompt 會把它講成「法人買超」——那是把雜訊宣稱成訊號。改以「淨買超佔
+     * 同期成交量比」的絕對值判斷，低於 `health.chip.neutral_band_volume_share`
+     * 一律中性。尺與作法沿用階段 4 的 SocialArbitrageAssessor
+     * （同期成交量當分母、單位皆為股）。
+     *
+     * **邊界不含等於**：恰好等於門檻算得上訊號，少一股才落回中性帶。
+     *
+     * 規模基準不明（$share 為 null）時退回只看正負：那是 K 棒不足 20 根才會發生
+     * 的暖身期，此時已經沒有任何依據把小額與大額分開，硬判中性等於把所有籌碼
+     * 資訊一起丟掉。
+     */
+    private function chipStance(int $foreignNet, ?float $share): string
+    {
+        if ($foreignNet === 0) {
+            return 'neutral';
+        }
+
+        if ($share !== null && abs($share) < $this->neutralBand()) {
+            return 'neutral';
+        }
+
+        return $foreignNet > 0 ? 'accumulating' : 'distributing';
+    }
+
+    /**
+     * 外資淨買超佔同期成交量的比例。規模基準不明時回 null。
+     *
+     * 分母是「近 20 日平均日成交量 × 採計天數」而不是逐日對齊的成交量合計。
+     * 兩個理由：
+     *
+     * 1. **本類別是純計算**，八個消費端都依賴這一點，不得為了逐日對齊去查
+     *    daily_prices；能帶進來的只有技術指標快照，而快照是一組尾值不是序列。
+     * 2. **籌碼公佈日落後行情日**（實測全站最新籌碼停在 2026-08-17、價格已到
+     *    08-25），逐日對齊在缺日時會把分母算小、比例算大，反而更容易把雜訊
+     *    講成訊號。均量對單日爆量也較穩健。
+     *
+     * 分母因此是同期成交量的**估計**，不是精確值。這個精度足以分辨「1 股」與
+     * 「像樣的買超」，那正是這個門檻要做的事；它不適合拿去做更細的比較。
+     *
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function foreignVolumeShare(int $foreignNet, int $days, array $snapshot): ?float
+    {
+        $averageVolume = $snapshot['volume_ma20'] ?? null;
+
+        if (! is_numeric($averageVolume) || (float) $averageVolume <= 0.0 || $days < 1) {
+            return null;
+        }
+
+        return $foreignNet / ((float) $averageVolume * $days);
+    }
+
+    /**
+     * 中性帶門檻。缺鍵或非數值一律拋錯，不做裸 `(float) config(...)` 轉型。
+     *
+     * `(float) null === 0.0` 會讓中性帶消失，於是「淨買 1 股＝法人買超」這個
+     * 本方法要修的缺陷靜默復活，且沒有任何錯誤訊號可供察覺。
+     */
+    private function neutralBand(): float
+    {
+        $value = config('health.chip.neutral_band_volume_share');
+
+        if (! is_numeric($value)) {
+            throw new \RuntimeException('health.chip.neutral_band_volume_share config 缺失或非數值，無法界定籌碼中性帶。');
+        }
+
+        return (float) $value;
     }
 
     /**
@@ -479,15 +552,27 @@ class SignalEngine
     }
 
     /** @return list<string> */
-    private function chipReasons(string $chipStance, int $foreignNet, int $trustNet, int $days, int $streak, string $streakDirection): array
+    private function chipReasons(string $chipStance, int $foreignNet, int $trustNet, int $days, int $streak, string $streakDirection, ?float $volumeShare): array
     {
         // 對外文案用「張」（台股慣例，1 張 = 1000 股）；資料層一律存股。
         $lots = static fn (int $shares): string => number_format($shares / 1000);
 
+        // 中性有兩種成因，文案必須分開：「相抵」代表買賣雙方都動過而抵銷，
+        // 「量太小」代表根本沒動。混講會讓使用者以為法人有在裡面較勁。
+        $neutralReason = $foreignNet === 0
+            ? "近 {$days} 日外資買賣超相抵，資金流向中性。"
+            : sprintf(
+                '近 %d 日外資淨%s %s 張，僅佔同期成交量 %.2f%%，未達顯著門檻，視為中性。',
+                $days,
+                $foreignNet > 0 ? '買超' : '賣超',
+                $lots(abs($foreignNet)),
+                abs($volumeShare ?? 0.0) * 100,
+            );
+
         $reasons = [match ($chipStance) {
             'accumulating' => "近 {$days} 日外資合計買超 ".$lots($foreignNet).' 張。',
             'distributing' => "近 {$days} 日外資合計賣超 ".$lots(abs($foreignNet)).' 張。',
-            default => "近 {$days} 日外資買賣超相抵，資金流向中性。",
+            default => $neutralReason,
         }];
 
         if ($streak >= 3) {

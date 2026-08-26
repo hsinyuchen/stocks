@@ -4,6 +4,7 @@ namespace App\Services\Fundamentals;
 
 use App\Data\OrderInventoryAssessment;
 use App\Data\OrderInventoryData;
+use App\Data\OrderInventoryMetrics;
 use App\Enums\OrderInventoryRating;
 use App\Enums\RevenueUnknownReason;
 use App\Models\Fundamental;
@@ -100,7 +101,13 @@ class OrderInventoryAssessor
      * insufficient；但對使用者而言「這個產業永遠不會有答案」蓋過「這份資料太舊」
      * ——補了新財報也還是不會有答案。因此這裡看 `industryBucket` 而不是 rating。
      *
-     * @return array{revenue_verified: ?bool, gross_margin_qoq_pp: ?float, revenue_unknown_reason: ?RevenueUnknownReason}
+     * **`metrics` 與 `industry_bucket` 是純量表與產業別，不是評級。** 它們不依賴
+     * 同業中位數（那是 C10 的輸入），所以窄回傳裡多帶這兩項不會重蹈上一段警告的
+     * 覆轍——被排除的是「看起來完整、實際上少一條腿」的 `rating`，不是量表本身。
+     * 兩者都已經在下面那次 `assess()` 裡算完了，多帶不需要任何額外的查詢或計算；
+     * 體質判讀的成長與品質兩塊要的正是它們，另開一條只讀路徑去重算才是分岔的開始。
+     *
+     * @return array{revenue_verified: ?bool, gross_margin_qoq_pp: ?float, revenue_unknown_reason: ?RevenueUnknownReason, metrics: ?OrderInventoryMetrics, industry_bucket: ?string}
      */
     public function seriesSignalsFor(Instrument $instrument): array
     {
@@ -111,6 +118,10 @@ class OrderInventoryAssessor
                 'revenue_verified' => null,
                 'gross_margin_qoq_pp' => null,
                 'revenue_unknown_reason' => RevenueUnknownReason::NotYet,
+                // 序列拿不到時產業別也是未知，不得以 'unknown' 以外的值頂替——
+                // 「不適用」是一個需要證據才能下的結論。
+                'metrics' => null,
+                'industry_bucket' => null,
             ];
         }
 
@@ -124,6 +135,8 @@ class OrderInventoryAssessor
             'revenue_verified' => $verified,
             'gross_margin_qoq_pp' => $assessment->metrics->grossMarginQoqPp,
             'revenue_unknown_reason' => $verified === null ? $this->unknownReason($assessment) : null,
+            'metrics' => $assessment->metrics,
+            'industry_bucket' => $assessment->industryBucket,
         ];
     }
 
