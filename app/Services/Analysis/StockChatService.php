@@ -192,6 +192,18 @@ final class StockChatService
             ? ''
             : $this->healthGuide->discipline($locale)."\n";
 
+        // 規則判讀與模型自己那個評級的優先級。條件與 $healthDiscipline 相同
+        // （沒有 BEGIN_HEALTH_READ 區塊時這三條沒有對象），但**不能因此省略**：
+        // 上面的 $ratingLine 明確允許模型給出評級，而 healthGuide->discipline()
+        // 第 1 條只擋得住「改判方向」——命名混用與「把四塊加總成一個評分」這兩件事
+        // 在問答裡原本沒有任何規則擋。
+        //
+        // 只接這三條，不接整段 scoringRubric()：問答不做八面向加權，接整段等於把
+        // 一張用不到的權重表塞進每一次問答，還會誘導模型去算它沒有資料算的總分。
+        $ruleReadPriority = ($context['health'] ?? null) === null
+            ? ''
+            : $this->sop->ruleReadPriority($locale)."\n";
+
         if ($locale === 'en') {
             return <<<SYSTEM
 You are the dedicated AI investment advisor for the single stock "{$symbol}　{$name}", and you serve only this stock.
@@ -225,7 +237,7 @@ BEGIN_SOP_DISCIPLINE
 {$dataSufficiency}
 {$antiManipulation}
 {$ratingLine}
-{$orderInventoryDiscipline}{$socialDiscipline}{$healthDiscipline}END_SOP_DISCIPLINE
+{$ruleReadPriority}{$orderInventoryDiscipline}{$socialDiscipline}{$healthDiscipline}END_SOP_DISCIPLINE
 BEGIN_OUTPUT_CONTRACT
 Return only one JSON object, with no other text before or after and no code fences:
 {"decision":"answer","answer":"your answer"}
@@ -271,7 +283,7 @@ BEGIN_SOP_DISCIPLINE
 {$dataSufficiency}
 {$antiManipulation}
 {$ratingLine}
-{$orderInventoryDiscipline}{$socialDiscipline}{$healthDiscipline}END_SOP_DISCIPLINE
+{$ruleReadPriority}{$orderInventoryDiscipline}{$socialDiscipline}{$healthDiscipline}END_SOP_DISCIPLINE
 BEGIN_OUTPUT_CONTRACT
 只回傳一個 JSON 物件，前後不要有任何其他文字，也不要包程式碼圍欄：
 {"decision":"answer","answer":"回答內容"}

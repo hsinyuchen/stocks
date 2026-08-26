@@ -108,6 +108,26 @@ class HealthPromptTest extends TestCase
 
     private const EN_RUBRIC_PRIORITY = 'The rule-based read is factual input: never overwrite it, never recompute it, never flip its direction.';
 
+    /**
+     * 優先級的三條規則，逐條。
+     *
+     * 三條缺一不可，而且**個股分析與個股問答兩處都要有**：第 1 條擋改判方向，
+     * 第 2 條擋默默忽略，第 3 條擋命名混用與「把四塊加總成一個評分」。問答的
+     * $ratingLine 明確允許模型給出評級，而 healthGuide->discipline() 只擋得住
+     * 第 1 條那件事，後兩件在問答裡原本沒有任何規則擋。
+     */
+    private const ZH_RULE_READ_PRIORITY = [
+        '規則判讀是事實輸入，不得覆寫、不得重算、不得改判方向。',
+        '它可以與規則判讀不同方向，但必須明講哪一塊不同、為什麼不同；默默忽略規則判讀不被允許。',
+        '規則判讀沒有分數，不得對它使用「評分」二字，也不得把兩者合併成一個數字。',
+    ];
+
+    private const EN_RULE_READ_PRIORITY = [
+        'The rule-based read is factual input: never overwrite it, never recompute it, never flip its direction.',
+        'It may point in a different direction from the rule-based read, but you must say which part differs and why; silently ignoring the rule-based read is not allowed.',
+        'The rule-based read has no score, so never describe it with the word "score", and never merge the two into a single number.',
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -327,12 +347,68 @@ class HealthPromptTest extends TestCase
 
         $this->assertInsideSection(self::ZH_RUBRIC_OLD, 'BEGIN_SCORING_RUBRIC', 'END_SCORING_RUBRIC', $llm->prompt);
         $this->assertInsideSection(self::ZH_RUBRIC_GRADES, 'BEGIN_SCORING_RUBRIC', 'END_SCORING_RUBRIC', $llm->prompt);
-        $this->assertInsideSection(self::ZH_RUBRIC_PRIORITY, 'BEGIN_SCORING_RUBRIC', 'END_SCORING_RUBRIC', $llm->prompt);
+        foreach (self::ZH_RULE_READ_PRIORITY as $rule) {
+            $this->assertInsideSection($rule, 'BEGIN_SCORING_RUBRIC', 'END_SCORING_RUBRIC', $llm->prompt);
+        }
 
         $englishLlm = $this->capturingLlm();
         app(StockAnalysisService::class)->analyze('2330.TW', 'stub-model', $englishLlm, [], [], null, 'en');
 
         $this->assertInsideSection(self::EN_RUBRIC_PRIORITY, 'BEGIN_SCORING_RUBRIC', 'END_SCORING_RUBRIC', $englishLlm->prompt);
+    }
+
+    /**
+     * **個股問答也要有那三條。**
+     *
+     * 規格 §4 特別點名 `StockChatService` 也要接——否則使用者在同一頁問「這檔體質
+     * 如何」，拿到的仍是模型自算版本。實際比對過的缺口：個股分析有
+     * `scoringRubric`，問答只有 `sourceTiers / dataSufficiency / antiManipulation`，
+     * 而問答的 $ratingLine 明確允許模型「給出評級」。`healthGuide->discipline()`
+     * 第 1 條擋住了改判方向，但**命名混用**與**把四塊加總成一個評分**這兩件事
+     * 在問答裡沒有任何規則擋。
+     *
+     * 定界感知：三條必須落在 system role 的 BEGIN_SOP_DISCIPLINE 段內才會被當成
+     * 規則；接到 prompt 尾巴或任何區段之外，裸的 assertStringContainsString
+     * 照樣綠燈。
+     */
+    #[Test]
+    public function the_chat_prompt_carries_the_rule_read_priority(): void
+    {
+        $instrument = Instrument::factory()->create(['symbol' => '2330.TW', 'market' => 'TW']);
+
+        $chatLlm = $this->capturingLlm();
+        app(StockChatService::class)->answer($instrument, '這檔體質如何？', [], 'stub-model', $chatLlm);
+
+        $this->assertNotNull($chatLlm->system);
+
+        foreach (self::ZH_RULE_READ_PRIORITY as $rule) {
+            $this->assertDisciplineInChatRules($rule, (string) $chatLlm->system);
+        }
+
+        $englishLlm = $this->capturingLlm();
+        app(StockChatService::class)->answer($instrument, 'How is its health?', [], 'stub-model', $englishLlm, 'en');
+
+        foreach (self::EN_RULE_READ_PRIORITY as $rule) {
+            $this->assertDisciplineInChatRules($rule, (string) $englishLlm->system);
+        }
+    }
+
+    /**
+     * **只接那三條，不接整段 rubric。**
+     *
+     * 問答不做八面向加權：接整段會把一整張用不到的權重表塞進每一次問答的 system
+     * prompt，而那張表本身還會誘導模型去算一個它沒有資料算的總分。
+     */
+    #[Test]
+    public function the_chat_prompt_does_not_carry_the_whole_weighted_rubric(): void
+    {
+        $instrument = Instrument::factory()->create(['symbol' => '2330.TW', 'market' => 'TW']);
+
+        $chatLlm = $this->capturingLlm();
+        app(StockChatService::class)->answer($instrument, '這檔體質如何？', [], 'stub-model', $chatLlm);
+
+        $this->assertStringNotContainsString(self::ZH_RUBRIC_OLD, (string) $chatLlm->system);
+        $this->assertStringNotContainsString(self::ZH_RUBRIC_GRADES, (string) $chatLlm->system);
     }
 
     /** 建一筆 pending 的分析並就地跑完 job（settingId 為 null → 走純規則訊號路徑）。 */

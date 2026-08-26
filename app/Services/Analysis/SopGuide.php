@@ -140,13 +140,8 @@ ZH;
      * **優先級不是可選的補充說明。** 本節的估值 15%、籌碼 15%、技術面 10% 與
      * BEGIN_HEALTH_READ 區塊的規則判讀直接重疊，模型會同時看到兩套而且它們可能
      * 互相矛盾；不明講誰是事實輸入、誰是綜合判斷，就是讓模型自己選一邊，而使用者
-     * 無從得知它選了哪一邊。三條規定缺一不可：
-     *
-     * 1. 規則判讀是事實輸入，模型不得覆寫或重算它。
-     * 2. 加權評級是綜合判斷，可以與規則判讀不同方向，但必須說明為什麼，
-     *    不得默默忽略。
-     * 3. 兩者在輸出裡分開命名，不得混用「評分」二字——規則判讀沒有分數，
-     *    把它講成「評分」會讓兩套東西在同一句話裡變成一套。
+     * 無從得知它選了哪一邊。那三條規定與其理由見 {@see ruleReadPriority()}
+     * ——個股問答不接這張權重表，但同樣要接那三條，所以它們分開放。
      */
     public function scoringRubric(string $locale): string
     {
@@ -164,11 +159,7 @@ SCORING RUBRIC (weighted, produce a total then a letter grade):
 Grades: >=75 A (high priority, still must pass tradability); 55-74 B (opportunity, wait for price/catalyst/confirmation); <55 C (not a primary candidate).
 Confidence: High (key data mostly T1/T2 and counter-evidence searched), Medium (main data reliable but some theme/social unverified), Low (mostly news/social/estimates or too many gaps). A low-confidence A is treated as B; a low-confidence B is observe-only.
 ONE-VOTE VETO (downgrade/exclude regardless of score): theme has only social buzz with no T1/T2 support; revenue/report contradicts the theme; material report doubt/litigation/delisting/full-cash-delivery risk; attention/disposition status makes stops unexecutable; insufficient recent volume; too many insufficient-data dimensions to form an auditable conclusion.
-PRIORITY BETWEEN THE RULE-BASED READ AND YOUR WEIGHTED RATING (applies whenever a BEGIN_HEALTH_READ block is present):
-- The technical stance, the chip stance and the four long-term block verdicts inside BEGIN_HEALTH_READ are the RULE-BASED READ. The rule-based read is factual input: never overwrite it, never recompute it, never flip its direction.
-- The weighted total and the A/B/C letter produced by this section are your WEIGHTED RATING - your own synthesis. It may point in a different direction from the rule-based read, but you must say which part differs and why; silently ignoring the rule-based read is not allowed.
-- Name the two separately in your output: always call the first one the "rule-based read" and the second one the "weighted rating". The rule-based read has no score, so never describe it with the word "score", and never merge the two into a single number.
-EN;
+EN."\n".$this->ruleReadPriority($locale);
         }
 
         return <<<'ZH'
@@ -184,9 +175,46 @@ EN;
 評級：≥75 A（高優先，仍須通過可交易性）；55–74 B（有機會，等價位/催化劑/確認）；<55 C（暫不列主力）。
 信心等級：高（關鍵數據多為 T1/T2 且完成反證搜尋）、中（主要數據可靠但部分題材/社群待驗證）、低（多依賴新聞/社群/推估或資料不足過多）。低信心 A 視同 B 處理；低信心 B 只觀察不操作。
 一票否決（不論總分，降級或排除）：題材只有社群聲量無 T1/T2 佐證；營收/財報與題材相反；重大財報疑慮/訴訟/下市/全額交割風險；注意股/處置股致停損不可執行；近期成交量不足；資料不足面向過多無法形成可稽核結論。
+ZH."\n".$this->ruleReadPriority($locale);
+    }
+
+    /**
+     * 規則判讀與模型自己那個評級的優先級。**三條，缺一不可。**
+     *
+     * 抽成獨立方法而不是留在 {@see scoringRubric()} 裡，是因為**兩個消費端都需要
+     * 這三條，但只有一個需要那張權重表**：
+     *
+     * - 個股分析走全套 SOP，由 scoringRubric() 接在八面向加權之後。
+     * - 個股問答不做加權評分，接整段會把一張用不到的權重表塞進每一次問答的
+     *   system prompt，那張表本身還會誘導模型去算一個它沒有資料算的總分。
+     *   但問答的評級提示明確允許模型「給出評級」，而
+     *   {@see HealthGuide::discipline()} 第 1 條只擋得住「改判方向」——**命名混用**
+     *   與**把四塊加總成一個評分**這兩件事在問答裡原本沒有任何規則擋。
+     *
+     * 三條各自擋一件事，所以不能只接其中一兩條：
+     *
+     * 1. 規則判讀是事實輸入，模型不得覆寫或重算它。
+     * 2. 模型自己的評級可以與規則判讀不同方向，但必須說明為什麼，不得默默忽略。
+     * 3. 兩者在輸出裡分開命名，不得混用「評分」二字——規則判讀沒有分數，
+     *    把它講成「評分」會讓兩套東西在同一句話裡變成一套。
+     *
+     * 措辭刻意不提「本節」：兩處都會引用它，綁在某一節上到了問答就指向不存在的段落。
+     */
+    public function ruleReadPriority(string $locale): string
+    {
+        if ($this->en($locale)) {
+            return <<<'EN'
+PRIORITY BETWEEN THE RULE-BASED READ AND YOUR WEIGHTED RATING (applies whenever a BEGIN_HEALTH_READ block is present):
+- The technical stance, the chip stance and the four long-term block verdicts inside BEGIN_HEALTH_READ are the RULE-BASED READ. The rule-based read is factual input: never overwrite it, never recompute it, never flip its direction.
+- Any rating, total or overall call you produce yourself is your WEIGHTED RATING. It may point in a different direction from the rule-based read, but you must say which part differs and why; silently ignoring the rule-based read is not allowed.
+- Name the two separately in your output: always call the first one the "rule-based read" and the second one the "weighted rating". The rule-based read has no score, so never describe it with the word "score", and never merge the two into a single number.
+EN;
+        }
+
+        return <<<'ZH'
 規則判讀與綜合評級的優先級（有 BEGIN_HEALTH_READ 區塊時一律適用）：
 - BEGIN_HEALTH_READ 區塊內的技術立場、籌碼立場與中長線四塊判定，稱為「規則判讀」。規則判讀是事實輸入，不得覆寫、不得重算、不得改判方向。
-- 本節算出來的加權總分與 A/B/C 稱為「綜合評級」，那是你自己的綜合判斷。它可以與規則判讀不同方向，但必須明講哪一塊不同、為什麼不同；默默忽略規則判讀不被允許。
+- 你自己給出的評級、總分或綜合判斷稱為「綜合評級」。它可以與規則判讀不同方向，但必須明講哪一塊不同、為什麼不同；默默忽略規則判讀不被允許。
 - 兩者在輸出裡分開命名：前者一律稱「規則判讀」，後者一律稱「綜合評級」。規則判讀沒有分數，不得對它使用「評分」二字，也不得把兩者合併成一個數字。
 ZH;
     }
