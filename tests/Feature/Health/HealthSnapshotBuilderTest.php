@@ -406,7 +406,6 @@ class HealthSnapshotBuilderTest extends TestCase
         return $instrument;
     }
 
-
     /**
      * 四季完整、產業適用（半導體）的序列，季末日由呼叫端決定。
      *

@@ -4536,3 +4536,57 @@ select:focus-visible {
 .health-notes__item + .health-notes__item {
     margin-top: 8px;
 }
+
+/* ---------------------------------------------------------------
+   歷史分析卡片裡「生成當下」的判讀
+   --------------------------------------------------------------- */
+
+/* 與同一頁那份「現在」的判讀面板刻意長得不一樣：左側標線 + 內縮背景。
+   兩者若看起來相同，使用者會把六年前那份讀成現況，而這一段存在的理由正是
+   要讓「生成當下」與「現在」分得開。 */
+.analysis-health-read {
+    background: var(--surface-strong);
+    border-left: 3px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-top: 12px;
+    padding: 10px 12px;
+}
+
+.analysis-health-read__label {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin: 0 0 8px;
+}
+
+.analysis-health-read__stances {
+    display: grid;
+    gap: 6px;
+}
+
+.analysis-health-read__blocks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-top: 8px;
+}
+
+.analysis-health-read__block {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    gap: 4px 6px;
+}
+
+.analysis-health-read__block-name {
+    font-weight: 600;
+}
+
+.analysis-health-read__snapshot {
+    color: var(--muted);
+    font-size: 0.75rem;
+    line-height: 1.6;
+    margin: 8px 0 0;
+}

@@ -2,12 +2,14 @@
 
 namespace Tests\Feature\Health;
 
+use App\Enums\AnalysisStatus;
 use App\Enums\HealthUnavailableReason;
 use App\Enums\HealthVerdict;
 use App\Http\Controllers\StockSearchController;
 use App\Models\ChipFlow;
 use App\Models\DailyPrice;
 use App\Models\Instrument;
+use App\Models\StockAnalysis;
 use App\Models\User;
 use App\Services\Health\HealthSnapshotBuilder;
 use App\Services\Health\LongTermHealthReader;
@@ -343,6 +345,199 @@ class HealthPanelTest extends TestCase
             'alignment 為 null 時必須走另一條分支，不得直接印「是／否」',
         );
         $this->assertStringContainsString('<HealthVerdictBadge verdict={null} />', $panel);
+    }
+
+    // ------------------------------------------------------------------
+    // 歷史分析保存下來的判讀
+    // ------------------------------------------------------------------
+
+    /**
+     * **每一筆歷史分析要帶著它生成當下的判讀。**
+     *
+     * `health_read` 自 migration 起就寫入，但在此之前沒有任何 controller、payload
+     * 或 JSX 讀它——於是 migration 的 docblock 宣稱解決掉的不一致原封不動：
+     * 同一個頁面同時渲染歷史分析的文字（引用生成當下的判讀）與一份**現在**用
+     * `cachedFor()` 算出來的面板。
+     *
+     * 保存的那一份與現在算出來的必須看得出是兩份：這裡的測資刻意把 `price_as_of`
+     * 設成 2020，與頁面上的即時面板差了六年。
+     */
+    #[Test]
+    public function each_analysis_carries_the_read_it_was_generated_with(): void
+    {
+        $instrument = $this->seedTaiwanInstrument();
+        $user = $this->user();
+
+        $this->analysis($user, $instrument, $this->savedRead(), $this->now->subHours(2));
+        $this->analysis($user, $instrument, null, $this->now->subHour());
+
+        $this->actingAs($user)
+            ->get('/stocks/search?symbol=2330.TW')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('analyses', 2)
+                // latest() 是 created_at 倒序：較新的那筆沒有判讀。
+                ->where('analyses.0.health_read', null)
+                ->where('analyses.1.health_read', $this->asJson($this->savedRead()))
+                // 護欄：即時面板算的是**另一份**，兩者必須看得出不同——否則
+                // 「顯示保存的那一份」與「顯示重算的那一份」在本測試下不可分辨。
+                ->where('health.snapshot.price_as_of', $this->now->subDay()->toDateString())
+                ->etc());
+    }
+
+    /**
+     * **顯示的是保存的那一份，不是重算的。** 底層資料變了，保存下來的判讀不動。
+     *
+     * 這正是 `health_read` 存在的理由：不保存的話，幾天後頁面顯示的是現在算出來
+     * 的判讀，而歷史分析的文字仍在引用生成當下的那一份。
+     */
+    #[Test]
+    public function the_carried_read_does_not_move_when_the_underlying_data_changes(): void
+    {
+        $instrument = $this->seedTaiwanInstrument();
+        $user = $this->user();
+
+        $this->analysis($user, $instrument, $this->savedRead(), $this->now->subHours(2));
+
+        DailyPrice::query()->create([
+            'instrument_id' => $instrument->id,
+            'priced_at' => $this->now->startOfDay(),
+            'open' => 500.0, 'high' => 505.0, 'low' => 495.0, 'close' => 500.0, 'volume' => 9_000_000,
+        ]);
+
+        $this->actingAs($user)
+            ->get('/stocks/search?symbol=2330.TW')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('analyses.0.health_read', $this->asJson($this->savedRead()))
+                // 護欄：即時面板真的跟著新資料動了，否則上一條等於沒測。
+                ->where('health.snapshot.price_as_of', $this->now->toDateString())
+                ->etc());
+    }
+
+    /**
+     * **`health_read` 為 null 的舊分析整段不顯示，不得顯示「無資料」。**
+     *
+     * 那些分析生成時根本沒有這個功能；印一句「不可評估」會讓使用者以為當時算過
+     * 而且算不出來——那與 migration 之前不存在這個功能是兩件事。
+     */
+    #[Test]
+    public function the_saved_read_renders_only_when_the_analysis_has_one(): void
+    {
+        $body = $this->functionBody('AnalysisHealthRead');
+
+        $this->assertStringContainsString(
+            'if (!healthRead)',
+            $body,
+            'migration 之前的分析沒有判讀，整段不得渲染。',
+        );
+        $this->assertStringContainsString('return null;', $body);
+
+        // 明確標示這是「生成當下」的判讀，與頁面上的即時面板在文案上分得開。
+        $this->assertStringContainsString("t('health.savedReadLabel')", $body);
+        $this->assertStringNotContainsString(
+            "t('health.savedReadLabel')",
+            $this->functionBody('HealthPanel'),
+            '即時面板不得共用「生成當下」那句標示。',
+        );
+
+        // 兩個立場、四塊判定、快照的資料日期都要在。
+        $this->assertStringContainsString('short.technical_stance', $body);
+        $this->assertStringContainsString('short.chip_stance', $body);
+        $this->assertStringContainsString('long.blocks.map', $body);
+        $this->assertStringContainsString('snapshot.price_as_of', $body);
+        $this->assertStringContainsString('snapshot.chip_as_of', $body);
+        $this->assertStringContainsString('snapshot.fundamentals_as_of', $body);
+
+        // **吃的是那一筆分析自己的欄位**，不是頁面上那份即時判讀。接錯的話畫面
+        // 上每一筆歷史分析旁邊都會是同一份「現在」的判讀，而那正是要修的不一致。
+        $this->assertStringContainsString(
+            'healthRead={analysis.health_read}',
+            $this->functionBody('AnalysisHistory'),
+            '分析卡片必須把該筆分析自己的 health_read 傳進去。',
+        );
+    }
+
+    /** 生成當下的判讀在視覺上要與即時面板分得開，不得共用同一組 className。 */
+    #[Test]
+    public function the_saved_read_is_visually_separate_from_the_live_panel(): void
+    {
+        $body = $this->functionBody('AnalysisHealthRead');
+
+        $this->assertStringContainsString('analysis-health-read', $body);
+        $this->assertStringNotContainsString('health-panel', $body);
+    }
+
+    /**
+     * 一筆已完成的分析。
+     *
+     * forceCreate：user_id 不在 $fillable（一律由 controller 從 auth 帶入）。
+     *
+     * @param  array<string, mixed>|null  $healthRead
+     */
+    private function analysis(User $user, Instrument $instrument, ?array $healthRead, CarbonImmutable $createdAt): StockAnalysis
+    {
+        return StockAnalysis::query()->forceCreate([
+            'user_id' => $user->id,
+            'instrument_id' => $instrument->id,
+            'provider_type' => 'stub',
+            'model' => 'stub-model',
+            'prompt_version' => 'v1',
+            'status' => AnalysisStatus::Completed->value,
+            // 傳陣列不傳 json_encode() 的字串：'array' cast 在寫入時會再編碼一次，
+            // 餵字串進去存的就是「一個 JSON 字串的 JSON」，讀回來是字串不是陣列。
+            'rule_signal' => [],
+            'health_read' => $healthRead,
+            'llm_output' => ['content' => 'ok'],
+            'data_as_of' => $createdAt,
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
+        ]);
+    }
+
+    /**
+     * 一份**保存下來**的判讀，日期刻意停在 2020。
+     *
+     * 與即時面板算出來的那一份差了六年：兩者若可能相同，「顯示的是保存的那一份」
+     * 這件事就無法被斷言。
+     *
+     * @return array<string, mixed>
+     */
+    private function savedRead(): array
+    {
+        return [
+            'short' => [
+                'technical_stance' => 'bearish',
+                'chip_stance' => 'distributing',
+                'alignment' => 'confirm',
+                'technical_reasons' => ['KD 偏謹慎，K 低於 D 9.0 點。'],
+                'chip_reasons' => ['近 5 日外資合計賣超 1,200 張。'],
+                'rsi' => 31.5,
+                'volume_ratio' => 0.8,
+                'price_as_of' => '2020-01-02',
+                'chip_as_of' => '2020-01-03',
+            ],
+            'long' => [
+                'blocks' => [
+                    ['block' => 'valuation', 'verdict' => 'negative', 'reasons' => ['本益比 位於自身歷史第 88 百分位'], 'as_of' => '2020-01-04', 'unavailable_reason' => null],
+                    ['block' => 'return_on_equity', 'verdict' => 'positive', 'reasons' => ['股東權益報酬率 18.0%'], 'as_of' => '2020-01-04', 'unavailable_reason' => null],
+                    ['block' => 'growth', 'verdict' => null, 'reasons' => [], 'as_of' => null, 'unavailable_reason' => 'not_yet'],
+                    ['block' => 'quality', 'verdict' => 'neutral', 'reasons' => ['營業現金流為淨利的 0.80 倍'], 'as_of' => '2019Q4', 'unavailable_reason' => null],
+                ],
+                'formula_version' => '2020-01-01.1',
+            ],
+            'snapshot' => [
+                'symbol' => '2330.TW',
+                'market' => 'tw',
+                'bars' => 80,
+                'price_as_of' => '2020-01-02',
+                'chip_as_of' => '2020-01-03',
+                'fundamentals_as_of' => '2020-01-04',
+                'financial_period' => '2019Q4',
+                'cached_only' => false,
+                'asset_type' => 'stock',
+            ],
+        ];
     }
 
     // ------------------------------------------------------------------

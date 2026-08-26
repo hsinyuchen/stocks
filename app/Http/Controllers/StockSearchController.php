@@ -595,6 +595,11 @@ class StockSearchController extends Controller
                 'prompt_version' => $analysis->prompt_version,
                 'status' => $analysis->status->value,
                 'rule_signal' => $analysis->rule_signal,
+                // 生成當下的判讀。**必須逐筆帶出來**：同一個頁面另外渲染一份
+                // 「現在」算出來的判讀面板，不帶的話歷史分析的文字會一直引用一份
+                // 畫面上看不到的舊結論，而使用者無從得知哪一個算數。
+                // 舊列為 null（migration 之前沒有這個功能），呈現層據此整段不顯示。
+                'health_read' => $analysis->health_read,
                 'llm_output' => $analysis->llm_output,
                 'data_as_of' => $analysis->data_as_of?->toIso8601String(),
                 'created_at' => $analysis->created_at?->toIso8601String(),

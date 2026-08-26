@@ -1035,6 +1035,8 @@ export default {
         "reasonIndeterminate": "The data is complete, but this particular measure cannot be computed from it.",
         "asOfLabel": "As of :date",
         "asOfUnknown": "unknown",
+        "savedReadLabel": "The read as it stood when this analysis was generated (not the current one)",
+        "savedReadSnapshot": "Data behind this read: prices :price, chip flows :chip, financials :fundamentals; formula version :version.",
         "formulaVersion": "Formula version :version",
         "cachedOnlyNote": "This read was built from cached data only, with no upstream call, so it may not be current; running a stock analysis refreshes the data and recomputes it.",
         "noteNoBacktest": "Every threshold behind these reads is unbacktested; the stances are descriptive labels only, not a hit rate, a return, or a prediction of subsequent price action.",

@@ -568,6 +568,10 @@ function AnalysisHistory({ analyses, stalled = false }) {
                                     ))}
                                 </ul>
                             ) : null}
+                            {/* 這一筆分析生成當下的判讀，取自它自己的 health_read。
+                                接成頁面上那份即時判讀的話，每一筆歷史分析旁邊都會
+                                是同一份「現在」的結論——那正是要修的不一致。 */}
+                            <AnalysisHealthRead healthRead={analysis.health_read} />
                         </article>
                     );
                 })}
@@ -1555,6 +1559,71 @@ function HealthBlockRow({ block }) {
             ) : (
                 <HealthReasons reasons={block.reasons} />
             )}
+        </div>
+    );
+}
+
+/**
+ * 一筆歷史分析**生成當下**的判讀摘要。
+ *
+ * 存在理由是一個真實的不一致：同一個頁面同時渲染歷史分析的文字（其內容引用生成
+ * 當下的判讀）與一份**現在**用 cachedFor() 算出來的面板。判讀已隨分析保存
+ * （stock_analyses.health_read），但在此之前沒有任何地方讀它，於是那個不一致
+ * 原封不動——使用者看到的是幾天前的推論配今天的判讀，而無從得知哪一個算數。
+ *
+ * **顯示的每一格都取自 healthRead，一格都不重算。** 重算等於把這個元件變回
+ * 「現在」的判讀，那正是要修的東西。
+ *
+ * **healthRead 為 null 時整段不渲染，不印「無資料」。** migration 之前的分析
+ * 生成時根本沒有這個功能；印一句「不可評估」會讓使用者以為當時算過而且算不出來。
+ */
+function AnalysisHealthRead({ healthRead }) {
+    const { t } = useI18n();
+
+    if (!healthRead) {
+        return null;
+    }
+
+    const { short, long, snapshot } = healthRead;
+
+    return (
+        <div className="analysis-health-read">
+            <p className="analysis-health-read__label">{t('health.savedReadLabel')}</p>
+            <div className="analysis-health-read__stances">
+                <HealthStanceRow
+                    asOf={short.price_as_of}
+                    labels={HEALTH_TECHNICAL_STANCE_LABELS}
+                    name={t('health.technicalStanceLabel')}
+                    stance={short.technical_stance}
+                />
+                <HealthStanceRow
+                    asOf={short.chip_as_of}
+                    labels={HEALTH_CHIP_STANCE_LABELS}
+                    name={t('health.chipStanceLabel')}
+                    stance={short.chip_stance}
+                />
+            </div>
+            <div className="analysis-health-read__blocks">
+                {long.blocks.map((block) => (
+                    <span className="analysis-health-read__block" key={block.block}>
+                        <span className="analysis-health-read__block-name">
+                            {HEALTH_BLOCK_LABELS[block.block] ? t(HEALTH_BLOCK_LABELS[block.block]) : block.block}
+                        </span>
+                        <HealthVerdictBadge verdict={block.verdict} />
+                        <HealthAsOf date={block.as_of} />
+                    </span>
+                ))}
+            </div>
+            {/* 快照的資料日期：這一份判讀是拿哪幾天的資料、哪一版公式算的。
+                價格、籌碼、財報三者的更新頻率不同，實測本來就停在不同的日期。 */}
+            <p className="analysis-health-read__snapshot">
+                {t('health.savedReadSnapshot', {
+                    price: snapshot.price_as_of ?? t('health.asOfUnknown'),
+                    chip: snapshot.chip_as_of ?? t('health.asOfUnknown'),
+                    fundamentals: snapshot.fundamentals_as_of ?? t('health.asOfUnknown'),
+                    version: long.formula_version,
+                })}
+            </p>
         </div>
     );
 }

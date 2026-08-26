@@ -1036,6 +1036,8 @@ export default {
         "reasonIndeterminate": "資料到齊，但這一項本身算不出來。",
         "asOfLabel": "資料日：:date",
         "asOfUnknown": "無",
+        "savedReadLabel": "此分析生成時的判讀（非目前狀態）",
+        "savedReadSnapshot": "此判讀採用的資料日：價格 :price、籌碼 :chip、財報 :fundamentals；公式版本 :version。",
         "formulaVersion": "判讀公式版本：:version",
         "cachedOnlyNote": "本次判讀只由已快取資料組成，一次上游都沒打，可能不是最新的；跑一次個股分析會把資料更新後重算。",
         "noteNoBacktest": "立場判讀由未經回測的門檻產生，是描述性標籤，不是勝率、報酬或後續走勢的預測。",
