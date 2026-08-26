@@ -29,8 +29,13 @@ use App\Support\MarketResolver;
  * **門檻與公式版本讀 config，所以判讀不是只由快照決定**：同一份快照在門檻調整
  * 前後會得到不同的判定，這是刻意的（門檻要能調），也是 formula_version 存在的
  * 理由——保存下來的舊判讀因此說得出自己是哪一版算的。快照負責固定「資料」這一半
- * 輸入，config 是另一半；{@see HealthInputSnapshot::$formulaVersion} 由組快照的
- * IO 邊界填寫，本類別不讀它，避免同一個值有兩個來源而漂移。
+ * 輸入，config 是另一半。
+ *
+ * **版本號只有一個來源**：`config('health.formula_version')`，由本類別在 read()
+ * 時讀進 {@see LongTermRead::$formulaVersion}。{@see HealthInputSnapshot} 刻意
+ * **不帶**這個欄位——它是公式的屬性不是輸入資料的屬性，放在快照上會讓快照填一個、
+ * reader 讀另一個，兩份都被序列化保存，config 一改而快照是舊的就會不一致，
+ * 而那正是版本號要防的事。
  */
 class LongTermHealthReader
 {
