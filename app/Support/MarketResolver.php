@@ -4,9 +4,35 @@ namespace App\Support;
 
 use App\Enums\AssetType;
 use App\Enums\MarketRegion;
+use App\Services\Search\YahooStockSearchProvider;
 
 class MarketResolver
 {
+    /**
+     * 已知的美股 ETF。**這份清單必然不完整，而且沒有辦法變完整**
+     * ——見 {@see isEtf()} 的說明。漏掉的會被標成 `stock`，於是被套用 ROE、
+     * 營收成長、CCC 這類對 ETF 沒有意義的判準。那是已知限制，
+     * 不是這份清單沒維護好。
+     *
+     * @var list<string>
+     */
+    private const KNOWN_US_ETFS = [
+        // 大盤與那斯達克
+        'SPY', 'VOO', 'IVV', 'QQQ', 'QQQM', 'DIA',
+        // 中小型與全市場
+        'IWM', 'VTI', 'VT', 'IJH', 'IJR',
+        // 產業與主題
+        'SMH', 'SOXX', 'XLK', 'XLF', 'XLE', 'XLV', 'XLI', 'XLY', 'XLP', 'XLU', 'XLB', 'XLRE', 'XLC',
+        'ARKK', 'ARKG', 'ARKW',
+        // 債券與商品
+        'TLT', 'IEF', 'SHY', 'AGG', 'BND', 'LQD', 'HYG', 'TIP',
+        'GLD', 'IAU', 'SLV', 'USO',
+        // 國際
+        'EFA', 'EEM', 'VEA', 'VWO', 'EWT', 'EWJ', 'FXI', 'MCHI',
+        // 槓桿與反向（波動大，更不該被當個股評估）
+        'TQQQ', 'SQQQ', 'SOXL', 'SOXS', 'UPRO', 'SPXU', 'TMF', 'TMV',
+    ];
+
     /**
      * 已知指數（^ 開頭 Yahoo 記法）的市場歸屬。
      * 只影響 metadata（region/currency），不影響行情路由：指數一律不走
@@ -53,7 +79,47 @@ class MarketResolver
 
     public static function assetType(string $symbol): AssetType
     {
-        return self::isIndex($symbol) ? AssetType::Index : AssetType::Stock;
+        if (self::isIndex($symbol)) {
+            return AssetType::Index;
+        }
+
+        return self::isEtf($symbol) ? AssetType::Etf : AssetType::Stock;
+    }
+
+    /**
+     * ETF 判定。兩個市場的可判定程度差很多，這個不對稱是本方法的重點。
+     *
+     * **台股用規則判得出來**：ETF 代號一律 `00` 開頭（0050、0056、006208、00878），
+     * 而個股代號從 1101 起跳，兩者不會衝突。
+     *
+     * **美股判不出來**：代號本身不帶類型資訊——`QQQ` 與 `QCOM` 從字串上看不出
+     * 差別，交易所欄位也沒有幫助（ETF 與個股掛在同一批交易所）。權威來源是
+     * Yahoo 搜尋回的 `quoteType`（{@see YahooStockSearchProvider}
+     * 已經在用它過濾），但那個資訊到不了建立 instrument 的地方：標的可能由
+     * 行情快取、警報、投資組合、選股器暖機、管理後台任一路徑建立，那些地方
+     * 只有一個 symbol。所以美股走下面那份 **明確不完整** 的清單。
+     *
+     * **清單放常數不放 config**：本類別刻意不依賴框架（`MarketResolverTest`
+     * 繼承的是 PHPUnit 的 TestCase 而非 Laravel 的，且 8 個以上的呼叫點都是
+     * 靜態呼叫），為了一份存在 repo 裡的清單去綁容器不划算。
+     *
+     * 漏掉的美股 ETF 會被標成 `stock`，於是被套用 ROE、營收成長、CCC 這類對
+     * ETF 沒有意義的判準。那是已知限制，根治要把 `quoteType` 一路接到每一個
+     * 建列點。
+     */
+    public static function isEtf(string $symbol): bool
+    {
+        $upper = strtoupper(trim($symbol));
+
+        if (self::isIndex($upper)) {
+            return false;
+        }
+
+        if (self::region($upper) === MarketRegion::Taiwan) {
+            return str_starts_with(self::taiwanCode($upper), '00');
+        }
+
+        return in_array($upper, self::KNOWN_US_ETFS, true);
     }
 
     /** Strip the Taiwan market suffix to get the bare exchange code. */
