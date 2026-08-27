@@ -3,6 +3,8 @@
 namespace App\Data;
 
 use App\Enums\AssetType;
+use App\Services\Health\HealthSnapshotBuilder;
+use App\Services\Health\ShortTermHealthReader;
 
 /**
  * 判讀的**全部輸入**，不可變。
@@ -42,6 +44,17 @@ use App\Enums\AssetType;
  * 已被姊妹框架判定為 `RevenueUnknownReason::Stale` 的序列給出「正面」。
  * 用的是既有那把尺，不另訂新門檻。
  *
+ * **帶 `priceStale` 與兩個 `*AgeTradingDays`，理由與 `seriesStale` 完全相同。**
+ * {@see ShortTermHealthReader} 是純計算，不可以自己叫
+ * `now()`——「今天是哪一天」是環境輸入不是判讀輸入，讓它自己去問會讓「同一份快照
+ * 必產出相同判讀」這個不變式失效（同一份快照隔一週再判就會換一個答案）。所以
+ * 年齡與過期與否都在 {@see HealthSnapshotBuilder::build()}
+ * 這個唯一的 IO 邊界算好，用布林與整數帶進來。
+ *
+ * `chipAgeTradingDays` **只供呈現，不 gate**：籌碼立場的持續性沒有量過（技術面
+ * 有，見 `config/health.php` 的 technical 區塊），套一個沒有量測依據的門檻違反
+ * 本專案的紀律。詳見 {@see ShortTermRead}。
+ *
  * **帶 `valuationStale`，而且它與 `seriesStale` 是兩把不同的尺。** 估值的 PER／PBR
  * 分位依**當前股價**，是每日量，過期判準因此是估值路徑自己的
  * 「今天盤後的公佈了沒」（`FundamentalsService::cachedValuationFor()` 算好帶進來）；
@@ -78,6 +91,9 @@ final readonly class HealthInputSnapshot
         public AssetType $assetType = AssetType::Stock,
         public bool $seriesStale = false,
         public bool $valuationStale = false,
+        public bool $priceStale = false,
+        public ?int $priceAgeTradingDays = null,
+        public ?int $chipAgeTradingDays = null,
     ) {}
 
     /** @return array<string, mixed> */

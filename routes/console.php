@@ -21,6 +21,28 @@ foreach ((array) config('youtube.schedule.times') as $time) {
 }
 
 /*
+ * 價格預載。**全站唯一會主動刷新 daily_prices 的排程。**
+ *
+ * 少了它，價格只在有人呼叫 dailyPrices() 時才抓：實測 67 檔有價格的標的裡有 31 檔
+ * 停在 15–30 天前，早就過了 CachedMarketDataProvider::isFresh() 的 TTL，只是自從
+ * 被批次拉進來後沒有任何人再碰過。技術面的新鮮度 gate 會把那些標的的技術立場全部
+ * 判成不可評估——gate 是止血，這條排程才是根治。
+ *
+ * 指令本來就存在（screener:warm），只是從來沒被排進來，形狀與症狀跟下面那個
+ * queue:work 曾經的處境一樣。時間讀 config，與 news／youtube 同一形狀。
+ *
+ * 前提同上：部署環境要有每分鐘的 schedule:run，否則這裡寫什麼都不會執行。
+ */
+foreach ((array) config('screener.schedule.times') as $time) {
+    Schedule::command('screener:warm')
+        ->dailyAt($time)
+        ->timezone(config('screener.schedule.timezone'))
+        // 一次要打近百檔上游，跑超過一天的間隔時不該再疊一份上去。
+        ->withoutOverlapping()
+        ->runInBackground();
+}
+
+/*
  * 佇列取件。
  *
  * 共享主機沒有常駐 daemon，用每分鐘的 cron 拼出一個近乎常駐的 worker：預設存活

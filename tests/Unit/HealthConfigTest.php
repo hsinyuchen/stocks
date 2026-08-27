@@ -73,6 +73,23 @@ class HealthConfigTest extends TestCase
     }
 
     /**
+     * 技術面過期門檻必須是**正整數**。
+     *
+     * 0 或負數會讓 `age >= 門檻` 恆真，於是每一檔的技術立場同時判成過期——畫面上
+     * 看起來像整站技術面一起壞掉，卻沒有任何錯誤訊號。非整數會在 `(int)` 轉型時
+     * 被無聲截斷（7.9 變 7），實際門檻與 config 上寫的不是同一個數字。
+     */
+    #[Test]
+    public function the_technical_staleness_threshold_is_a_positive_whole_number(): void
+    {
+        $value = config('health.technical.stale_after_trading_days');
+
+        $this->assertIsNumeric($value, 'health.technical.stale_after_trading_days 必須存在且為數值');
+        $this->assertSame((float) (int) $value, (float) $value, '門檻必須是整數個交易日');
+        $this->assertGreaterThan(0, (int) $value);
+    }
+
+    /**
      * 公式版本要存在且非空：判讀會隨分析保存，日後要能分辨
      * 「這份判讀是哪一版公式算的」。
      */

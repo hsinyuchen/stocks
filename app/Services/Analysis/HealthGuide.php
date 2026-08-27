@@ -169,6 +169,43 @@ class HealthGuide
         return $en ? sprintf(' (as of %s)', $value) : sprintf('（資料日：%s）', $value);
     }
 
+    /**
+     * 資料日的**年齡**（交易日）。裸日期要人自己去數是幾天前，而模型會照抄那個
+     * 日期並把結論講得像今天的——年齡是唯一能讓「這是 12 個交易日前的立場」
+     * 說得出口的東西。
+     *
+     * null（沒有資料日）時整段省略：後面的 as_of 已經明講「無」。
+     */
+    private function age(?int $tradingDays, bool $en): string
+    {
+        if ($tradingDays === null) {
+            return '';
+        }
+
+        if ($tradingDays === 0) {
+            return $en ? ' (latest session)' : '（最新一個交易日）';
+        }
+
+        return $en
+            ? sprintf(' (%d trading day%s ago)', $tradingDays, $tradingDays === 1 ? '' : 's')
+            : sprintf('（%d 個交易日前）', $tradingDays);
+    }
+
+    /**
+     * 不可評估的成因，接在立場後面。可評估時是空字串。
+     *
+     * 文案取自 config 既有的 `unavailable_reasons.*` 字典（四塊用的同一組），
+     * 不另寫一套——同一個成因在兩處講不同的話，使用者會以為是兩件事。
+     */
+    private function unavailableTail(?HealthUnavailableReason $reason, bool $en): string
+    {
+        if (! $reason instanceof HealthUnavailableReason) {
+            return '';
+        }
+
+        return ($en ? ' — ' : '——').$this->copy('unavailable_reasons.'.$reason->value, $en);
+    }
+
     private function separator(bool $en): string
     {
         return $en ? '; ' : '；';
@@ -188,13 +225,20 @@ class HealthGuide
 
         // 1. 兩個立場各自一行，各自帶自己的資料日。價格與籌碼的公佈日不同步
         // （實測差了 8 個交易日），共用一個日期是假的。
+        //
+        // 技術立場另外帶**成因**：null 有兩個來源（K 棒不足／價格太舊），而
+        // 只寫「不可評估」會把「等分析跑過就有」與「等價格更新」混成同一件事
+        // ——與四塊的 blockLine() 同一條規矩。
         $lines[] = ($en ? '- Technical stance: ' : '- 技術立場：')
             .$this->stance($short->technicalStance, 'technical_stance', $en)
-            .$this->asOf($short->priceAsOf, $en);
+            .$this->asOf($short->priceAsOf, $en)
+            .$this->age($short->priceAgeTradingDays, $en)
+            .$this->unavailableTail($short->technicalUnavailableReason, $en);
 
         $lines[] = ($en ? '- Chip stance: ' : '- 籌碼立場：')
             .$this->stance($short->chipStance, 'chip_stance', $en)
-            .$this->asOf($short->chipAsOf, $en);
+            .$this->asOf($short->chipAsOf, $en)
+            .$this->age($short->chipAgeTradingDays, $en);
 
         // 2. 背離狀態。這是本設計的核心：兩者背離時不互相抵銷，壓成一個數字會讓
         // 「技術偏多但法人在賣」與「兩邊都沒訊號」變成同一格。

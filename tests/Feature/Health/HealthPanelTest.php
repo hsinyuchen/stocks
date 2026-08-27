@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\Health\HealthSnapshotBuilder;
 use App\Services\Health\LongTermHealthReader;
 use App\Services\Health\ShortTermHealthReader;
+use App\Support\DailyDataFreshness;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -372,6 +373,145 @@ class HealthPanelTest extends TestCase
     }
 
     // ------------------------------------------------------------------
+    // 新鮮度：年齡與 gate
+    // ------------------------------------------------------------------
+
+    /**
+     * **裸日期不夠，兩個立場都要顯示年齡。**
+     *
+     * 只印「2026-07-29」要使用者自己去數那是幾個交易日前，而技術面的證據強度正是
+     * 以交易日衰減的。籌碼面雖然沒有 gate，年齡照樣顯示——否則畫面上會是
+     * 「技術面：資料過舊」與「籌碼面：買超」並列，看不出後者其實一樣舊。
+     */
+    #[Test]
+    public function both_stance_rows_show_an_age_not_just_a_bare_date(): void
+    {
+        $panel = $this->functionBody('HealthPanel');
+
+        $this->assertStringContainsString('ageTradingDays={short.price_age_trading_days}', $panel);
+        $this->assertStringContainsString('ageTradingDays={short.chip_age_trading_days}', $panel);
+
+        // 收下之後要真的渲染出去，不是收了就丟。
+        $this->assertStringContainsString(
+            'ageTradingDays={ageTradingDays}',
+            $this->functionBody('HealthStanceRow'),
+        );
+        $this->assertStringContainsString(
+            '<HealthAge tradingDays={ageTradingDays} />',
+            $this->functionBody('HealthAsOf'),
+        );
+
+        // **保存下來的判讀也要接上**，而且接的是那一筆分析自己的欄位。漏掉這裡的話
+        // 歷史分析旁邊只剩一個裸日期，而那正是本次要修掉的東西——那份判讀還更舊。
+        $saved = $this->functionBody('AnalysisHealthRead');
+
+        $this->assertStringContainsString('ageTradingDays={short.price_age_trading_days}', $saved);
+        $this->assertStringContainsString('ageTradingDays={short.chip_age_trading_days}', $saved);
+        $this->assertStringContainsString('unavailableReason={short.technical_unavailable_reason}', $saved);
+    }
+
+    /**
+     * **年齡由後端算好，前端一天都不算。**
+     *
+     * 前端複製一份工作日計算，遲早會出現「畫面顯示 7 個交易日前」但「後端已判過
+     * 期」——兩套規則對同一份資料給出互相矛盾的說法。這裡掃的是「有沒有人在 JS
+     * 裡碰日期」，不是「有沒有算對」：算對的那一份也不該存在。
+     */
+    #[Test]
+    public function the_page_never_computes_an_age_itself(): void
+    {
+        $region = $this->healthRegion();
+
+        foreach (['new Date', 'getDay(', 'getDate(', 'isoWeekday', 'Date.parse', 'setDate('] as $forbidden) {
+            $this->assertStringNotContainsString(
+                $forbidden,
+                $region,
+                '年齡必須取自後端 payload，前端不得自行做日期或工作日計算。',
+            );
+        }
+    }
+
+    /**
+     * **技術面過舊時渲染不可評估與成因，而且成因走既有的那條管道。**
+     *
+     * 文案不得在前端另寫一套：同一個成因在立場列與四塊講不同的話，使用者會以為
+     * 那是兩件事。這裡釘住的是「共用 HealthUnavailableNote」這個接法。
+     */
+    #[Test]
+    public function a_gated_technical_stance_renders_its_reason_through_the_existing_channel(): void
+    {
+        $panel = $this->functionBody('HealthPanel');
+        $row = $this->functionBody('HealthStanceRow');
+
+        $this->assertStringContainsString('unavailableReason={short.technical_unavailable_reason}', $panel);
+        $this->assertStringContainsString('<HealthUnavailableNote reason={unavailableReason} />', $row);
+
+        // 有成因時走成因、沒有時走理由——同一組資料不得兩段都印。
+        $this->assertMatchesRegularExpression(
+            '/unavailableReason\s*\?/',
+            $row,
+            '成因與理由必須是兩條互斥分支，照 HealthBlockRow 的形狀。',
+        );
+
+        // **籌碼面不得有成因。** 它沒有 gate，給它一個 unavailableReason 就是為一個
+        // 不存在的狀態預留位置，日後很容易被接上去而沒有任何量測依據。
+        // 一次而且只有一次：籌碼面沒有 gate，給它一個 unavailableReason 就是為一個
+        // 不存在的狀態預留位置，日後很容易被接上去而沒有任何量測依據。
+        $this->assertSame(
+            1,
+            substr_count($panel, 'unavailableReason={short.'),
+            '只有技術立場帶成因；籌碼面沒有 gate（缺量測依據），不得接上成因。',
+        );
+        $this->assertSame(
+            1,
+            substr_count($this->functionBody('AnalysisHealthRead'), 'unavailableReason={short.'),
+            '保存下來的判讀同樣只有技術立場帶成因。',
+        );
+    }
+
+    /**
+     * payload 端到端：價格過舊時技術立場為 null、成因為 stale，**籌碼照樣有立場**。
+     *
+     * 走真實路由，不手寫 payload：接線斷掉時這條才會紅。
+     */
+    #[Test]
+    public function a_stale_price_reaches_the_page_as_an_unavailable_technical_stance(): void
+    {
+        $threshold = (int) config('health.technical.stale_after_trading_days');
+
+        $this->seedTaiwanInstrument($threshold);
+
+        $this->actingAs($this->user())
+            ->get('/stocks/search?symbol=2330.TW')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('health.short.technical_stance', null)
+                ->where('health.short.technical_unavailable_reason', 'stale')
+                ->where('health.short.price_age_trading_days', $threshold)
+                // 立場作廢時理由與背離一併作廢。
+                ->where('health.short.technical_reasons', [])
+                ->where('health.short.alignment', null)
+                // **籌碼不被 gate**：同樣舊的資料照樣輸出立場，只是年齡跟著揭露。
+                ->where('health.short.chip_stance', 'accumulating')
+                ->etc());
+    }
+
+    /** 對照組：價格夠新時照樣有立場、沒有成因，否則上一條殺不死「恆判過期」。 */
+    #[Test]
+    public function a_fresh_price_still_produces_a_technical_stance(): void
+    {
+        $this->seedTaiwanInstrument();
+
+        $this->actingAs($this->user())
+            ->get('/stocks/search?symbol=2330.TW')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('health.short.technical_unavailable_reason', null)
+                ->where('health.short.price_age_trading_days', 1)
+                ->etc());
+    }
+
+    // ------------------------------------------------------------------
     // 歷史分析保存下來的判讀
     // ------------------------------------------------------------------
 
@@ -661,16 +801,20 @@ class HealthPanelTest extends TestCase
      * K 棒給滿 {@see StockSearchController::HEALTH_BARS}：少於視窗數時 KD 的
      * 播種位置會變、立場可能跨過門檻，payload 契約就會依賴測資長度而不是程式碼。
      */
-    private function seedTaiwanInstrument(): Instrument
+    private function seedTaiwanInstrument(int $ageTradingDays = 1): Instrument
     {
         $instrument = Instrument::factory()->create(['symbol' => '2330.TW']);
+
+        // 最後一根 K 棒刻意可以往前推：新鮮度 gate 的兩條測試就靠這個參數分開，
+        // 預設 1 個交易日（不過期）與既有測試原本的形狀相同。
+        $offset = $this->tradingDaysAgoOffset($ageTradingDays);
 
         for ($i = StockSearchController::HEALTH_BARS; $i >= 1; $i--) {
             $close = 100.0 + (StockSearchController::HEALTH_BARS - $i) * 0.5;
 
             DailyPrice::query()->create([
                 'instrument_id' => $instrument->id,
-                'priced_at' => $this->now->subDays($i)->startOfDay(),
+                'priced_at' => $this->now->subDays($i + $offset)->startOfDay(),
                 'open' => $close,
                 'high' => $close + 1.0,
                 'low' => $close - 1.0,
@@ -682,7 +826,7 @@ class HealthPanelTest extends TestCase
         for ($i = 5; $i >= 1; $i--) {
             ChipFlow::query()->create([
                 'instrument_id' => $instrument->id,
-                'traded_at' => $this->now->subDays($i)->startOfDay(),
+                'traded_at' => $this->now->subDays($i + $offset)->startOfDay(),
                 'foreign_net' => 400_000,
                 'trust_net' => 0,
                 'dealer_net' => 0,
@@ -691,6 +835,33 @@ class HealthPanelTest extends TestCase
         }
 
         return $instrument;
+    }
+
+    /**
+     * 讓「最後一根 K 棒在 1 個交易日前」的預設測資往前推到 $ageTradingDays 個交易日前，
+     * 需要多推幾個**日曆天**。
+     *
+     * 逐日回推而不是套算式：與被測的
+     * {@see DailyDataFreshness::tradingDayAge()} 共用同一段算式的話，
+     * 兩邊一起錯也不會有人發現。
+     */
+    private function tradingDaysAgoOffset(int $ageTradingDays): int
+    {
+        $date = $this->now->startOfDay();
+        $counted = 0;
+        $days = 0;
+
+        while ($counted < $ageTradingDays) {
+            if ($date->isWeekday()) {
+                $counted++;
+            }
+
+            $date = $date->subDay();
+            $days++;
+        }
+
+        // 預設測資本來就是「昨天」，所以只回傳額外要推的天數。
+        return $days - 1;
     }
 
     private function jsx(): string
@@ -772,6 +943,7 @@ class HealthPanelTest extends TestCase
         $names = [
             'healthNumber',
             'HealthAsOf',
+            'HealthAge',
             'HealthReasons',
             'HealthVerdictBadge',
             'HealthUnavailableNote',

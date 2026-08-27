@@ -138,6 +138,16 @@ class HealthPromptTest extends TestCase
         // 不凍結的話這組測試會在某個日期之後壞在日曆上而不是壞在程式碼上。
         // 同時讓 fundamentals.fetched_at 這個「抓取日」變成可斷言的常數。
         $this->travelTo(CarbonImmutable::parse('2026-08-26 09:00:00'));
+
+        // **技術面新鮮度 gate 在本組測試預設放寬。**
+        //
+        // FakeMarketDataProvider 的基準日是寫死的 2026-06-20，而上面凍結的今天是
+        // 2026-08-26——固定相距 48 個交易日，遠超過門檻。不放寬的話，本組每一條
+        // 「技術立場長什麼樣」的斷言都只會看到「不可評估」，那些斷言就等於沒測。
+        //
+        // 這不是把 gate 關掉：gate 本身由 {@see gatedTechnicalStanceStatesThatThePriceIsStale}
+        // 用預設門檻在同一條 prompt 鏈路上驗，判定邏輯另有 ShortTermHealthReaderTest。
+        config(['health.technical.stale_after_trading_days' => 999]);
     }
 
     /** 捕捉送進 LLM 的 prompt／system。 */
@@ -227,6 +237,39 @@ class HealthPromptTest extends TestCase
         $this->assertInsideHealthBlock(self::ZH_TECHNICAL_LINE, $llm->prompt);
         $this->assertInsideHealthBlock(self::ZH_CHIP_LINE, $llm->prompt);
         $this->assertInsideHealthBlock(self::ZH_ROE_LINE, $llm->prompt);
+    }
+
+    /**
+     * **價格過舊時 prompt 裡的技術立場是「不可評估」，而且說得出是哪一種不可評估。**
+     *
+     * 這條用**預設門檻**跑（setUp 的放寬在這裡撤掉），走的是與上面兩條完全相同的
+     * 真實鏈路。少了它，setUp 那行放寬就等於把 gate 從整條 prompt 路徑上關掉，
+     * 而沒有任何測試會發現。
+     *
+     * 成因必須跟著出現：只寫「不可評估」會讓模型把「等分析跑過就有」與
+     * 「等價格更新」講成同一件事，而那是使用者的兩種不同行動。
+     */
+    #[Test]
+    public function the_gated_technical_stance_states_that_the_price_is_stale(): void
+    {
+        config(['health.technical.stale_after_trading_days' => 8]);
+
+        Instrument::factory()->create(['symbol' => '2330.TW', 'market' => 'TW']);
+        $llm = $this->capturingLlm();
+
+        app(StockAnalysisService::class)->analyze('2330.TW', 'stub-model', $llm);
+
+        $this->assertInsideHealthBlock(
+            '- 技術立場：不可評估（資料日：2026-06-20）（48 個交易日前）——有資料但太舊，要等上游更新。',
+            $llm->prompt,
+        );
+
+        // 籌碼**不被 gate**：同樣舊的一份資料照樣輸出立場，只是年齡跟著揭露。
+        // 這一側缺量測依據，套門檻會是憑空的（見 ShortTermRead 的 docblock）。
+        $this->assertInsideHealthBlock(
+            '- 籌碼立場：外資買超（資料日：2026-07-20）（27 個交易日前）',
+            $llm->prompt,
+        );
     }
 
     /**

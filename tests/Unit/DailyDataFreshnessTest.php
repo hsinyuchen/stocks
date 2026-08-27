@@ -85,4 +85,86 @@ class DailyDataFreshnessTest extends TestCase
         $this->assertSame('2026-07-29 23:00:00', DailyDataFreshness::todayPublishedAt(99)->toDateTimeString());
         $this->assertSame('2026-07-29 00:00:00', DailyDataFreshness::todayPublishedAt(-5)->toDateTimeString());
     }
+
+    // ------------------------------------------------------------------
+    // 交易日年齡（工作日近似）
+    // ------------------------------------------------------------------
+
+    /** 沒有資料日就沒有年齡可言。回 0 會宣稱「今天的資料」，那是假的。 */
+    public function test_a_missing_date_has_no_age(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-27 12:00', 'Asia/Taipei'));
+
+        $this->assertNull(DailyDataFreshness::tradingDayAge(null));
+        $this->assertNull(DailyDataFreshness::tradingDayAge(''));
+    }
+
+    public function test_todays_data_is_zero_trading_days_old(): void
+    {
+        // 2026-08-27 是週四。
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-27 12:00', 'Asia/Taipei'));
+
+        $this->assertSame(0, DailyDataFreshness::tradingDayAge('2026-08-27'));
+    }
+
+    /**
+     * **週末不算年齡。** 週五收盤到下週一是 1 個工作日，不是 3 個日曆天。
+     *
+     * 這是整條規則存在的理由：用日曆天數的話，每個週一都會讓所有標的憑空老 2 天，
+     * 而市場那兩天根本沒開。
+     */
+    public function test_a_weekend_costs_nothing(): void
+    {
+        // 2026-08-21 週五 → 2026-08-24 週一。
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-24 12:00', 'Asia/Taipei'));
+
+        $this->assertSame(1, DailyDataFreshness::tradingDayAge('2026-08-21'));
+
+        // 對照組：同樣 3 個日曆天，但落在週間就是 3 個工作日。
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-27 12:00', 'Asia/Taipei'));
+
+        $this->assertSame(3, DailyDataFreshness::tradingDayAge('2026-08-24'));
+    }
+
+    /** 跨多週：每整週貢獻 5 個工作日。 */
+    public function test_the_age_accumulates_five_per_full_week(): void
+    {
+        // 2026-08-27 週四；往回推的同一個星期幾。
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-27 12:00', 'Asia/Taipei'));
+
+        $this->assertSame(5, DailyDataFreshness::tradingDayAge('2026-08-20'));
+        $this->assertSame(10, DailyDataFreshness::tradingDayAge('2026-08-13'));
+        $this->assertSame(20, DailyDataFreshness::tradingDayAge('2026-07-30'));
+    }
+
+    /** 「今天」是週末時，週五的資料仍是 0 個交易日——中間沒有開過市。 */
+    public function test_a_weekend_today_does_not_age_fridays_data(): void
+    {
+        // 2026-08-22 週六、2026-08-23 週日。
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-23 12:00', 'Asia/Taipei'));
+
+        $this->assertSame(0, DailyDataFreshness::tradingDayAge('2026-08-21'));
+    }
+
+    /**
+     * 「今天」一律以 Asia/Taipei 判定，與 {@see DailyDataFreshness::TIMEZONE} 同源。
+     *
+     * 伺服器跑 UTC 時，台北的隔天凌晨仍是 UTC 的前一天；用伺服器時區會讓年齡
+     * 在每天台北 08:00 之前少一天。
+     */
+    public function test_today_is_decided_in_taipei_time(): void
+    {
+        // UTC 2026-08-26 17:00 ＝ 台北 2026-08-27 01:00（週四）。
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-26 17:00', 'UTC'));
+
+        $this->assertSame(1, DailyDataFreshness::tradingDayAge('2026-08-26'));
+    }
+
+    /** 未來日期（上游時區超前、或測資有誤）不得回負數年齡。 */
+    public function test_a_future_date_is_clamped_to_zero(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-08-27 12:00', 'Asia/Taipei'));
+
+        $this->assertSame(0, DailyDataFreshness::tradingDayAge('2026-09-10'));
+    }
 }
