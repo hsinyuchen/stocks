@@ -23,7 +23,7 @@ class RetailChasing extends SmartMoneyAbsorbing
         return '融資增＋外資賣（散戶接刀）';
     }
 
-    protected function evaluateMargin(array $window, array $all, array $context, array $volumes): bool
+    protected function evaluateMargin(array $window, array $all, array $context, array $volumeByDate): bool
     {
         $change = $this->changePercent($window);
         $threshold = (float) config('margin.signal.change_threshold', 3.0);
@@ -32,6 +32,6 @@ class RetailChasing extends SmartMoneyAbsorbing
             return false;
         }
 
-        return $this->significantForeignNet($context, $volumes) < 0;
+        return $this->significantForeignNet($context, $volumeByDate) < 0;
     }
 }

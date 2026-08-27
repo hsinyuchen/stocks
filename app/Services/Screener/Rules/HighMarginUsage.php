@@ -15,7 +15,7 @@ class HighMarginUsage extends MarginRule
         return '融資使用率偏高';
     }
 
-    protected function evaluateMargin(array $window, array $all, array $context, array $volumes): bool
+    protected function evaluateMargin(array $window, array $all, array $context, array $volumeByDate): bool
     {
         $usage = $this->latest($window)->marginUsagePercent();
 

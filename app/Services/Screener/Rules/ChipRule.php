@@ -40,7 +40,7 @@ abstract class ChipRule implements ScreenRule
         return $this->evaluateChip(
             array_slice($flows, -self::WINDOW),
             $flows,
-            $this->volumeSeries($series),
+            $this->volumeByDate($series),
         );
     }
 
@@ -61,9 +61,9 @@ abstract class ChipRule implements ScreenRule
     /**
      * @param  list<ChipFlowData>  $window  採計窗口內的買賣超
      * @param  list<ChipFlowData>  $all  完整序列（連續天數需要看更早的資料）
-     * @param  list<int|float>  $volumes  同一檔的成交量序列，供中性帶算佔比
+     * @param  array<string, int|float>  $volumeByDate  同一檔的日期 → 成交量，供中性帶依籌碼日期取分母
      */
-    abstract protected function evaluateChip(array $window, array $all, array $volumes): bool;
+    abstract protected function evaluateChip(array $window, array $all, array $volumeByDate): bool;
 
     /** @param list<ChipFlowData> $flows */
     protected function sum(array $flows, string $field): int
@@ -109,6 +109,20 @@ abstract class ChipRule implements ScreenRule
     }
 
     /**
+     * 連續同向的那幾筆買賣超。
+     *
+     * 中性帶的分母要取這幾天的成交量，所以呼叫端需要的是「哪幾天」而不只是合計。
+     * $streak < 1 時回空陣列而不是 array_slice($flows, -0)——後者會回整條序列。
+     *
+     * @param  list<ChipFlowData>  $flows
+     * @return list<ChipFlowData>
+     */
+    protected function streakFlows(array $flows, int $streak): array
+    {
+        return $streak < 1 ? [] : array_slice($flows, -$streak);
+    }
+
+    /**
      * 連續同向那幾天的外資淨額合計。
      *
      * 中性帶以「整段」而非逐日判定：單日佔比約是 N 日的 1/N，逐日判會把整段
@@ -118,13 +132,9 @@ abstract class ChipRule implements ScreenRule
      */
     protected function streakNet(array $flows, int $streak): int
     {
-        if ($streak < 1) {
-            return 0;
-        }
-
         $net = 0;
 
-        foreach (array_slice($flows, -$streak) as $flow) {
+        foreach ($this->streakFlows($flows, $streak) as $flow) {
             $net += $flow->foreignNet;
         }
 

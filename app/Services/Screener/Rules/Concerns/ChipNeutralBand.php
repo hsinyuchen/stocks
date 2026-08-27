@@ -2,6 +2,7 @@
 
 namespace App\Services\Screener\Rules\Concerns;
 
+use App\Data\ChipFlowData;
 use RuntimeException;
 
 /**
@@ -13,50 +14,101 @@ use RuntimeException;
  *
  * **分母與 SignalEngine 刻意不同，那不是 bug**：SignalEngine 只拿得到技術指標
  * 快照（一組尾值，不是序列），只能用「volume_ma20 × 採計天數」估同期成交量；
- * 選股器手上有完整的價格序列，直接加總實際成交量即可。同一條門檻套在更準的
- * 分母上，結果只會更貼近「這筆量算不算大」這個問題本身。
+ * 選股器手上有完整的價格序列，可以依籌碼的實際日期逐日取量加總。同一條門檻套在
+ * 更準的分母上，結果只會更貼近「這筆量算不算大」這個問題本身。
+ *
+ * **分子與分母必須是同一段日子**：籌碼與價格是兩個上游、兩份交易日曆，籌碼落後
+ * 於價格是常態（正式資料實測 21 檔有 8 檔尾端日期不一致，最久差 6 個交易日，
+ * 5 日窗口完全零重疊）。以筆數對齊（取價格序列尾端 N 根）會讓分母變成另一段
+ * 期間的成交量，實測最大誤差 2.3 倍。因此這裡一律以**日期**對齊。
  */
 trait ChipNeutralBand
 {
     /**
-     * 取出成交量序列。缺鍵或型別不符時回空陣列，由呼叫端當成「算不出來」處理。
+     * 成交量的「日期 → 量」映射，供中性帶依籌碼日期取分母。
+     *
+     * `dates` 與 `volume` 由 TechnicalIndicatorService::series() 逐索引配對產生，
+     * 這裡沿用同一個配對關係。缺鍵、型別不符或兩者長度不一致時回空陣列，由呼叫端
+     * 當成「算不出來」處理——長度對不上代表兩個序列不是同一組 K 棒的產物，硬配對
+     * 只會把量對到別的日期上。
      *
      * @param  array<string, mixed>  $series
-     * @return list<int|float>
+     * @param  int|null  $bars  只採計前 $bars 根 K 棒（歷史回放用），null 為全序列
+     * @return array<string, int|float>
      */
-    protected function volumeSeries(array $series): array
+    protected function volumeByDate(array $series, ?int $bars = null): array
     {
+        $dates = $series['dates'] ?? null;
         $volumes = $series['volume'] ?? null;
 
-        if (! is_array($volumes)) {
+        if (! is_array($dates) || ! is_array($volumes)) {
             return [];
         }
 
-        // 非數值填 0 而不是濾掉：MarginRule 的歷史回放靠索引把序列截到該時點，
-        // 濾掉會讓後面每一根的索引往前位移，截斷點就對到別的日期。
-        return array_map(
-            static fn ($volume): int|float => is_numeric($volume) ? $volume : 0,
-            array_values($volumes),
-        );
+        $dates = array_values($dates);
+        $volumes = array_values($volumes);
+
+        if (count($dates) !== count($volumes)) {
+            return [];
+        }
+
+        if ($bars !== null) {
+            if ($bars < 1) {
+                return [];
+            }
+
+            $dates = array_slice($dates, 0, $bars);
+            $volumes = array_slice($volumes, 0, $bars);
+        }
+
+        $map = [];
+
+        foreach ($dates as $index => $date) {
+            $key = self::normalizeDate($date);
+
+            if ($key === null) {
+                continue;
+            }
+
+            // 非數值填 0 而不是跳過：那一天確實有 K 棒，只是量不可信。跳過會讓它
+            // 變成「缺日」，把整段判定作廢；填 0 只讓分母少那一天的量，與既有行為一致。
+            $map[$key] = is_numeric($volumes[$index]) ? $volumes[$index] : 0;
+        }
+
+        return $map;
     }
 
     /**
-     * 淨額佔同期成交量的比例。分母是序列尾端 $days 根的實際成交量合計。
+     * 淨額佔同期成交量的比例。分母是**這幾筆籌碼各自那一天**的成交量合計。
      *
-     * 分母無效（無成交量、合計為 0、天數小於 1）時回 null——那代表規模基準不明，
-     * 不是「比例為 0」。
+     * 分母無效時回 null——那代表規模基準不明，不是「比例為 0」：
+     * - 沒有成交量映射、沒有籌碼、或合計為 0；
+     * - 採計的籌碼日裡有任何一天在映射裡找不到。
      *
-     * @param  list<int|float>  $volumes  已截到評估時點的成交量序列
+     * 缺日一律作廢而不是「只算找得到的那幾天」：後者會讓分母變小、佔比變大，把
+     * 雜訊推向命中那一側，正是這條中性帶要擋的方向。正式資料實測缺日比例
+     * 0.24%（滑動 5 日窗口 1.23%），代價可接受。
+     *
+     * @param  array<string, int|float>  $volumeByDate  已截到評估時點的日期 → 量
+     * @param  list<ChipFlowData>  $flows  實際採計的那幾筆籌碼
      */
-    protected function volumeShare(int $net, array $volumes, int $days): ?float
+    protected function volumeShare(int $net, array $volumeByDate, array $flows): ?float
     {
-        // 序列涵蓋不到採計天數時同樣算不出來：拿較短的一段當分母會低估同期成交量、
-        // 高估佔比，等於把雜訊推向命中那一側。
-        if ($days < 1 || count($volumes) < $days) {
+        if ($volumeByDate === [] || $flows === []) {
             return null;
         }
 
-        $total = array_sum(array_slice($volumes, -$days));
+        $total = 0;
+
+        foreach ($flows as $flow) {
+            $date = self::normalizeDate($flow->date);
+
+            if ($date === null || ! array_key_exists($date, $volumeByDate)) {
+                return null;
+            }
+
+            $total += $volumeByDate[$date];
+        }
 
         return $total > 0 ? $net / $total : null;
     }
@@ -71,18 +123,47 @@ trait ChipNeutralBand
      * 「K 棒不足 20 根」的暖身期——選股器拿的是完整序列，算不出成交量代表該期間
      * 根本沒有成交或資料有問題，寧可漏也不要誤推。
      *
-     * @param  list<int|float>  $volumes
+     * @param  array<string, int|float>  $volumeByDate
+     * @param  list<ChipFlowData>  $flows
      */
-    protected function isSignificantNet(int $net, array $volumes, int $days): bool
+    protected function isSignificantNet(int $net, array $volumeByDate, array $flows): bool
     {
         if ($net === 0) {
             return false;
         }
 
-        $share = $this->volumeShare($net, $volumes, $days);
+        $share = $this->volumeShare($net, $volumeByDate, $flows);
 
         // 邊界含等於：恰好等於門檻算得上訊號，少一股才落回中性帶（與 SignalEngine 同側）。
         return $share !== null && abs($share) >= $this->chipNeutralBand();
+    }
+
+    /**
+     * 日期正規化成 `YYYY-MM-DD`，無法辨識時回 null。
+     *
+     * 兩邊的日期都是字串但來源不同：籌碼一律走 ChipFlow 的 `date:Y-m-d` cast，
+     * 價格則多數走 CarbonImmutable::toDateString()，只有 FinMind 那條路徑是把上游的
+     * `date` 欄位原樣轉字串。上游改成帶時刻的形式不能排除，而對不上會讓整檔靜默
+     * 不命中——比誤命中更難察覺，所以這裡先削掉時刻再比對，不直接 `===`。
+     *
+     * 不做日曆有效性檢查：這裡要的是穩定的對應鍵，不是日期驗證。
+     */
+    private static function normalizeDate(mixed $raw): ?string
+    {
+        if (! is_string($raw)) {
+            return null;
+        }
+
+        $value = trim($raw);
+
+        if ($value === '') {
+            return null;
+        }
+
+        // 同時吃 "2026-07-01 00:00:00" 與 ISO8601 的 "2026-07-01T00:00:00Z"。
+        $value = (string) preg_split('/[ T]/', $value)[0];
+
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1 ? $value : null;
     }
 
     /**
