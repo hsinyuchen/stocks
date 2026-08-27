@@ -1398,18 +1398,50 @@ function healthNumber(value, digits) {
 }
 
 /**
- * 一項的資料日。**null 也要明講「無」**，不是整段省略——省略會讓讀者以為這一項
- * 與前一項是同一天算的，而實測價格、籌碼、財報分別停在三個不同的日期
- * （2026-08-25／08-17／08-05）。
+ * 一項的資料日，後面接**年齡**。**null 也要明講「無」**，不是整段省略——省略會讓
+ * 讀者以為這一項與前一項是同一天算的，而實測價格、籌碼、財報分別停在三個不同的
+ * 日期（2026-08-25／08-17／08-05）。
  */
-function HealthAsOf({ date }) {
+function HealthAsOf({ date, ageTradingDays = null }) {
     const { t } = useI18n();
 
     return (
         <span className="health-as-of">
             {t('health.asOfLabel', { date: date ? date : t('health.asOfUnknown') })}
+            <HealthAge tradingDays={ageTradingDays} />
         </span>
     );
+}
+
+/**
+ * 資料日的年齡（交易日）。
+ *
+ * **裸日期不夠。** 「2026-07-29」要使用者自己數那是幾天前，而技術面的證據強度
+ * 是以交易日衰減的（超過門檻就整個不評估）——年齡才是使用者真正需要的那個量。
+ *
+ * **數字由後端算好帶上來，這裡一天都不算。** 前端複製一份工作日計算，遲早會出現
+ * 「畫面顯示 7 個交易日前」但「後端已判過期」——兩套規則對同一份資料給出互相
+ * 矛盾的說法，而使用者無從得知哪一個算數。
+ *
+ * 三個分支是英文的單複數逼出來的（`1 trading days ago` 是錯的），本專案的 i18n
+ * 沒有複數規則，所以三種說法各給一個鍵。
+ */
+function HealthAge({ tradingDays }) {
+    const { t } = useI18n();
+
+    if (tradingDays === null || tradingDays === undefined) {
+        return null;
+    }
+
+    if (tradingDays === 0) {
+        return <span className="health-age">{t('health.ageToday')}</span>;
+    }
+
+    if (tradingDays === 1) {
+        return <span className="health-age">{t('health.ageOneTradingDay')}</span>;
+    }
+
+    return <span className="health-age">{t('health.ageTradingDays', { days: tradingDays })}</span>;
 }
 
 /**
@@ -1514,12 +1546,16 @@ function HealthUnavailableNote({ reason }) {
 }
 
 /**
- * 短線的一個立場：名稱、立場、資料日、理由。
+ * 短線的一個立場：名稱、立場、資料日與年齡、理由或不可評估成因。
  *
- * 立場為 null 時走與四塊完全相同的「不可評估」徽章：ShortTermRead 已把
- * SignalEngine 的 'insufficient_data' 轉成 null，呈現層只需處理一種缺席。
+ * 立場為 null 時走與四塊完全相同的「不可評估」徽章。
+ *
+ * **成因與四塊共用同一個 `HealthUnavailableNote`、同一組文案鍵**，不在這裡另寫
+ * 一套字串：同一個成因在兩處講不同的話，使用者會以為那是兩件事。技術面的 null
+ * 有兩個成因（K 棒不足 not_yet／價格過舊 stale），而它們對使用者是兩種不同的
+ * 行動——前者等分析跑過就有，後者要等價格更新。
  */
-function HealthStanceRow({ name, stance, labels, asOf, reasons }) {
+function HealthStanceRow({ name, stance, labels, asOf, reasons, ageTradingDays = null, unavailableReason = null }) {
     const { t } = useI18n();
     const labelKey = labels[stance];
 
@@ -1531,8 +1567,12 @@ function HealthStanceRow({ name, stance, labels, asOf, reasons }) {
             ) : (
                 <span className="health-stance__value">{t(labelKey)}</span>
             )}
-            <HealthAsOf date={asOf} />
-            <HealthReasons reasons={reasons} />
+            <HealthAsOf ageTradingDays={ageTradingDays} date={asOf} />
+            {unavailableReason ? (
+                <HealthUnavailableNote reason={unavailableReason} />
+            ) : (
+                <HealthReasons reasons={reasons} />
+            )}
         </div>
     );
 }
@@ -1589,14 +1629,21 @@ function AnalysisHealthRead({ healthRead }) {
     return (
         <div className="analysis-health-read">
             <p className="analysis-health-read__label">{t('health.savedReadLabel')}</p>
+            {/* 年齡與成因同樣取自保存下來的那一份，一格都不重算：重算會讓每一筆
+                歷史分析旁邊都顯示「現在」的年齡，而那正是保存 health_read 要修的
+                不一致。本功能之前保存的判讀沒有這幾個欄位，值為 undefined，
+                對應的區塊自然不渲染。 */}
             <div className="analysis-health-read__stances">
                 <HealthStanceRow
+                    ageTradingDays={short.price_age_trading_days}
                     asOf={short.price_as_of}
                     labels={HEALTH_TECHNICAL_STANCE_LABELS}
                     name={t('health.technicalStanceLabel')}
                     stance={short.technical_stance}
+                    unavailableReason={short.technical_unavailable_reason}
                 />
                 <HealthStanceRow
+                    ageTradingDays={short.chip_age_trading_days}
                     asOf={short.chip_as_of}
                     labels={HEALTH_CHIP_STANCE_LABELS}
                     name={t('health.chipStanceLabel')}
@@ -1681,15 +1728,22 @@ function HealthPanel({ health }) {
 
             <h3 className="health-subheading">{t('health.shortTermHeading')}</h3>
 
+            {/* 兩個立場都顯示年齡；**只有技術面帶成因**——籌碼面沒有 gate，
+                所以它不會有「因為過舊而不可評估」這種狀態（籌碼立場的持續性
+                沒有量過，見後端 ShortTermRead 的 docblock）。籌碼照樣顯示年齡，
+                使用者才看得到它其實與被判過舊的價格一樣舊。 */}
             <div className="health-stances">
                 <HealthStanceRow
+                    ageTradingDays={short.price_age_trading_days}
                     asOf={short.price_as_of}
                     labels={HEALTH_TECHNICAL_STANCE_LABELS}
                     name={t('health.technicalStanceLabel')}
                     reasons={short.technical_reasons}
                     stance={short.technical_stance}
+                    unavailableReason={short.technical_unavailable_reason}
                 />
                 <HealthStanceRow
+                    ageTradingDays={short.chip_age_trading_days}
                     asOf={short.chip_as_of}
                     labels={HEALTH_CHIP_STANCE_LABELS}
                     name={t('health.chipStanceLabel')}

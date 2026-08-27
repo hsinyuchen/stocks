@@ -4421,6 +4421,13 @@ select:focus-visible {
     font-size: 0.75rem;
 }
 
+/* 年齡與資料日同一行、同樣壓低對比，但**不再壓更低**：它比日期本身更接近使用者
+   要的那個量（技術面的證據強度是以交易日衰減的），淡到看不見等於又要人自己去數。 */
+.health-age {
+    margin-left: 4px;
+    white-space: nowrap;
+}
+
 .health-reasons {
     color: var(--muted);
     font-size: 0.8rem;
