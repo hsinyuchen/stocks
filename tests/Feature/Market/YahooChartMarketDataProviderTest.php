@@ -177,7 +177,8 @@ class YahooChartMarketDataProviderTest extends TestCase
             ['2026-08-25', '2026-08-26', '2026-08-27'],
             [310.0, 313.45, 314.1],
             [
-                'regularMarketPrice' => 314.1,
+                // 盤中價已經是 08-28 的，但序列最後一根還停在 08-27。
+                'regularMarketPrice' => 315.0,
                 'regularMarketTime' => (int) strtotime('2026-08-28 20:00:00 UTC'),
             ],
         );
@@ -186,8 +187,12 @@ class YahooChartMarketDataProviderTest extends TestCase
 
         $quote = (new YahooChartMarketDataProvider)->quote('AAPL');
 
-        $this->assertSame(0.0, $quote->change);
-        $this->assertSame(0.0, $quote->changePercent);
+        // 昨收是 08-27 的 314.1，不是倒數第二根的 313.45。
+        //
+        // price 刻意不等於序列最後一根：若寫成相等，「正確取到 08-27」與
+        // 「找不到昨收而退回 price」都會得到 change 0.0，這條測試就分不出兩者。
+        $this->assertSame(0.9, $quote->change);
+        $this->assertSame(0.2865, $quote->changePercent);
     }
 
     /**
