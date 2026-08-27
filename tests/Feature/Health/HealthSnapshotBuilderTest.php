@@ -22,6 +22,7 @@ use App\Models\Fundamental;
 use App\Models\Instrument;
 use App\Services\Health\HealthSnapshotBuilder;
 use App\Services\Health\LongTermHealthReader;
+use App\Support\DailyDataFreshness;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -506,6 +507,178 @@ class HealthSnapshotBuilderTest extends TestCase
         }
 
         return array_map(fn (HealthBlock $block): ?HealthUnavailableReason => $blocks[$block->value], $wanted);
+    }
+
+    // ------------------------------------------------------------------
+    // 技術面新鮮度
+    // ------------------------------------------------------------------
+
+    /**
+     * **門檻含等於**：`age = 門檻` 就過期，`age = 門檻 - 1` 不過期。
+     *
+     * 這一側是量測決定的，不是慣例：lag 8 的立場重現率 27.3% 已落在隨機猜的
+     * 基準 26.3% 之內（依據寫在 config/health.php 的 technical 區塊），所以 8
+     * 本身就要擋。寫成 `>` 會讓門檻實際變成 9。
+     *
+     * **測資從 config 取值構造**，不寫死 8：門檻日後被調整時，這條要跟著新值走，
+     * 而不是變成一條沉默地測著舊值的測試。
+     */
+    #[Test]
+    public function the_staleness_gate_includes_its_own_threshold(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-27 09:00:00'));
+        Http::fake();
+        $this->bindUpstreamCallingProviders();
+
+        $threshold = (int) config('health.technical.stale_after_trading_days');
+        $builder = app(HealthSnapshotBuilder::class);
+
+        $stale = $builder->cachedFor(
+            $this->seedPricesEndingAt('2330.TW', $this->tradingDaysAgo($threshold)),
+            80,
+        );
+
+        $this->assertSame($threshold, $stale->priceAgeTradingDays);
+        $this->assertTrue($stale->priceStale, "年齡等於門檻（{$threshold}）就該判過期。");
+
+        $fresh = $builder->cachedFor(
+            $this->seedPricesEndingAt('2317.TW', $this->tradingDaysAgo($threshold - 1)),
+            80,
+        );
+
+        $this->assertSame($threshold - 1, $fresh->priceAgeTradingDays);
+        $this->assertFalse($fresh->priceStale, '差一天就不該判過期，否則實際門檻少了一天。');
+    }
+
+    /**
+     * **`freshFor()` 也要算**，不是只有 `cachedFor()`。
+     *
+     * 剛抓完的通常很新，所以這條很容易被漏掉——但下市、停牌、上游沒有資料時
+     * `dailyPrices()` 照樣回一段舊序列而且不會拋，那正是最需要擋下來的情況。
+     * 少了這條，個股分析 job（走 freshFor）會對一檔停牌半年的標的算出技術立場。
+     */
+    #[Test]
+    public function both_entry_points_compute_the_price_age(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-27 09:00:00'));
+        Http::fake();
+        $this->bindUpstreamCallingProviders();
+
+        $threshold = (int) config('health.technical.stale_after_trading_days');
+        $lastBar = $this->tradingDaysAgo($threshold);
+
+        // 上游「成功回應」了，但回來的是一段舊序列——停牌與下市就是這個形狀。
+        $this->app->instance(MarketDataProvider::class, new class($lastBar) implements MarketDataProvider
+        {
+            public function __construct(private readonly string $lastBar) {}
+
+            public function quote(string $symbol): MarketQuoteData
+            {
+                return new MarketQuoteData($symbol, 100.0, 0.0, 0.0, $this->lastBar.'T00:00:00+08:00');
+            }
+
+            public function dailyPrices(string $symbol, int $days): array
+            {
+                return [new DailyPriceData($symbol, $this->lastBar, 10.0, 11.0, 9.0, 10.0, 1000)];
+            }
+        });
+
+        $snapshot = app(HealthSnapshotBuilder::class)->freshFor(
+            Instrument::factory()->create(['symbol' => '2454.TW', 'market' => 'TW']),
+            80,
+        );
+
+        $this->assertSame($lastBar, $snapshot->priceAsOf);
+        $this->assertSame($threshold, $snapshot->priceAgeTradingDays);
+        $this->assertTrue($snapshot->priceStale, 'freshFor() 抓回一段舊序列時照樣要判過期。');
+    }
+
+    /**
+     * 籌碼的年齡也算出來，但**沒有對應的過期旗標**。
+     *
+     * 快照上只有 `priceStale` 一個布林，籌碼那一側刻意留白：籌碼立場的持續性
+     * 沒有量過（技術面有），套一個沒有量測依據的門檻違反本專案的紀律。年齡照樣
+     * 算是為了讓使用者看得到——實測籌碼比價格落後 6 個交易日，不揭露的話畫面上
+     * 會是「技術面：資料過舊」與「籌碼面：買超」並列，而兩者一樣舊。
+     */
+    #[Test]
+    public function the_chip_age_is_measured_but_never_gated(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-27 09:00:00'));
+        Http::fake();
+        $this->bindUpstreamCallingProviders();
+
+        $snapshot = app(HealthSnapshotBuilder::class)->cachedFor($this->seedStaleCaches(), 80);
+
+        // 價格 08-25（週二）、籌碼 08-17（週一）：兩者本來就不同步。
+        $this->assertSame(2, $snapshot->priceAgeTradingDays);
+        $this->assertSame(8, $snapshot->chipAgeTradingDays);
+
+        // 快照上不存在「籌碼過期」這種欄位，這是設計不是遺漏。
+        $this->assertObjectNotHasProperty('chipStale', $snapshot);
+    }
+
+    /** 一列價格都沒有時年齡是 null，而且**不得**被判成過期。 */
+    #[Test]
+    public function an_instrument_without_prices_has_no_age_and_is_not_stale(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-27 09:00:00'));
+        Http::fake();
+        $this->bindUpstreamCallingProviders();
+
+        $snapshot = app(HealthSnapshotBuilder::class)->cachedFor(
+            Instrument::factory()->create(['symbol' => 'SPCX', 'market' => 'US']),
+            80,
+        );
+
+        $this->assertNull($snapshot->priceAgeTradingDays);
+        // 「還沒有資料」不是「資料太舊」：那時技術面走 NotYet（等分析跑過就有），
+        // 宣稱太舊等於對不存在的資料下時效判斷。
+        $this->assertFalse($snapshot->priceStale);
+    }
+
+    /**
+     * 距今 $tradingDays 個工作日的日期（`Y-m-d`）。
+     *
+     * 與 {@see DailyDataFreshness::tradingDayAge()} 反向而行、
+     * 逐日回推，刻意不共用同一段算式——共用的話兩邊一起錯也不會有人發現。
+     */
+    private function tradingDaysAgo(int $tradingDays): string
+    {
+        $date = CarbonImmutable::now(DailyDataFreshness::TIMEZONE)->startOfDay();
+        $counted = 0;
+
+        while ($counted < $tradingDays) {
+            if ($date->isWeekday()) {
+                $counted++;
+            }
+
+            $date = $date->subDay();
+        }
+
+        return $date->toDateString();
+    }
+
+    /** 一檔只有價格的標的，最後一根 K 棒停在指定日期。 */
+    private function seedPricesEndingAt(string $symbol, string $lastBar): Instrument
+    {
+        $instrument = Instrument::factory()->create(['symbol' => $symbol, 'market' => 'TW']);
+        $date = CarbonImmutable::parse($lastBar);
+
+        for ($i = 29; $i >= 0; $i--) {
+            $close = 100.0 + (30 - $i) * 0.5;
+            DailyPrice::query()->create([
+                'instrument_id' => $instrument->id,
+                'priced_at' => $date->subDays($i)->toDateString(),
+                'open' => $close - 0.5,
+                'high' => $close + 1.0,
+                'low' => $close - 1.0,
+                'close' => $close,
+                'volume' => 1000000,
+            ]);
+        }
+
+        return $instrument;
     }
 
     /**

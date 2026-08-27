@@ -14,6 +14,7 @@ use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
 use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\TechnicalIndicatorService;
+use App\Support\DailyDataFreshness;
 use App\Support\MarketResolver;
 
 /**
@@ -107,6 +108,16 @@ class HealthSnapshotBuilder
         $series = $this->orderInventory->seriesSignalsFor($instrument);
         $metrics = $series['metrics'];
 
+        // 技術面的新鮮度在這一層算完，理由與 seriesStale／valuationStale 相同：
+        // ShortTermHealthReader 是純計算，不可以自己叫 now()。
+        //
+        // **兩個入口都要算，freshFor() 不能省。** 剛抓完的通常很新，但下市、停牌、
+        // 上游沒有資料時 dailyPrices() 照樣回一段舊序列而且不會拋——那正是最需要
+        // 擋下來的情況。
+        $priceAsOf = $prices === [] ? null : $prices[count($prices) - 1]->date;
+        $chipAsOf = $chipFlows === [] ? null : $chipFlows[count($chipFlows) - 1]->date;
+        $priceAge = DailyDataFreshness::tradingDayAge($priceAsOf);
+
         return new HealthInputSnapshot(
             symbol: $instrument->symbol,
             market: MarketResolver::region($instrument->symbol) === MarketRegion::Taiwan ? 'tw' : 'us',
@@ -123,8 +134,8 @@ class HealthSnapshotBuilder
             metrics: $metrics,
             valuationPercentiles: $this->fundamentals->valuationPercentiles($instrument),
             industryBucket: $series['industry_bucket'],
-            priceAsOf: $prices === [] ? null : $prices[count($prices) - 1]->date,
-            chipAsOf: $chipFlows === [] ? null : $chipFlows[count($chipFlows) - 1]->date,
+            priceAsOf: $priceAsOf,
+            chipAsOf: $chipAsOf,
             // 財報的 as_of 是**抓取時間**不是資料日期：估值的 data_as_of 是 PER 的
             // 公佈日，而使用者要判斷的是「這份判讀有多舊」。
             fundamentalsAsOf: $valuation['fetched_at'] ?? null,
@@ -141,7 +152,38 @@ class HealthSnapshotBuilder
             // 沒有列時視為不過期——那時 valuationPercentiles 本來就是 null，
             // 該塊會走 NotYet，再宣稱「太舊」等於對不存在的資料下時效判斷。
             valuationStale: $valuation['stale'] ?? false,
+            // 技術面新鮮度：**門檻含等於**（`age >= N`），鍵名的「after」即此意。
+            // 量測依據寫在 config/health.php 的 technical 區塊——lag 8 的立場重現率
+            // 已落在隨機猜的基準之內，所以 8 本身就要擋。
+            //
+            // 沒有價格時 priceAge 是 null，此處視為不過期：那時 indicators 本來就是
+            // 空的，技術面會走 NotYet（等分析跑過就有）。再宣稱「太舊」等於對不存在
+            // 的資料下時效判斷，與 valuationStale 對空列的處理同一個道理。
+            priceStale: $priceAge !== null && $priceAge >= $this->staleAfterTradingDays(),
+            priceAgeTradingDays: $priceAge,
+            // 籌碼的年齡**只供呈現、不 gate**（籌碼的持續性沒有量過，見 ShortTermRead）。
+            // 算出來是為了讓使用者看得到「技術面已判過舊、籌碼面卻還在講買超」時，
+            // 後者的資料其實一樣舊。
+            chipAgeTradingDays: DailyDataFreshness::tradingDayAge($chipAsOf),
         );
+    }
+
+    /**
+     * 技術面過期門檻（交易日）。
+     *
+     * 嚴格取值：裸 `(int) config(...)` 缺鍵時會靜默變 0，而 0 會讓**每一檔**的技術
+     * 立場都判成過期（`age >= 0` 恆真），畫面上看起來像整站的技術面同時壞掉，
+     * 卻沒有任何錯誤訊號。形狀比照 LongTermHealthReader::threshold()。
+     */
+    private function staleAfterTradingDays(): int
+    {
+        $value = config('health.technical.stale_after_trading_days');
+
+        if (! is_numeric($value)) {
+            throw new \RuntimeException('health.technical.stale_after_trading_days config 缺失或非數值。');
+        }
+
+        return (int) $value;
     }
 
     /**
