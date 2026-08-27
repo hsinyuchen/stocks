@@ -26,31 +26,25 @@ class YahooChartMarketDataProvider implements MarketDataProvider
         }
 
         $meta = $response->json('chart.result.0.meta');
-        $closes = $response->json('chart.result.0.indicators.quote.0.close');
-        $validCloses = is_array($closes)
-            ? array_values(array_filter($closes, static fn ($close) => $close !== null))
-            : [];
+        $meta = is_array($meta) ? $meta : [];
 
-        $price = is_array($meta) ? ($meta['regularMarketPrice'] ?? null) : null;
+        $rows = $this->dailyCloses(
+            $response->json('chart.result.0.timestamp'),
+            $response->json('chart.result.0.indicators.quote.0.close'),
+        );
+
+        $regularMarketTime = $meta['regularMarketTime'] ?? null;
+        $price = $meta['regularMarketPrice'] ?? null;
 
         if ($price === null) {
-            return $this->quoteFromCloses($symbol, $validCloses);
+            return $this->quoteFromCloses($symbol, $rows, $regularMarketTime);
         }
 
         $price = (float) $price;
-        $previousClose = $meta['previousClose']
-            ?? $meta['chartPreviousClose']
-            ?? (count($validCloses) >= 2 ? $validCloses[count($validCloses) - 2] : null);
-
-        if ($previousClose === null) {
-            $previousClose = $price;
-        }
-
-        $previousClose = (float) $previousClose;
+        $previousClose = $this->previousClose($rows, $regularMarketTime) ?? $price;
         $change = $price - $previousClose;
         $changePercent = $previousClose != 0.0 ? ($change / $previousClose) * 100 : 0.0;
 
-        $regularMarketTime = $meta['regularMarketTime'] ?? null;
         $asOf = $regularMarketTime !== null
             ? CarbonImmutable::createFromTimestampUTC((int) $regularMarketTime)->toIso8601String()
             : CarbonImmutable::now()->toIso8601String();
@@ -65,21 +59,89 @@ class YahooChartMarketDataProvider implements MarketDataProvider
     }
 
     /**
+     * 把 chart 回應的 timestamp／close 兩條平行陣列配成 (日期, 收盤) 序列。
+     *
+     * close 常有 null（Yahoo 的常態），但**必須先配對再丟棄**：先過濾 close 會
+     * 重新編號，之後與未過濾的 timestamp 相配就整段位移，昨收會取到今天那一根。
+     *
+     * timestamp 缺席時回空序列——`quote()` 的日期規則沒有 timestamp 就無法成立，
+     * 寧可退回「平盤／拋例外」，也不要再長出一套沒有日期概念的判準。
+     *
+     * @return list<array{date: string, close: float}>
+     */
+    private function dailyCloses(mixed $timestamps, mixed $closes): array
+    {
+        if (! is_array($timestamps) || ! is_array($closes)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($timestamps as $index => $timestamp) {
+            $close = $closes[$index] ?? null;
+
+            if ($timestamp === null || $close === null) {
+                continue;
+            }
+
+            $rows[] = [
+                'date' => CarbonImmutable::createFromTimestampUTC((int) $timestamp)->toDateString(),
+                'close' => (float) $close,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * 昨收：序列中日期早於行情當日的最後一根收盤。
+     *
+     * 不讀 `meta.previousClose` 與 `meta.chartPreviousClose`——前者實測不等於昨收
+     * （AAPL 回 311.3、實際 313.45），後者是整段 range 的基準價（等於窗口第一根），
+     * 採用它等於拿整個窗口在算漲跌幅。
+     *
+     * 也不能無腦取倒數第二根：盤中時最後一根是今天的未完成棒，倒數第二根才對；
+     * 但序列最後一根不是今天時（休市、上游落後），倒數第二根會跳過一天。
+     * 以日期比對兩種情況都對。
+     *
+     * 日期換算沿用 `dailyPrices()` 的慣例（timestamp 直接當 UTC 轉日期）：台美的
+     * 日盤時間換成 UTC 都落在同一天，刻意不引進交易所時區處理。
+     *
+     * @param  list<array{date: string, close: float}>  $rows
+     */
+    private function previousClose(array $rows, mixed $regularMarketTime): ?float
+    {
+        if ($rows === []) {
+            return null;
+        }
+
+        // regularMarketTime 缺席時以序列最後一根的日期當「當日」，等價於取倒數第二根。
+        $marketDay = $regularMarketTime !== null
+            ? CarbonImmutable::createFromTimestampUTC((int) $regularMarketTime)->toDateString()
+            : $rows[count($rows) - 1]['date'];
+
+        for ($index = count($rows) - 1; $index >= 0; $index--) {
+            if ($rows[$index]['date'] < $marketDay) {
+                return $rows[$index]['close'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Fallback quote derived from the daily close series when the chart meta
      * carries no intraday `regularMarketPrice`.
      *
-     * @param  list<float|int>  $validCloses
+     * @param  list<array{date: string, close: float}>  $rows
      */
-    private function quoteFromCloses(string $symbol, array $validCloses): MarketQuoteData
+    private function quoteFromCloses(string $symbol, array $rows, mixed $regularMarketTime): MarketQuoteData
     {
-        if ($validCloses === []) {
+        if ($rows === []) {
             throw new RuntimeException("Yahoo chart returned no rows for {$symbol}.");
         }
 
-        $last = (float) $validCloses[count($validCloses) - 1];
-        $previousClose = count($validCloses) >= 2
-            ? (float) $validCloses[count($validCloses) - 2]
-            : $last;
+        $last = $rows[count($rows) - 1]['close'];
+        $previousClose = $this->previousClose($rows, $regularMarketTime) ?? $last;
         $change = $last - $previousClose;
         $changePercent = $previousClose != 0.0 ? ($change / $previousClose) * 100 : 0.0;
 
