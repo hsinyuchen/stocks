@@ -26,15 +26,14 @@ class InstitutionalAccumulation extends ChipRule
      * 只看正負的話「外資買 1 股、投信買 1 股」也算同步買超，而呈現層會把它講成
      * 法人同步進場。門檻與分母見 ChipNeutralBand。
      */
-    protected function evaluateChip(array $window, array $all, array $volumes): bool
+    protected function evaluateChip(array $window, array $all, array $volumeByDate): bool
     {
-        $days = count($window);
         $foreignNet = $this->sum($window, 'foreignNet');
         $trustNet = $this->sum($window, 'trustNet');
 
         return $foreignNet > 0
             && $trustNet > 0
-            && $this->isSignificantNet($foreignNet, $volumes, $days)
-            && $this->isSignificantNet($trustNet, $volumes, $days);
+            && $this->isSignificantNet($foreignNet, $volumeByDate, $window)
+            && $this->isSignificantNet($trustNet, $volumeByDate, $window);
     }
 }

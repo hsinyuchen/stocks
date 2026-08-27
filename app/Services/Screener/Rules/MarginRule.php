@@ -40,7 +40,7 @@ abstract class MarginRule implements ScreenRule
             array_slice($flows, -self::WINDOW),
             $flows,
             $context,
-            $this->volumeSeries($series),
+            $this->volumeByDate($series),
         );
     }
 
@@ -77,10 +77,11 @@ abstract class MarginRule implements ScreenRule
             array_slice($visible, -static::WINDOW),
             $visible,
             $this->contextAsOf($context, $date),
-            // 成交量也必須截到該時點。交叉規則用它當籌碼中性帶的分母，餵當下序列
-            // 的尾段等於讓回測看到未來的成交量——同一筆淨額在低量期是訊號、在爆量
-            // 期是雜訊，前視偏誤只是換個欄位發生。
-            array_slice($this->volumeSeries($series), 0, $n + 1),
+            // 成交量映射也截到該時點。中性帶依籌碼日期取分母，而籌碼已由
+            // contextAsOf() 截到該時點，所以這道截斷在現有的消費端上是第二道保險：
+            // 它保證 evaluateMargin() 拿到的映射本身不含 $n 之後的 K 棒，日後有規則
+            // 直接讀這個參數時，前視偏誤不會從那裡漏進來。
+            $this->volumeByDate($series, $n + 1),
         );
     }
 
@@ -110,9 +111,9 @@ abstract class MarginRule implements ScreenRule
      * @param  list<MarginFlowData>  $window  採計窗口內的融資餘額
      * @param  list<MarginFlowData>  $all  完整序列
      * @param  array<string, mixed>  $context  交叉型規則需要同時讀籌碼
-     * @param  list<int|float>  $volumes  已截到評估時點的成交量序列，供籌碼中性帶算佔比
+     * @param  array<string, int|float>  $volumeByDate  已截到評估時點的日期 → 成交量，供籌碼中性帶取分母
      */
-    abstract protected function evaluateMargin(array $window, array $all, array $context, array $volumes): bool;
+    abstract protected function evaluateMargin(array $window, array $all, array $context, array $volumeByDate): bool;
 
     /**
      * 窗口內融資餘額的變化率（%）。

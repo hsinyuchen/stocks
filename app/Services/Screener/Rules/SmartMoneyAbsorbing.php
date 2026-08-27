@@ -33,7 +33,7 @@ class SmartMoneyAbsorbing extends MarginRule
         return '融資減＋外資買（籌碼換手）';
     }
 
-    protected function evaluateMargin(array $window, array $all, array $context, array $volumes): bool
+    protected function evaluateMargin(array $window, array $all, array $context, array $volumeByDate): bool
     {
         $change = $this->changePercent($window);
         $threshold = (float) config('margin.signal.change_threshold', 3.0);
@@ -43,7 +43,7 @@ class SmartMoneyAbsorbing extends MarginRule
             return false;
         }
 
-        return $this->significantForeignNet($context, $volumes) > 0;
+        return $this->significantForeignNet($context, $volumeByDate) > 0;
     }
 
     /**
@@ -54,9 +54,9 @@ class SmartMoneyAbsorbing extends MarginRule
      * 讓兩邊共用同一個入口，未達門檻時 0 對兩邊都不成立。
      *
      * @param  array<string, mixed>  $context
-     * @param  list<int|float>  $volumes
+     * @param  array<string, int|float>  $volumeByDate
      */
-    protected function significantForeignNet(array $context, array $volumes): int
+    protected function significantForeignNet(array $context, array $volumeByDate): int
     {
         $chip = $context[ScreenRule::NEEDS_CHIP] ?? null;
 
@@ -64,15 +64,18 @@ class SmartMoneyAbsorbing extends MarginRule
             return 0;
         }
 
-        $window = array_slice($chip, -self::WINDOW);
+        // 先濾掉非 ChipFlowData 再切窗口：中性帶要拿這幾筆的日期去取分母，混進
+        // 沒有 date 的東西只會讓分母對到別的日子。
+        $window = array_slice(
+            array_values(array_filter($chip, static fn ($flow): bool => $flow instanceof ChipFlowData)),
+            -self::WINDOW,
+        );
         $net = 0;
 
         foreach ($window as $flow) {
-            if ($flow instanceof ChipFlowData) {
-                $net += $flow->foreignNet;
-            }
+            $net += $flow->foreignNet;
         }
 
-        return $this->isSignificantNet($net, $volumes, count($window)) ? $net : 0;
+        return $this->isSignificantNet($net, $volumeByDate, $window) ? $net : 0;
     }
 }

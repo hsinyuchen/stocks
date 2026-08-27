@@ -165,12 +165,21 @@ class AlertEvaluatorTest extends TestCase
     }
 
     /** 30 根單調上升的日 K，供訊號類警報通過「最少 30 根」門檻。 */
+    /**
+     * 30 根遞增 K 棒，日期刻意涵蓋 FakeChipDataProvider 的 2026-07-01..07-20。
+     *
+     * 籌碼中性帶的分母依籌碼日期到價格序列取量，兩邊日期不重疊時一律不命中。
+     * 舊測資是 2026-01-01..01-30，與 fake 籌碼零重疊，靠的是「分母取價格尾端 N 根」
+     * 這個已被修掉的錯誤行為才會命中。
+     */
     private function ascendingDaily(string $symbol): array
     {
         $daily = [];
+        $start = CarbonImmutable::parse('2026-07-20')->subDays(29);
+
         for ($i = 0; $i < 30; $i++) {
             $close = 100 + $i;
-            $daily[] = new DailyPriceData($symbol, sprintf('2026-01-%02d', $i + 1), $close, $close + 1, $close - 1, $close, 1000);
+            $daily[] = new DailyPriceData($symbol, $start->addDays($i)->toDateString(), $close, $close + 1, $close - 1, $close, 1000);
         }
 
         return $daily;

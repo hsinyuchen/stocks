@@ -43,13 +43,15 @@ class ChipAndFundamentalRulesTest extends TestCase
     /**
      * 只吃價格序列的規則不需要額外資料，才不會為每檔都去查籌碼。
      *
-     * 成交量不可省略：籌碼規則的中性帶以「淨額佔同期成交量比」判定，缺了它一律
-     * 不命中。TechnicalIndicatorService::series() 一定會有這個鍵，測資也要照實給。
+     * 成交量與日期都不可省略：籌碼規則的中性帶以「淨額佔同期成交量比」判定，分母
+     * 依籌碼日期到 dates 取量，缺任一鍵一律不命中。TechnicalIndicatorService::series()
+     * 兩個鍵都一定會有，測資也要照實給。日期涵蓋 flows() 的 2026-07-01 起算範圍。
      * 這裡的量刻意遠小於各案例的淨額，讓斷言的變數只剩規則本身的條件。
      */
     private function series(): array
     {
         return [
+            'dates' => array_map(fn (int $i): string => sprintf('2026-07-%02d', $i + 1), range(0, 39)),
             'close' => array_fill(0, 40, 100.0),
             'volume' => array_fill(0, 40, 10_000),
         ];
