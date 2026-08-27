@@ -436,9 +436,11 @@ class ChipNeutralBandTest extends TestCase
     {
         $atBand = $this->netAtBand(5_000_000);
 
+        // volume 比 dates 多一筆（前面多一根）。逐索引硬配對會讓每一天都對到前一天
+        // 的量，分母變成 4,000,000 而不是 5,000,000，佔比被推過門檻。
         $mismatched = $this->seriesWithDates(
-            ['2026-07-01', '2026-07-02', '2026-07-03'],
-            array_fill(0, 5, 1_000_000),
+            ['2026-07-01', '2026-07-02', '2026-07-03', '2026-07-04', '2026-07-05'],
+            [0, ...array_fill(0, 5, 1_000_000)],
         );
 
         $this->assertFalse((new InstitutionalAccumulation)->matches($mismatched, [
