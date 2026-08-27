@@ -108,4 +108,35 @@ class ScheduleTest extends TestCase
         $this->assertNotEmpty(array_filter($commands, fn (string $command) => str_contains($command, 'news:ingest')));
         $this->assertNotEmpty(array_filter($commands, fn (string $command) => str_contains($command, 'youtube:ingest')));
     }
+
+    /**
+     * **價格預載必須被排進去。**
+     *
+     * screener:warm 這個指令一直都在，但從來沒有人排它——於是全站沒有任何東西會
+     * 主動刷新 daily_prices，價格只在有人呼叫 dailyPrices() 時才抓。實測 67 檔有
+     * 價格的標的裡有 31 檔停在 15–30 天前。這是與 queue:work 曾經完全相同的失敗
+     * 形狀：功能寫好了、文件也講了，就是沒有人觸發。
+     */
+    public function test_the_price_warmer_is_actually_scheduled(): void
+    {
+        $commands = $this->scheduledCommands();
+
+        $this->assertNotEmpty(
+            array_filter($commands, fn (string $command) => str_contains($command, 'screener:warm')),
+            '沒有人刷新價格的話，技術面的新鮮度 gate 會把愈來愈多標的判成不可評估。',
+        );
+    }
+
+    /** 時間讀 config，不得寫死；一個時刻排一次，與 news／youtube 同一形狀。 */
+    public function test_the_warm_schedule_comes_from_config(): void
+    {
+        $warmers = fn (array $config): array => array_values(array_filter(
+            $this->scheduledCommands($config),
+            fn (string $command) => str_contains($command, 'screener:warm'),
+        ));
+
+        $this->assertCount(1, $warmers(['screener.schedule.times' => ['16:00']]));
+        $this->assertCount(2, $warmers(['screener.schedule.times' => ['08:00', '16:00']]));
+        $this->assertCount(0, $warmers(['screener.schedule.times' => []]));
+    }
 }
