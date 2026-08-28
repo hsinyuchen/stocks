@@ -1011,7 +1011,8 @@ export default {
         "preview": "試跑最近 200 則新聞",
         "previewResult": "命中 :matched 則（掃描 :scanned 則）",
         "previewFailed": "試跑失敗，請修正下列欄位：",
-        "previewRuleDisabled": "此規則目前為停用狀態，存檔後不會實際參與比對。"
+        "previewRuleDisabled": "此規則目前為停用狀態，存檔後不會實際參與比對。",
+        "reload": "重新載入"
     },
     "placeholder": {
         "comingSoon": "即將推出"

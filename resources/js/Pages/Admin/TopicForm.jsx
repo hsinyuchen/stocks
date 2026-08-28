@@ -91,7 +91,21 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
                         {flash?.warning ? <p className="form-warning">{flash.warning}</p> : null}
                         {flash?.success ? <p className="form-status">{flash.success}</p> : null}
                         {form.errors.rule ? <p className="field-error">{form.errors.rule}</p> : null}
-                        {form.errors.updated_at ? <p className="field-error">{form.errors.updated_at}</p> : null}
+                        {form.errors.updated_at ? (
+                            <div className="field-error">
+                                <p>{form.errors.updated_at}</p>
+                                {/* useForm() 對非 GET 預設 preserveState: true，衝突後 back() 不會重掛
+                                    元件，form.data.updated_at 停在舊值，再按幾次儲存都撞同一個鎖。
+                                    這裡強制整頁重載取最新 updated_at，取代文案叫使用者做卻沒有入口的事。 */}
+                                <button
+                                    className="button-secondary"
+                                    onClick={() => router.reload({ preserveState: false })}
+                                    type="button"
+                                >
+                                    {t('adminTopics.reload')}
+                                </button>
+                            </div>
+                        ) : null}
 
                         <label className="form-field">
                             <span>{t('adminTopics.key')}</span>

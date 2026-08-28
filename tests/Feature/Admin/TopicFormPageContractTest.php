@@ -65,9 +65,27 @@ class TopicFormPageContractTest extends TestCase
         $zh = (string) file_get_contents(resource_path('js/i18n/messages/zh.js'));
         $en = (string) file_get_contents(resource_path('js/i18n/messages/en.js'));
 
-        foreach (['previewFailed', 'previewRuleDisabled'] as $key) {
+        foreach (['previewFailed', 'previewRuleDisabled', 'reload'] as $key) {
             $this->assertStringContainsString("\"{$key}\":", $zh, "zh.js 缺少 adminTopics.{$key}");
             $this->assertStringContainsString("\"{$key}\":", $en, "en.js 缺少 adminTopics.{$key}");
         }
+    }
+
+    /**
+     * 樂觀鎖衝突後必須有「重新載入」入口。
+     *
+     * useForm() 對非 GET 預設 preserveState: true，衝突後 back() 不會重掛元件，
+     * form.data.updated_at 停在舊值，再存幾次都撞同一個鎖，而文案叫使用者
+     * 重新載入卻沒有入口——見 TopicRuleUpdateTest::test_stale_updated_at_is_rejected。
+     */
+    public function test_stale_lock_error_offers_a_reload_action(): void
+    {
+        $source = $this->source();
+
+        $this->assertMatchesRegularExpression(
+            '/form\.errors\.updated_at.*?router\.reload\(\{\s*preserveState:\s*false\s*\}\).*?adminTopics\.reload/s',
+            $source,
+            '樂觀鎖衝突的錯誤區塊必須提供 router.reload({ preserveState: false }) 的重新載入按鈕。'
+        );
     }
 }
