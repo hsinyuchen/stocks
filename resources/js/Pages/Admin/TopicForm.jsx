@@ -33,16 +33,20 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
         updated_at: rule?.updated_at ?? null,
     });
 
+    // 新增／編輯／試跑三條路徑共用同一份轉型：只寫一份才不會有欄位漏轉——
+    // runPreview() 曾經自己另外展開一份，漏了 chain_en，導致它永遠是換行
+    // 字串送進後端，而後端要求陣列，試跑因此連空字串都會被擋。
+    const transform = (data) => ({
+        ...data,
+        keywords: linesToArray(data.keywords),
+        chain: linesToArray(data.chain),
+        chain_en: linesToArray(data.chain_en),
+        direction_cues: { forward: linesToArray(data.cues_forward), reverse: linesToArray(data.cues_reverse) },
+        sectors: data.sectors.map((s) => ({ ...s, symbols: linesToArray(s.symbols) })),
+    });
+
     const submit = (event) => {
         event.preventDefault();
-        const transform = (data) => ({
-            ...data,
-            keywords: linesToArray(data.keywords),
-            chain: linesToArray(data.chain),
-            chain_en: linesToArray(data.chain_en),
-            direction_cues: { forward: linesToArray(data.cues_forward), reverse: linesToArray(data.cues_reverse) },
-            sectors: data.sectors.map((s) => ({ ...s, symbols: linesToArray(s.symbols) })),
-        });
 
         if (isEdit) {
             form.transform(transform).patch(`/admin/topics/${rule.id}`);
@@ -64,13 +68,7 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
     // 走 Inertia router 而非自行 fetch：app.blade.php 沒有輸出 csrf-token meta，
     // 手寫 fetch 得自己處理 XSRF cookie。preserveState 讓試跑後表單內容不被重置。
     const runPreview = () => {
-        router.post('/admin/topics/preview', {
-            ...form.data,
-            keywords: linesToArray(form.data.keywords),
-            chain: linesToArray(form.data.chain),
-            direction_cues: { forward: linesToArray(form.data.cues_forward), reverse: linesToArray(form.data.cues_reverse) },
-            sectors: form.data.sectors.map((s) => ({ ...s, symbols: linesToArray(s.symbols) })),
-        }, {
+        router.post('/admin/topics/preview', transform(form.data), {
             preserveScroll: true,
             preserveState: true,
             onError: (errors) => setPreviewErrors(errors),

@@ -27,8 +27,14 @@ class TopicRuleRequest extends FormRequest
     {
         $isCreate = $this->route('rule') === null;
 
+        // 試跑路由（admin.topics.preview）沒有 {rule} 參數，靠 route('rule')
+        // 判斷會恆為「新增」——編輯既有題材按試跑時，key 是那條規則自己的既有
+        // 值，套用 unique 規則必定判成「已被使用」。試跑本來就不寫 DB，key
+        // 撞不撞號跟它無關，一律跳過。
+        $isPreview = $this->routeIs('admin.topics.preview');
+
         return [
-            'key' => $isCreate
+            'key' => $isCreate && ! $isPreview
                 ? ['required', 'string', 'max:64', 'regex:/^[a-z][a-z0-9_]*$/', Rule::unique('transmission_rules', 'key')]
                 : ['nullable'],
             'label' => ['required', 'string', 'max:100'],

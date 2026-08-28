@@ -95,4 +95,46 @@ class TopicRulePreviewTest extends TestCase
             ->post('/admin/topics/preview', $this->payload())
             ->assertForbidden();
     }
+
+    /**
+     * 從編輯頁對既有題材（例如種子的 hormuz_oil）按試跑，且該規則本身填了
+     * chain_en：這正是「調整內建題材的關鍵字、看命中率有沒有變化」的實際用法。
+     *
+     * 試跑路由沒有 {rule} 參數，TopicRuleRequest 目前用
+     * $this->route('rule') === null 判斷是否為新增，恆為 true，導致 key 的
+     * unique 規則對編輯中的既有規則也生效——這是本測試要抓的 bug。
+     */
+    public function test_previewing_an_existing_rule_with_chain_en_succeeds(): void
+    {
+        TransmissionRule::create([
+            'key' => 'hormuz_oil',
+            'label' => '中東衝突／荷莫茲海峽',
+            'keywords' => ['荷莫茲'],
+            'domains' => [],
+            'chain' => ['海峽關閉推升油價'],
+            'chain_en' => ['Strait closure lifts oil prices'],
+            'origin' => 'seed',
+        ]);
+
+        NewsItem::create([
+            'source' => 'demo',
+            'title' => '荷莫茲海峽航運受阻',
+            'summary' => '',
+            'url' => 'https://example.com/hormuz-existing',
+            'url_hash' => hash('sha256', 'https://example.com/hormuz-existing'),
+            'published_at' => CarbonImmutable::now(),
+            'relevant' => true,
+        ]);
+
+        $response = $this->actingAs(User::factory()->create(['is_admin' => true]))
+            ->from('/admin/topics/hormuz_oil/edit')
+            ->post('/admin/topics/preview', $this->payload([
+                'key' => 'hormuz_oil',
+                'chain_en' => ['Strait closure lifts oil prices'],
+            ]));
+
+        $response->assertSessionHasNoErrors();
+        $result = session('previewResult');
+        $this->assertSame(1, $result['matched']);
+    }
 }
