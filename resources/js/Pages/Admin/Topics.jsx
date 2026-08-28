@@ -1,4 +1,4 @@
-import { router, usePage } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
 import AppShell from '../../Layouts/AppShell';
 import { useI18n } from '../../i18n';
 
@@ -41,6 +41,9 @@ export default function AdminTopics({ rules = [] }) {
                             <p className="section-kicker">{t('adminTopics.kicker')}</p>
                             <h2>{t('adminTopics.heading')}</h2>
                         </div>
+                        <Link className="button-primary" href="/admin/topics/create">
+                            {t('adminTopics.create')}
+                        </Link>
                     </div>
 
                     {errors.rule ? <p className="field-error">{errors.rule}</p> : null}
