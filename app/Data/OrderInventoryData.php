@@ -31,7 +31,12 @@ final readonly class OrderInventoryData
         public bool $inventoryCompositionAvailable = false,
         public ?string $dataAsOf = null,
         /**
-         * 年營收，取自年度申報（fp = FY），舊→新。
+         * 年營收，取自年度申報，舊→新。
+         *
+         * 判定不靠 fp（申報文件層級欄位、不可信，fp=FY 也可能是不足一年的
+         * 過渡期年報）：先以期間長度 330～400 天篩出年度列，再依 (start, end)
+         * 分組去除同一期間因比較數重複揭露而生的重複列。詳見
+         * SecEdgarFinancialsProvider::annualRevenueGroups()。
          *
          * 刻意不由季度相加：SEC 的季度 frame 允許缺口（實測 NVDA 沒有 Q4 的
          * revenue frame），相加會少算，而少算的數字看起來跟真的一樣。

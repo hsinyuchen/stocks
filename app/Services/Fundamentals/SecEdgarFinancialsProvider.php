@@ -271,9 +271,12 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
                             continue;
                         }
 
-                        // filed 缺席時退化成「陣列中先出現者勝出」——已知的 fallback，
-                        // 不是刻意設計，SEC 實務回應一律帶 filed，尚未遇過需要更精確
-                        // 判準的案例。
+                        // filed 缺席時、以及 filed 相同時，都退化成「陣列中先出現者
+                        // 勝出」——PHP 8 的 usort 是穩定排序，同值不會打亂原順序，
+                        // 而 $candidates 的原順序即 config('order_inventory.sec_tags')
+                        // 的標籤順序。已知的 fallback，不是刻意設計；SEC 實務回應
+                        // 一律帶 filed 且同一 (start,end) 極少見多筆同日 filed，
+                        // 尚未遇過需要更精確判準的案例。
                         $candidates[] = [
                             'fy' => isset($row['fy']) ? (int) $row['fy'] : null,
                             'fp' => isset($row['fp']) ? (string) $row['fp'] : null,
@@ -303,13 +306,28 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
      * 2019-01-27 這段期間，依序在 2019／2020／2021 三份申報書裡出現，fy 分別是
      * 2019／2020／2021。依 fy 分組會把同一段期間灌到三個不同年度，年年錯位。
      *
+     * 還有一個更根本的坑（實測才發現）：**同一份**申報書常常一次揭露最近
+     * 三個財政年度的比較數，SEC 回應對這三組期間標的是同一個 fy（申報當下
+     * 的年度）。例如 filed=2019-02-21 的那份 10-K，同時列出 2016-02-01～
+     * 2017-01-29、2017-01-30～2018-01-28、2018-01-29～2019-01-27 三段期間，
+     * 三段全部 fy=2019。若不修正，first-wins 只會留下最舊那組，把
+     * 「FY2019＝6.91B」記成錯的，而真正的 FY2019＝11.72B 完全不出現。
+     * 見 correctFiscalYearByFiling()。
+     *
      * 正確作法：
      *  1. 只收期間長度落在 330～400 天的列——擋掉混進來的季度列，以及財政
      *     年度變更公司的過渡期年報（stub period，通常短於一年）。不看 fp：
      *     fp 跟 fy 一樣是申報文件層級欄位，不可信。
-     *  2. 依 (start, end) 分組。
-     *  3. 該組真正的財政年度 = 該組**最早 filed** 那一列的 fy。
-     *  4. 該組的營收 = 該組**最晚 filed** 那一列的 val（重編／restatement）。
+     *  2. 依 accn（申報書編號）修正每一列的 fy：同一 accn 內依 end 由新到舊
+     *     排序，最新那組沿用原始 fy，往前每退一組年度就少一年。
+     *  3. 依 (start, end) 分組。
+     *  4. 該組真正的財政年度 = 該組**最早 filed** 那一列（修正後）的 fy。
+     *  5. 該組的營收 = 該組**最晚 filed** 那一列的 val（重編／restatement）。
+     *  6. 只保留最近 10 個財政年度，且丟棄「fy 未嚴格遞增」的組——見
+     *     recentFiscalYears()，這一步是在防另一個實測發現、無法用演算法
+     *     修掉的坑：FY2015 前後 SEC／公司申報慣例本身改過命名，同一顆
+     *     fy 在古早年份代表的實際財政年度會偏移一年，且無法從資料本身
+     *     判斷偏移量，寧可缺年也不要錯年。
      *
      * 標籤偏好順序必須跟 collect()（季度那條路）一致：年營收與季營收要來自
      * 同一個 XBRL 科目，否則兩者用不同標籤（各自排除的項目不同），四季相加
@@ -325,7 +343,8 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
     {
         $tags = (array) config('order_inventory.sec_tags.revenue', []);
 
-        // 第一步：逐標籤，依 (start, end) 分組，組內取最早 filed 的 fy、最晚 filed 的 val。
+        // 第一步：逐標籤，修正 fy 後依 (start, end) 分組，組內取最早 filed 的
+        // fy、最晚 filed 的 val。
         $byTag = [];
 
         foreach ($tags as $tag) {
@@ -335,7 +354,7 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
                 continue;
             }
 
-            $groups = [];
+            $rows = [];
 
             foreach ($units as $row) {
                 if (! is_numeric($row['val'] ?? null) || ! isset($row['fy'], $row['start'], $row['end'])) {
@@ -348,17 +367,26 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
                     continue;
                 }
 
-                // filed 缺席時退化成「陣列中先出現者勝出」（見 usort 的穩定排序）
-                // ——已知的 fallback，不是刻意設計；SEC 實務回應一律帶 filed。
-                $groups[$row['start'].'|'.$row['end']][] = [
+                $rows[] = [
                     'fy' => (int) $row['fy'],
                     'filed' => (string) ($row['filed'] ?? ''),
                     'val' => (float) $row['val'],
+                    'start' => (string) $row['start'],
                     'end' => (string) $row['end'],
+                    'accn' => isset($row['accn']) && $row['accn'] !== '' ? (string) $row['accn'] : null,
                 ];
             }
 
+            $groups = [];
+
+            foreach ($this->correctFiscalYearByFiling($rows) as $row) {
+                $groups[$row['start'].'|'.$row['end']][] = $row;
+            }
+
             foreach ($groups as $rows) {
+                // filed 缺席或相同時退化成「陣列中先出現者勝出」（見 usort 的
+                // 穩定排序）——已知的 fallback，不是刻意設計；SEC 實務回應
+                // 一律帶 filed。
                 usort($rows, static fn (array $a, array $b): int => $a['filed'] <=> $b['filed']);
 
                 $year = $rows[0]['fy'];
@@ -385,15 +413,92 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
             }
         }
 
-        ksort($best);
+        return $this->recentFiscalYears($best);
+    }
+
+    /**
+     * 修正「一份申報書同時揭露多個財政年度、卻共用同一個 fy」的問題。
+     *
+     * 同一個 accn（申報書編號）內，把期間依 end 由新到舊排序：最新那組
+     * 沿用申報書本身的 fy，往前每退一組財政年度就少一年（去年同期比較數
+     * 理所當然比當期少一個財政年度）。accn 缺席時（測試 fixture 或未來
+     * 上游改動）每一列自成一組，不做任何偏移——與修正前行為一致。
+     *
+     * 這個偏移量與哪一份申報書判定無關：同一段期間即使出現在三份不同
+     * 申報書裡，各自算出來的修正後 fy 會是同一個值（都是「以各自申報書
+     * 最新一期為基準往前退幾年」），所以不影響第一步之後「跨 accn 取最早
+     * filed」的判定。
+     *
+     * @param  list<array{fy: int, filed: string, val: float, start: string, end: string, accn: ?string}>  $rows
+     * @return list<array{fy: int, filed: string, val: float, start: string, end: string, accn: ?string}>
+     */
+    private function correctFiscalYearByFiling(array $rows): array
+    {
+        $byAccn = [];
+
+        foreach ($rows as $index => $row) {
+            $byAccn[$row['accn'] ?? "\0singleton{$index}"][] = $row;
+        }
 
         $out = [];
 
-        foreach ($best as $year => $entry) {
-            $out[] = ['fiscal_year' => $year, 'revenue' => $entry['revenue'], 'end' => $entry['end']];
+        foreach ($byAccn as $group) {
+            usort($group, static fn (array $a, array $b): int => $b['end'] <=> $a['end']);
+
+            $latestFiscalYear = $group[0]['fy'];
+
+            foreach ($group as $offset => $row) {
+                $row['fy'] = $latestFiscalYear - $offset;
+                $out[] = $row;
+            }
         }
 
         return $out;
+    }
+
+    /**
+     * 只留最近 10 個財政年度，並丟棄「fy 沒有嚴格遞增」的組。
+     *
+     * 實測發現：FY2015 前後 SEC／NVDA 申報慣例本身改過——同一顆 fy 欄位在
+     * 古早年份代表的實際財政年度會偏移一年（例：filed=2012-03-13、涵蓋
+     * 2011-01-31～2012-01-29 的 10-K 帶 fy=2011，但公司對外稱那是 fiscal
+     * 2012）。這不是本檔案演算法的錯，資料本身就這樣，而且無法從資料反推
+     * 偏移量。只能限定 fy 的可信區間：
+     *  1. 只輸出最近 10 個財政年度——目前資料下全部落在慣例可信的區間內。
+     *  2. 依 end（期間結束日，事實、不受申報慣例影響）由舊到新排序後檢查
+     *     fy 是否嚴格遞增；一旦某組的 fy 沒有比前一個保留下來的組大，直接
+     *     丟棄整組，不嘗試猜測正確值——缺年在畫面上看得出來，錯年看不出來。
+     *
+     * 下一位維護者如果想拿掉「只留最近 10 年」這個上限：別，先確認 fy 的
+     * 申報慣例有沒有隨時間繼續改過，這條界線就是為了擋掉尚未證實可信的
+     * 古早資料。
+     *
+     * @param  array<int, array{revenue: float, end: string}>  $byYear  fiscal_year => entry
+     * @return list<array{fiscal_year: int, revenue: float, end: string}>
+     */
+    private function recentFiscalYears(array $byYear): array
+    {
+        $rows = [];
+
+        foreach ($byYear as $year => $entry) {
+            $rows[] = ['fiscal_year' => $year, 'revenue' => $entry['revenue'], 'end' => $entry['end']];
+        }
+
+        usort($rows, static fn (array $a, array $b): int => $a['end'] <=> $b['end']);
+
+        $kept = [];
+        $lastFiscalYear = null;
+
+        foreach ($rows as $row) {
+            if ($lastFiscalYear !== null && $row['fiscal_year'] <= $lastFiscalYear) {
+                continue;
+            }
+
+            $kept[] = $row;
+            $lastFiscalYear = $row['fiscal_year'];
+        }
+
+        return array_slice($kept, -10);
     }
 
     /**

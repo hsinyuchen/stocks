@@ -20,9 +20,13 @@ class SecEdgarFinancialsProviderTest extends TestCase
     /**
      * @param  array<string, array<string, mixed>>  $tags  標籤 => [frame => 值]
      *                                                     值可以是純數字（沿用預設 form/fy/fp/filed），或
-     *                                                     ['val' => n, 'fy' => 2026, 'fp' => 'Q1', 'form' => '10-Q', 'start' => '2026-01-28', 'end' => '2026-04-27', 'filed' => '2026-05-01']
+     *                                                     ['val' => n, 'fy' => 2026, 'fp' => 'Q1', 'form' => '10-Q', 'start' => '2026-01-28', 'end' => '2026-04-27', 'filed' => '2026-05-01', 'accn' => '0001-26-000001']
      *                                                     start 只有年營收測試需要（annualRevenueGroups() 靠期間長度
      *                                                     330~400 天篩年度列），季度／時點測試可省略。
+     *                                                     accn 沒指定時預設用 frame 字串本身，等同「每一列各自
+     *                                                     來自不同申報書」——要模擬「同一份 10-K 揭露多個財政
+     *                                                     年度」（correctFiscalYearByFiling() 的情境）才需要讓
+     *                                                     多個 frame 明確帶同一個 accn。
      */
     private function fakeSec(array $tags): void
     {
@@ -47,6 +51,7 @@ class SecEdgarFinancialsProviderTest extends TestCase
                     'fy' => $row['fy'] ?? null,
                     'fp' => $row['fp'] ?? null,
                     'filed' => $row['filed'] ?? null,
+                    'accn' => $row['accn'] ?? $frame,
                     'frame' => $frame,
                 ];
             }
@@ -469,6 +474,82 @@ class SecEdgarFinancialsProviderTest extends TestCase
         $this->assertSame(520.0, $data->annualRevenue[0]['revenue'], '同標籤內部取 filed 較晚者（重編）');
     }
 
+    public function test_annual_revenue_corrects_fiscal_year_when_one_filing_discloses_three_periods(): void
+    {
+        // 真實 NVDA bug：一份 10-K（同一個 accn）用同一個科目一次揭露三個
+        // 財政年度的比較數，SEC 對三段期間都標同一個 fy（申報當下的年度）。
+        // 不修正的話 first-wins 會把最舊那組錯記成 FY2019，真正的 FY2019
+        // 完全不出現。修法：同一 accn 內依 end 由新到舊排序，最新一組沿用
+        // fy，往前每退一組少一年。
+        $this->fakeSec([
+            'Revenues' => [
+                'CY2017' => ['val' => 6910, 'fy' => 2019, 'fp' => 'FY', 'start' => '2016-02-01', 'end' => '2017-01-29', 'filed' => '2019-02-21', 'accn' => '0001045810-19-000023'],
+                'CY2018' => ['val' => 9714, 'fy' => 2019, 'fp' => 'FY', 'start' => '2017-01-30', 'end' => '2018-01-28', 'filed' => '2019-02-21', 'accn' => '0001045810-19-000023'],
+                'CY2019' => ['val' => 11716, 'fy' => 2019, 'fp' => 'FY', 'start' => '2018-01-29', 'end' => '2019-01-27', 'filed' => '2019-02-21', 'accn' => '0001045810-19-000023'],
+            ],
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $revenues = [];
+        foreach ($data->annualRevenue as $row) {
+            $revenues[$row['fiscal_year']] = $row['revenue'];
+        }
+
+        $this->assertSame(6910.0, $revenues[2017] ?? null, 'end 2017-01-29：同 accn 內離最新一期最遠，fy-2');
+        $this->assertSame(9714.0, $revenues[2018] ?? null, 'end 2018-01-28：fy-1');
+        $this->assertSame(11716.0, $revenues[2019] ?? null, 'end 2019-01-27：同 accn 內最新一期，沿用 fy');
+    }
+
+    public function test_annual_revenue_keeps_only_the_most_recent_ten_fiscal_years(): void
+    {
+        // FY2015 前後申報慣例本身改過命名，古早年度的 fy 不可信；限定只
+        // 輸出最近 10 個財政年度，把不可信區間直接擋在外面。
+        $tags = [];
+        for ($year = 2010; $year <= 2026; $year++) {
+            $start = sprintf('%d-02-01', $year - 1);
+            $end = sprintf('%d-01-31', $year);
+            $tags["CY{$year}"] = [
+                'val' => $year * 100,
+                'fy' => $year,
+                'fp' => 'FY',
+                'start' => $start,
+                'end' => $end,
+                'filed' => sprintf('%d-03-01', $year),
+            ];
+        }
+
+        $this->fakeSec(['Revenues' => $tags]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $years = array_column($data->annualRevenue, 'fiscal_year');
+
+        $this->assertCount(10, $years);
+        $this->assertSame(2017, min($years), '最舊只能到 FY2017（17 個年度取最近 10 個）');
+        $this->assertSame(2026, max($years));
+        $this->assertNotContains(2016, $years, 'FY2016 以前一律不輸出');
+    }
+
+    public function test_annual_revenue_sanity_check_drops_a_group_whose_fiscal_year_does_not_strictly_increase(): void
+    {
+        // 依 end 排序後 fy 沒有嚴格遞增（此處故意讓中間那組的 fy 比前一組
+        // 小），代表資料本身的 fy 不可信；寧可缺這一年也不要顯示錯的年度。
+        $this->fakeSec([
+            'Revenues' => [
+                'CY2017' => ['val' => 100, 'fy' => 2017, 'fp' => 'FY', 'start' => '2016-02-01', 'end' => '2017-01-31', 'filed' => '2017-03-01'],
+                'CY2016BROKEN' => ['val' => 999, 'fy' => 2016, 'fp' => 'FY', 'start' => '2017-02-01', 'end' => '2018-01-31', 'filed' => '2018-03-01'],
+                'CY2018' => ['val' => 300, 'fy' => 2018, 'fp' => 'FY', 'start' => '2018-02-01', 'end' => '2019-01-31', 'filed' => '2019-03-01'],
+            ],
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $years = array_column($data->annualRevenue, 'fiscal_year');
+
+        $this->assertSame([2017, 2018], $years, '中間那組 end 較新卻 fy 較小，違反嚴格遞增，整組丟棄');
+    }
+
     public function test_us_only_annual_revenue_rescue_branch_carries_a_data_as_of(): void
     {
         // 季度 frame 全缺，但年度申報還在——救援分支必須帶 dataAsOf，
@@ -512,9 +593,16 @@ class SecEdgarFinancialsProviderTest extends TestCase
             $revenues[$row['fiscal_year']] = $row['revenue'];
         }
 
+        $this->assertSame(6_910_000_000.0, $revenues[2017] ?? null, 'FY2017 年營收——修正前會被 accn 塌陷成 FY2019');
+        $this->assertSame(9_714_000_000.0, $revenues[2018] ?? null, 'FY2018 年營收');
+        $this->assertSame(11_716_000_000.0, $revenues[2019] ?? null, 'FY2019 年營收——修正前完全不出現（被 FY2017 頂替）');
         $this->assertSame(60_922_000_000.0, $revenues[2024] ?? null, 'FY2024 年營收');
         $this->assertSame(130_497_000_000.0, $revenues[2025] ?? null, 'FY2025 年營收');
         $this->assertSame(215_938_000_000.0, $revenues[2026] ?? null, 'FY2026 年營收（舊演算法算不出這年）');
+
+        $years = array_keys($revenues);
+        $this->assertGreaterThanOrEqual(2017, min($years), '只留最近 10 個財政年度，最舊不早於 FY2017');
+        $this->assertArrayNotHasKey(2016, $revenues, 'FY2016 以前的申報慣例不可信，不應輸出');
 
         $quarter = $data->quarter('2025Q1');
         $this->assertNotNull($quarter, 'frame CY2025Q1 必須存在於保留的最近 12 季窗口內');

@@ -32,11 +32,21 @@ final readonly class QuarterlyFinancials
         public ?float $operatingCashFlow = null,
         public ?float $capex = null,
         /**
-         * 公司自己的財政年度，取自 SEC fact 的 fy／fp。
+         * 公司自己的財政年度，取自 SEC fact 的 fy／fp——但不是直接讀這個 period
+         * 自己那一列的 fy／fp。fy／fp 是**申報文件層級**欄位，一份 10-K／10-Q
+         * 裡的每一列（含比較期）全部共用同一組值，直接讀會把「當期」誤判成
+         * 後續申報書拿來當「去年同期比較數」重新列出的那個（更晚的）年度。正確
+         * 作法是用這個 period 的 (start, end) 回查全部原始列，取**最早 filed**
+         * 那一列的 fy／fp——見 SecEdgarFinancialsProvider::fiscalFocusByPeriod()。
          *
          * 與 $period 不同：$period 來自 SEC 的 frame（CY####Q#），那是「依日曆期間
          * 最接近配對」的結果，不是財政年度。輝達 FY2026 的第一季結束在 2025-04-27，
          * frame 是 CY2025Q1。年營收歸戶必須用這兩欄，不能用 $period 或 $endDate。
+         *
+         * 已知形狀：Q4 這個 period 的 fiscalPeriod 值會是 'FY' 而不是 'Q4'——
+         * Q4 期間最早出現在 10-K（10-K 沒有獨立揭露 Q4，只揭露全年），而 10-K
+         * 申報文件本身的 focus 就是 FY。目前沒有消費端拿它排序或顯示「第幾
+         * 季」，但要用來做這類用途前，得先處理這個形狀。
          */
         public ?int $fiscalYear = null,
         public ?string $fiscalPeriod = null,

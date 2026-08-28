@@ -313,7 +313,7 @@ class FundamentalsService
         // 這裡若仍用 $fresh->dataAsOf 當落地列的 data_as_of 鍵，會把「舊季度」存進
         // 一把「新資料日」的鑰匙底下，之後任何以 data_as_of 判斷新鮮度的讀者都會
         // 誤以為這批季度是新的。
-        $this->persistOrderInventory($instrument, $merged, $merged?->dataAsOf, null);
+        $this->persistOrderInventory($instrument, $merged, $merged->dataAsOf, null);
 
         return $merged;
     }
