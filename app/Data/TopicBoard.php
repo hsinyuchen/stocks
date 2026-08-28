@@ -2,6 +2,8 @@
 
 namespace App\Data;
 
+use App\Contracts\TransmissionRuleProvider;
+
 /**
  * 單一題材的完整結果。
  *
@@ -12,7 +14,7 @@ namespace App\Data;
 final readonly class TopicBoard
 {
     /**
-     * @param  list<string>  $chain  傳導鏈的敘述，逐句照 config 原文，不改寫
+     * @param  list<string>  $chain  傳導鏈的敘述，逐句照傳導規則原文，不改寫。規則來自 {@see TransmissionRuleProvider}（資料庫種子見 database/seeders/data/transmission_rules.php）。
      * @param  list<TopicCandidate>  $candidates
      */
     public function __construct(

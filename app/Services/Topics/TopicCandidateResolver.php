@@ -95,8 +95,8 @@ class TopicCandidateResolver
         return new TopicBoard(
             key: $topicKey,
             label: (string) ($rule['label'] ?? $topicKey),
-            // chain 逐句照 config 原文，不改寫也不截斷：那是這個題材的因果假設，
-            // 使用者要看得出它長什麼樣才能判斷要不要信。
+            // chain 逐句照傳導規則原文，不改寫也不截斷：那是這個題材的因果假設，
+            // 使用者要看得出它長什麼樣才能判斷要不要信。規則來自 {@see TransmissionRuleProvider}（資料庫種子見 database/seeders/data/transmission_rules.php）。
             chain: array_values(array_map('strval', (array) ($rule['chain'] ?? []))),
             candidates: array_merge(array_values($core), array_values($extended)),
         );

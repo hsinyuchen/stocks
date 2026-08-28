@@ -618,7 +618,7 @@ class TopicCandidateResolverTest extends TestCase
         );
 
         $this->assertSame($expected, $this->resolver()->availableTopics());
-        $this->assertCount(8, $expected, '實測 config 有 8 個題材');
+        $this->assertCount(8, $expected, '實測種子有 8 個題材');
     }
 
     #[Test]
