@@ -102,6 +102,34 @@ class SecEdgarFinancialsProviderTest extends TestCase
         $this->assertSame(999.0, $q->revenue);
     }
 
+    public function test_later_tag_fills_periods_the_preferred_tag_stops_covering(): void
+    {
+        // 真實案例：NVDA 的第一順位標籤只覆蓋到 2021 年就停了，近期營收在
+        // 第二順位的 Revenues 裡。舊邏輯只要第一順位在「任何」期間出現過就
+        // 不再試後面的別名，於是近期營收全部讀不到。
+        $this->fakeSec([
+            'RevenueFromContractWithCustomerExcludingAssessedTax' => [
+                'CY2021Q1' => 1000,
+            ],
+            'Revenues' => [
+                'CY2021Q1' => 9999,     // 舊期間：第一順位已有值，不得被覆蓋
+                'CY2026Q1' => 2000,     // 新期間：第一順位沒有，必須補上
+                'CY2026Q2' => 2100,
+            ],
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $revenues = [];
+        foreach ($data->quarters as $quarter) {
+            $revenues[$quarter->period] = $quarter->revenue;
+        }
+
+        $this->assertSame(1000.0, $revenues['2021Q1'], '偏好順序必須維持：先命中的標籤勝出');
+        $this->assertSame(2000.0, $revenues['2026Q1']);
+        $this->assertSame(2100.0, $revenues['2026Q2']);
+    }
+
     public function test_raw_materials_is_derived_when_its_tag_is_absent(): void
     {
         // 實測 NVDA 沒有原料標籤，但有總存貨、在製品與製成品，可反推。

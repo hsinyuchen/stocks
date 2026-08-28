@@ -130,6 +130,10 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
         foreach ((array) config('order_inventory.sec_tags', []) as $field => $tags) {
             $instant = in_array($field, self::INSTANT_FIELDS, true);
 
+            // 逐 period 補洞，不在「這個標籤曾命中過」就跳出整個別名鏈。
+            // SEC 的申報實務會在某個年度換用另一個標籤（實測 NVDA 的第一順位
+            // 標籤只覆蓋到 2021 年），整欄位跳出會讓換標籤之後的期間全部讀不到。
+            // 偏好順序仍然成立——下面的 isset() 讓先命中的標籤勝出。
             foreach ((array) $tags as $tag) {
                 $units = $facts[$tag]['units']['USD'] ?? null;
 
@@ -149,11 +153,6 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
                         $out[$period][$field] = (float) $row['val'];
                         $out[$period]['end_date'] ??= isset($row['end']) ? (string) $row['end'] : null;
                     }
-                }
-
-                // 該欄位已由此標籤取得資料就不再試更後面的別名。
-                if ($this->fieldSeen($out, $field)) {
-                    break;
                 }
             }
         }
@@ -176,20 +175,6 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
         }
 
         return $m[1].$m[2];
-    }
-
-    /**
-     * @param  array<string, array<string, mixed>>  $out
-     */
-    private function fieldSeen(array $out, string $field): bool
-    {
-        foreach ($out as $values) {
-            if (isset($values[$field])) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
