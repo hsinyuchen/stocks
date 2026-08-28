@@ -2,6 +2,8 @@
 
 namespace App\Enums;
 
+use App\Contracts\TransmissionRuleProvider;
+
 /**
  * 候選與題材的**關聯強度**，兩層互斥。
  *
@@ -45,7 +47,7 @@ namespace App\Enums;
  */
 enum TopicTier: string
 {
-    /** 在 config('news.transmission') 的 sectors[].symbols 裡列名。人工策展的映射，最硬。 */
+    /** 在 {@see TransmissionRuleProvider} 回傳的 sectors[].symbols 裡列名。人工策展的映射，最硬。規則維護在資料庫，種子見 {@see \database\seeders\data\transmission_rules.php}。 */
     case Core = 'core';
 
     /** 與某個核心標的同 industry。僅台股——美股沒有產業別資料。 */

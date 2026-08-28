@@ -2,6 +2,7 @@
 
 namespace App\Services\Topics;
 
+use App\Contracts\TransmissionRuleProvider;
 use App\Data\TopicBoard;
 use App\Data\TopicCandidate;
 use App\Enums\AssetType;
@@ -47,6 +48,7 @@ class TopicCandidateResolver
     public function __construct(
         private readonly OrderInventoryAssessor $orderInventory,
         private readonly FundamentalsService $fundamentals,
+        private readonly TransmissionRuleProvider $rules,
     ) {}
 
     /**
@@ -55,11 +57,11 @@ class TopicCandidateResolver
      *
      * @return list<array{key: string, label: string}>
      */
-    public function availableTopics(): array
+    public function availableTopics(string $locale = 'zh'): array
     {
         $out = [];
 
-        foreach ((array) config('news.transmission', []) as $rule) {
+        foreach ($this->rules->rules($locale) as $rule) {
             $key = (string) ($rule['key'] ?? '');
 
             if ($key === '') {
@@ -76,9 +78,9 @@ class TopicCandidateResolver
      * 未知題材回 null 而不是空 board：呼叫端要能分辨「這個題材沒有候選」
      * 與「根本沒有這個題材」，前者顯示空清單、後者回到題材選擇畫面。
      */
-    public function resolve(string $topicKey, ?CarbonImmutable $now = null): ?TopicBoard
+    public function resolve(string $topicKey, ?CarbonImmutable $now = null, string $locale = 'zh'): ?TopicBoard
     {
-        $rule = $this->rule($topicKey);
+        $rule = $this->rule($topicKey, $locale);
 
         if ($rule === null) {
             return null;
@@ -93,17 +95,17 @@ class TopicCandidateResolver
         return new TopicBoard(
             key: $topicKey,
             label: (string) ($rule['label'] ?? $topicKey),
-            // chain 逐句照 config 原文，不改寫也不截斷：那是這個題材的因果假設，
-            // 使用者要看得出它長什麼樣才能判斷要不要信。
+            // chain 逐句照傳導規則原文，不改寫也不截斷：那是這個題材的因果假設，
+            // 使用者要看得出它長什麼樣才能判斷要不要信。規則來自 {@see TransmissionRuleProvider}（資料庫種子見 database/seeders/data/transmission_rules.php）。
             chain: array_values(array_map('strval', (array) ($rule['chain'] ?? []))),
             candidates: array_merge(array_values($core), array_values($extended)),
         );
     }
 
     /** @return array<string, mixed>|null */
-    private function rule(string $topicKey): ?array
+    private function rule(string $topicKey, string $locale = 'zh'): ?array
     {
-        foreach ((array) config('news.transmission', []) as $rule) {
+        foreach ($this->rules->rules($locale) as $rule) {
             if ((string) ($rule['key'] ?? '') === $topicKey) {
                 return $rule;
             }
@@ -115,10 +117,10 @@ class TopicCandidateResolver
     /**
      * 傳導表列名的個股。
      *
-     * 方向取 config 的**宣告值**，不取 TransmissionMapper 被新聞極性翻轉過的值
+     * 方向取 {@see TransmissionRuleProvider} 規則的**宣告值**，不取 TransmissionMapper 被新聞極性翻轉過的值
      * ——理由見 {@see TopicDirection}。
      *
-     * 同一檔若出現在多個 sector，**取第一次出現的那個**：目前 config 沒有這種
+     * 同一檔若出現在多個 sector，**取第一次出現的那個**：目前規則資料（{@see TransmissionRuleProvider}）沒有這種
      * 情形，但也沒有禁止。取第一個而不是合併，是因為「同時受惠又受衝擊」對
      * 使用者沒有可行動的意義，而挑一個至少是可解釋的（傳導表的排列順序就是
      * 作者的敘事順序）。

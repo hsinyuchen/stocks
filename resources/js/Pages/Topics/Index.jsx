@@ -214,8 +214,8 @@ function TopicBoardView({ board, groups }) {
         <div className="topic-board">
             <h3 className="topic-board__title">{board.label}</h3>
 
-            {/* 逐句照 config 原文列出，不改寫也不截斷：這是這個題材的因果假設，
-                使用者要看得出它長什麼樣才能判斷要不要信。 */}
+            {/* 逐句照傳導規則原文列出，不改寫也不截斷：這是這個題材的因果假設，
+                使用者要看得出它長什麼樣才能判斷要不要信。規則來自 TransmissionRuleProvider（資料庫種子見 database/seeders/data/transmission_rules.php）。 */}
             <div className="topic-chain">
                 <p className="topic-chain__heading">{t('topics.chainLabel')}</p>
                 <ol>

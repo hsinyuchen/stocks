@@ -22,13 +22,14 @@ class TopicController extends Controller
 {
     public function index(Request $request, TopicCandidateResolver $resolver): Response
     {
+        $locale = $request->user()?->profile?->locale ?? 'zh';
         $selected = $request->query('topic');
         $board = is_string($selected) && $selected !== ''
-            ? $resolver->resolve($selected)
+            ? $resolver->resolve($selected, null, $locale)
             : null;
 
         return Inertia::render('Topics/Index', [
-            'topics' => $resolver->availableTopics(),
+            'topics' => $resolver->availableTopics($locale),
             'board' => $board?->toArray(),
             // board 為 null 時 selected 也要是 null，否則前端會把一個
             // 不存在的題材標成「已選取」。

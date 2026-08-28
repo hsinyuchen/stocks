@@ -2,11 +2,28 @@
 
 namespace Tests;
 
+use App\Contracts\TransmissionRuleProvider;
+use App\Services\News\ArrayTransmissionRuleProvider;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Testing\TestResponse;
 
 abstract class TestCase extends BaseTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // 既有測試大量依賴那 8 條內建規則存在（TopicEndpointTest 斷言 8 個題材、
+        // DashboardChipTransmissionTest 斷言傳導鏈非空、NewsAnalysisServiceTest
+        // 甚至沒有 RefreshDatabase）。統一在這裡供給種子資料，讓那些測試的斷言
+        // 一字不改就能繼續通過，也不必每個測試都跑 migration。
+        // 需要驗證 DB 來源本身的測試（平價、provider 單元）自行改綁。
+        $this->app->instance(
+            TransmissionRuleProvider::class,
+            new ArrayTransmissionRuleProvider(require database_path('seeders/data/transmission_rules.php')),
+        );
+    }
+
     /**
      * 取儀表板並解析 deferred props。
      *

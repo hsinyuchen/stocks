@@ -2,8 +2,8 @@
 
 return [
     /*
-     * 題材驅動候選。題材本身來自 config('news.transmission')，這裡只放候選的
-     * 範圍控制。
+     * 題材驅動候選。題材本身來自 App\Contracts\TransmissionRuleProvider（資料庫實作，種子見 database/seeders/data/transmission_rules.php），
+     * 這裡只放候選的範圍控制。
      */
 
     /*

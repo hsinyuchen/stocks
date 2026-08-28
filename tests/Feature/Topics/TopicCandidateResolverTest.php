@@ -180,7 +180,7 @@ class TopicCandidateResolverTest extends TestCase
     #[Test]
     public function a_topic_whose_named_symbols_are_all_non_stock_yields_an_empty_board(): void
     {
-        $rule = collect((array) config('news.transmission'))->firstWhere('key', 'hormuz_oil');
+        $rule = collect(require database_path('seeders/data/transmission_rules.php'))->firstWhere('key', 'hormuz_oil');
 
         $this->assertIsArray($rule);
 
@@ -609,7 +609,7 @@ class TopicCandidateResolverTest extends TestCase
     #[Test]
     public function available_topics_mirror_the_transmission_config(): void
     {
-        $labels = array_column((array) config('news.transmission'), 'label', 'key');
+        $labels = array_column(require database_path('seeders/data/transmission_rules.php'), 'label', 'key');
 
         $expected = array_map(
             fn (string $key, string $label): array => ['key' => $key, 'label' => $label],
@@ -618,7 +618,7 @@ class TopicCandidateResolverTest extends TestCase
         );
 
         $this->assertSame($expected, $this->resolver()->availableTopics());
-        $this->assertCount(8, $expected, '實測 config 有 8 個題材');
+        $this->assertCount(8, $expected, '實測種子有 8 個題材');
     }
 
     #[Test]
@@ -629,7 +629,8 @@ class TopicCandidateResolverTest extends TestCase
         $this->assertNotNull($board);
         $this->assertSame('hormuz_oil', $board->key);
         $this->assertSame('中東衝突／荷莫茲海峽', $board->label);
-        $this->assertSame((array) config('news.transmission.0.chain'), $board->chain, 'chain 逐句照 config 原文');
+        $rules = require database_path('seeders/data/transmission_rules.php');
+        $this->assertSame($rules[0]['chain'], $board->chain, 'chain 逐句照種子原文');
     }
 
     /**

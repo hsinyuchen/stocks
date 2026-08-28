@@ -70,6 +70,7 @@ export default function AppShell({ children, title }) {
         ? [
             ...baseMenuItems,
             { href: '/admin/instruments', labelKey: 'nav.instruments', icon: ListChecks },
+            { href: '/admin/topics', labelKey: 'nav.adminTopics', icon: Waypoints },
             { href: '/admin/users', labelKey: 'nav.users', icon: Users },
         ]
         : baseMenuItems;

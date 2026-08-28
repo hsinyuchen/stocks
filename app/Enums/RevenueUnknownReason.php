@@ -2,6 +2,8 @@
 
 namespace App\Enums;
 
+use App\Contracts\TransmissionRuleProvider;
+
 /**
  * 為什麼訂單庫存框架的 C1（營收驗證）沒有結論。
  *
@@ -18,7 +20,7 @@ namespace App\Enums;
  *   **永遠不會有答案**。
  *
  * 把「永遠不會有」與「等一下就有」講成同一件事，使用者會一直等一個不會來的東西。
- * 這不是假想需求：`config('news.transmission')` 的 hormuz_oil 核心是航運股，
+ * 這不是假想需求：傳導規則中 hormuz_oil 的核心是航運股（詳見 {@see TransmissionRuleProvider}），
  * 而它的九檔核心裡有六檔根本不在 `instruments` 表。
  *
  * **值為 null 代表 C1 有結論。** 有結論就沒有原因，兩者不會同時有值——同時給
