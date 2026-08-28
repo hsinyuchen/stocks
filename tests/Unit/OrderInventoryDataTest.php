@@ -97,4 +97,60 @@ class OrderInventoryDataTest extends TestCase
         $this->assertNull($restored->latestQuarter()->inventories);
         $this->assertNull($restored->latestQuarter()->revenue);
     }
+
+    public function test_fiscal_fields_round_trip(): void
+    {
+        $quarter = new QuarterlyFinancials(period: '2025Q1', fiscalYear: 2026, fiscalPeriod: 'Q1');
+
+        $restored = QuarterlyFinancials::fromArray($quarter->toArray());
+
+        $this->assertSame(2026, $restored->fiscalYear);
+        $this->assertSame('Q1', $restored->fiscalPeriod);
+    }
+
+    public function test_annual_revenue_defaults_to_empty_for_legacy_data_without_the_key(): void
+    {
+        // order_inventory 是 JSON 欄位，正式站有這個 task 之前存的舊資料，
+        // 沒有 annual_revenue 這個鍵。fromArray() 不得因此拋錯。
+        $legacy = OrderInventoryData::empty();
+        $legacyArray = $legacy->toArray();
+        unset($legacyArray['annual_revenue']);
+
+        $restored = OrderInventoryData::fromArray($legacyArray);
+
+        $this->assertSame([], $restored->annualRevenue);
+    }
+
+    public function test_annual_revenue_survives_a_json_database_round_trip_as_float(): void
+    {
+        // order_inventory 是 DB 的 JSON 欄位。SEC 申報金額幾乎都是整數美元，
+        // json_encode(500.0) 會輸出 500，json_decode 讀回來就是 PHP int，
+        // 與 annualRevenue 的 docblock 契約（revenue: float）不符。只測
+        // toArray()/fromArray() 直接串接測不出這個問題——中間必須真的走一趟
+        // json_encode／json_decode 才會讓浮點數退化成整數。
+        $data = new OrderInventoryData(annualRevenue: [
+            ['fiscal_year' => 2025, 'revenue' => 500.0],
+        ]);
+
+        $decoded = json_decode(json_encode($data->toArray()), true);
+        $restored = OrderInventoryData::fromArray($decoded);
+
+        $this->assertIsFloat($restored->annualRevenue[0]['revenue']);
+        $this->assertSame(500.0, $restored->annualRevenue[0]['revenue']);
+    }
+
+    public function test_fiscal_fields_default_to_null_for_legacy_data_without_the_keys(): void
+    {
+        // order_inventory 是 JSON 欄位，正式站有這個 task 之前存的舊資料，
+        // 沒有 fiscal_year／fiscal_period 這兩個鍵。fromArray() 不得因此拋錯。
+        $legacy = new QuarterlyFinancials(period: '2026Q2', inventories: 600.0);
+        $legacyArray = $legacy->toArray();
+        unset($legacyArray['fiscal_year'], $legacyArray['fiscal_period']);
+
+        $restored = QuarterlyFinancials::fromArray($legacyArray);
+
+        $this->assertNull($restored->fiscalYear);
+        $this->assertNull($restored->fiscalPeriod);
+        $this->assertSame(600.0, $restored->inventories);
+    }
 }

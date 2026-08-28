@@ -100,8 +100,19 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
             }
         }
 
+        // 季報缺席時不能直接放棄：月營收是個股頁營收區塊的主體資料，
+        // 而它在下面才組裝。剛上市或財報延遲的個股會落在這裡。
         if ($byDate === []) {
-            return OrderInventoryData::empty();
+            $revenue = $this->monthlyRevenueSeries($mr);
+
+            return $revenue === []
+                ? OrderInventoryData::empty()
+                : new OrderInventoryData(
+                    quarters: [],
+                    monthlyRevenue: $revenue,
+                    market: 'tw',
+                    industry: $this->industry?->resolve($symbol),
+                );
         }
 
         ksort($byDate);

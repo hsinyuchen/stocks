@@ -321,6 +321,104 @@ class UsOrderInventoryPersistenceTest extends TestCase
         $this->assertSame(1, $this->companyFactsCallCount(), 'failure_ttl 內不得重打 SEC');
     }
 
+    /**
+     * 救援分支：SEC 季度 frame 全缺，但年度申報仍在（annualRevenue 非空）。
+     *
+     * 這不是抓取失敗——修正前 unitedStatesOrderInventory() 的
+     * `! $fresh->hasAny()` 判準只看季度，會把這個成功結果誤判成失敗，寫節流用
+     * 的負快取列並回 null，剛抓到的年營收整包被丟掉。
+     */
+    public function test_annual_only_rescue_is_not_treated_as_a_fetch_failure(): void
+    {
+        Http::clearResolvedInstance(HttpFactory::class);
+        $this->app->forgetInstance(HttpFactory::class);
+
+        Http::fake([
+            'www.sec.gov/files/company_tickers.json' => Http::response([
+                '0' => ['cik_str' => 1045810, 'ticker' => 'NVDA'],
+            ], 200),
+            'data.sec.gov/api/xbrl/companyfacts/*' => Http::response(['facts' => ['us-gaap' => [
+                'RevenueFromContractWithCustomerExcludingAssessedTax' => ['units' => ['USD' => [
+                    // 沒有任何 CY####Q# frame，只有一筆年度期間（365 天），
+                    // 觸發 SecEdgarFinancialsProvider 的年報救援分支。
+                    ['val' => 130497000000, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K',
+                        'start' => '2024-01-29', 'end' => '2025-01-26', 'filed' => '2025-02-20'],
+                ]]],
+            ]]], 200),
+        ]);
+        $this->app->instance(
+            CompanyFinancialsProvider::class,
+            new SecEdgarFinancialsProvider(new SecTickerCikResolver),
+        );
+        $instrument = $this->usInstrument();
+
+        $data = app(FundamentalsService::class)->orderInventoryFor($instrument);
+
+        $this->assertNotNull($data, '年報救援分支是成功結果，不得回 null');
+        $this->assertFalse($data->hasAny());
+        $this->assertTrue($data->hasAnnualRevenue());
+        $this->assertSame(130497000000.0, $data->annualRevenue[0]['revenue']);
+
+        $row = Fundamental::query()->where('instrument_id', $instrument->id)->sole();
+        $this->assertNull($row->failed_at, '成功結果不得標記失敗');
+        $this->assertIsArray($row->order_inventory);
+        $this->assertSame('2025-01-26', $row->data_as_of->toDateString(), 'data_as_of 取年度申報的期間結束日');
+    }
+
+    /**
+     * 已有季度序列時，若某次重抓只成功取得年報（例如季度 frame 暫時性缺席），
+     * 季度必須沿用既有序列，且落地列的 data_as_of 要跟著沿用舊值——不能用這次
+     * 年報的期間結束日覆蓋，否則會出現「季度是舊的、data_as_of 卻說是新的」
+     * 這種自相矛盾的紀錄，且會在既有列之外多開一列。
+     */
+    public function test_stale_quarters_and_data_as_of_are_carried_when_only_annual_revenue_refreshes(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-22 09:00'));
+        $instrument = $this->usInstrument();
+
+        $stored = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(period: '2026Q2', endDate: '2026-06-30', revenue: 1000.0)],
+            market: 'us',
+            dataAsOf: '2026-06-30',
+            annualRevenue: [['fiscal_year' => 2025, 'revenue' => 130497000000.0]],
+        );
+        Fundamental::query()->create([
+            'instrument_id' => $instrument->id,
+            'data_as_of' => '2026-06-30',
+            'fetched_at' => now()->subDays(3),   // 超過 us_ttl_hours → 觸發重抓
+            'order_inventory' => $stored->toArray(),
+        ]);
+
+        Http::clearResolvedInstance(HttpFactory::class);
+        $this->app->forgetInstance(HttpFactory::class);
+        Http::fake([
+            'www.sec.gov/files/company_tickers.json' => Http::response([
+                '0' => ['cik_str' => 1045810, 'ticker' => 'NVDA'],
+            ], 200),
+            'data.sec.gov/api/xbrl/companyfacts/*' => Http::response(['facts' => ['us-gaap' => [
+                'RevenueFromContractWithCustomerExcludingAssessedTax' => ['units' => ['USD' => [
+                    ['val' => 215938000000, 'fy' => 2026, 'fp' => 'FY', 'form' => '10-K',
+                        'start' => '2025-01-27', 'end' => '2026-01-25', 'filed' => '2026-02-20'],
+                ]]],
+            ]]], 200),
+        ]);
+        $this->app->instance(
+            CompanyFinancialsProvider::class,
+            new SecEdgarFinancialsProvider(new SecTickerCikResolver),
+        );
+
+        $data = app(FundamentalsService::class)->orderInventoryFor($instrument);
+
+        $this->assertNotNull($data);
+        $this->assertSame('2026Q2', $data->latestQuarter()->period, '季度沿用既有序列');
+        $this->assertSame(215938000000.0, $data->annualRevenue[array_key_last($data->annualRevenue)]['revenue'], '年營收改用新抓到的');
+        $this->assertSame('2026-06-30', $data->dataAsOf, 'dataAsOf 隨著沿用的季度，不得改成新年報的期間結束日');
+
+        $rows = Fundamental::query()->where('instrument_id', $instrument->id)->get();
+        $this->assertCount(1, $rows, '季度沿用時不得另開一列——否則 data_as_of 鍵會對不上實際內容');
+        $this->assertSame('2026-06-30', $rows->first()->data_as_of->toDateString());
+    }
+
     public function test_valuation_percentiles_ignore_us_rows(): void
     {
         // 美股列的 per/pbr 為 null，本來就被分位統計濾掉；釘住這件事，

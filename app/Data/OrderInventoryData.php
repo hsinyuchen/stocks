@@ -30,6 +30,20 @@ final readonly class OrderInventoryData
         public ?string $industry = null,
         public bool $inventoryCompositionAvailable = false,
         public ?string $dataAsOf = null,
+        /**
+         * 年營收，取自年度申報，舊→新。
+         *
+         * 判定不靠 fp（申報文件層級欄位、不可信，fp=FY 也可能是不足一年的
+         * 過渡期年報）：先以期間長度 330～400 天篩出年度列，再依 (start, end)
+         * 分組去除同一期間因比較數重複揭露而生的重複列。詳見
+         * SecEdgarFinancialsProvider::annualRevenueGroups()。
+         *
+         * 刻意不由季度相加：SEC 的季度 frame 允許缺口（實測 NVDA 沒有 Q4 的
+         * revenue frame），相加會少算，而少算的數字看起來跟真的一樣。
+         *
+         * @var list<array{fiscal_year: int, revenue: float}>
+         */
+        public array $annualRevenue = [],
     ) {}
 
     public static function empty(): self
@@ -40,6 +54,30 @@ final readonly class OrderInventoryData
     public function hasAny(): bool
     {
         return $this->quarters !== [];
+    }
+
+    /**
+     * 是否帶有月營收序列。
+     *
+     * 與 {@see hasAny()} 刻意分開：hasAny() 決定訂單庫存評級是否棄權，那需要季報；
+     * 月營收自己就是個股頁營收區塊的主體資料，季報缺席時仍必須保留。
+     * 兩者合併會讓沒有季報的個股被評出一個沒有依據的等級。
+     */
+    public function hasRevenueSeries(): bool
+    {
+        return $this->monthlyRevenue !== [];
+    }
+
+    /**
+     * 是否帶有年營收序列。
+     *
+     * 與 {@see hasAny()} 分開的理由同 {@see hasRevenueSeries()}：美股「只有
+     * 年報、沒有可用季度 frame」是合法的救援結果（見 SecEdgarFinancialsProvider
+     * 的救援分支），不能被「季度序列是否存在」這把尺誤判成抓取失敗。
+     */
+    public function hasAnnualRevenue(): bool
+    {
+        return $this->annualRevenue !== [];
     }
 
     public function latestQuarter(): ?QuarterlyFinancials
@@ -70,6 +108,7 @@ final readonly class OrderInventoryData
             'industry' => $this->industry,
             'inventory_composition_available' => $this->inventoryCompositionAvailable,
             'data_as_of' => $this->dataAsOf,
+            'annual_revenue' => $this->annualRevenue,
         ];
     }
 
@@ -88,6 +127,17 @@ final readonly class OrderInventoryData
             industry: isset($data['industry']) ? (string) $data['industry'] : null,
             inventoryCompositionAvailable: (bool) ($data['inventory_composition_available'] ?? false),
             dataAsOf: isset($data['data_as_of']) ? (string) $data['data_as_of'] : null,
+            // 逐欄位強制轉型：order_inventory 是 DB 的 JSON 欄位，SEC 申報金額
+            // 幾乎都是整數美元，json_encode(500.0) 會輸出 500，json_decode 讀回來
+            // 就是 PHP int，與 annualRevenue 的 docblock 契約（revenue: float）
+            // 不符，純 array_values() 接不住這個退化。
+            annualRevenue: array_map(
+                static fn (array $row): array => [
+                    'fiscal_year' => (int) ($row['fiscal_year'] ?? 0),
+                    'revenue' => (float) ($row['revenue'] ?? 0),
+                ],
+                array_values((array) ($data['annual_revenue'] ?? [])),
+            ),
         );
     }
 }
