@@ -77,6 +77,82 @@ class TopicRuleController extends Controller
         return $this->redirectWithCoverageWarning($rule, $sectors, $coverage, '題材已建立。');
     }
 
+    public function edit(TransmissionRule $rule): Response
+    {
+        $rule->load('sectors');
+
+        $payload = [
+            'rule' => [
+                'id' => $rule->id,
+                'key' => $rule->key,
+                'label' => $rule->label,
+                'label_en' => $rule->label_en,
+                'keywords' => $rule->keywords,
+                'domains' => $rule->domains,
+                'chain' => $rule->chain,
+                'chain_en' => $rule->chain_en,
+                'direction_cues' => $rule->direction_cues,
+                'curator_note' => $rule->curator_note,
+                'is_active' => $rule->is_active,
+                'origin' => $rule->origin,
+                'updated_at' => $rule->updated_at?->toIso8601String(),
+                'sectors' => $rule->sectors->map(fn ($sector): array => [
+                    'id' => $sector->id,
+                    'name' => $sector->name,
+                    'name_en' => $sector->name_en,
+                    'direction' => $sector->direction,
+                    'direction_source' => $sector->direction_source,
+                    'symbols' => $sector->symbols,
+                    'curator_note' => $sector->curator_note,
+                ])->all(),
+            ],
+            'domains' => array_keys((array) config('news.domains', [])),
+            'directions' => SectorDirection::values(),
+        ];
+
+        return Inertia::render('Admin/TopicForm', $payload);
+    }
+
+    public function update(TopicRuleRequest $request, TransmissionRule $rule, SymbolCoverageChecker $coverage): RedirectResponse
+    {
+        // 樂觀鎖：兩位管理員同時開著編輯頁時，後存的那份會整條覆蓋前一份。
+        $seen = (string) $request->input('updated_at', '');
+        if ($seen !== '' && $rule->updated_at?->toIso8601String() !== $seen) {
+            return back()->withErrors(['updated_at' => '這條規則已被其他人修改，請重新載入後再存一次。'])->withInput();
+        }
+
+        $sectors = $request->normalizedSectors();
+
+        DB::transaction(function () use ($request, $rule, $sectors): void {
+            // key 不接受更新：改 key 等同換一條規則。
+            $rule->update($request->normalized());
+
+            $keptIds = [];
+
+            foreach ($sectors as $sector) {
+                $id = $sector['id'];
+                unset($sector['id']);
+
+                $existing = $id === null ? null : $rule->sectors()->whereKey($id)->first();
+
+                if ($existing === null) {
+                    $keptIds[] = $rule->sectors()->create(array_merge($sector, ['direction_source' => 'human']))->id;
+
+                    continue;
+                }
+
+                // 逐列更新、不碰 direction_source：那欄記錄「方向是誰填的」，
+                // delete-recreate 會把子專案 3 的機器建議洗成人工填寫。
+                $existing->update($sector);
+                $keptIds[] = $existing->id;
+            }
+
+            $rule->sectors()->whereNotIn('id', $keptIds)->delete();
+        });
+
+        return $this->redirectWithCoverageWarning($rule->fresh(), $sectors, $coverage, '題材已更新。');
+    }
+
     public function destroy(TransmissionRule $rule): RedirectResponse
     {
         // 內建規則刪不掉是刻意的：下次 db:seed 會把它長回來，管理員會以為刪掉了。

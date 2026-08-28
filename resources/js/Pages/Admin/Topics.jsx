@@ -16,6 +16,7 @@ function TopicRow({ rule, t }) {
             <td>{rule.is_active ? t('adminTopics.active') : t('adminTopics.disabled')}</td>
             <td>{rule.origin === 'seed' ? t('adminTopics.originSeed') : t('adminTopics.originManual')}</td>
             <td className="instrument-actions">
+                <Link href={`/admin/topics/${rule.id}/edit`}>{t('adminTopics.edit')}</Link>
                 {rule.origin === 'seed' ? (
                     <span title={t('adminTopics.seedCannotDelete')}>—</span>
                 ) : (

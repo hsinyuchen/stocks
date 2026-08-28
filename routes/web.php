@@ -116,7 +116,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     // 具名靜態區段，須排在下方 /topics/{rule} 動態綁定之前，否則會被當成 model binding。
     Route::get('/topics/create', [TopicRuleController::class, 'create'])->name('topics.create');
     Route::post('/topics', [TopicRuleController::class, 'store'])->name('topics.store');
-    // edit 方法留到下一個 task 實作，路由名稱先註冊是因為 store 的轉址已用到它。
     Route::get('/topics/{rule}/edit', [TopicRuleController::class, 'edit'])->name('topics.edit');
+    Route::patch('/topics/{rule}', [TopicRuleController::class, 'update'])->name('topics.update');
     Route::delete('/topics/{rule}', [TopicRuleController::class, 'destroy'])->name('topics.destroy');
 });

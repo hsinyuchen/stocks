@@ -9,10 +9,6 @@ const emptySector = { id: null, name: '', name_en: '', direction: 'neutral', sym
 
 /**
  * 題材規則的新增／編輯共用表單。
- *
- * 編輯（rule 非 null）留給下一個 task 接線：本檔提前把共用結構寫好，
- * 但 admin.topics.update 路由與 controller 的 edit/update 方法尚未實作，
- * 這條分支目前不會被觸發（create 頁一律傳 rule=null）。
  */
 export default function TopicForm({ rule = null, domains = [], directions = [] }) {
     const { t } = useI18n();
@@ -32,6 +28,8 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
         cues_forward: arrayToLines(rule?.direction_cues?.forward),
         cues_reverse: arrayToLines(rule?.direction_cues?.reverse),
         sectors: rule?.sectors?.map((s) => ({ ...s, symbols: arrayToLines(s.symbols) })) ?? [{ ...emptySector }],
+        // 樂觀鎖：帶回進頁面時看到的 updated_at，controller 會比對 DB 現值。
+        updated_at: rule?.updated_at ?? null,
     });
 
     const submit = (event) => {
@@ -71,6 +69,7 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
                         {flash?.warning ? <p className="form-status">{flash.warning}</p> : null}
                         {flash?.success ? <p className="form-status">{flash.success}</p> : null}
                         {form.errors.rule ? <p className="field-error">{form.errors.rule}</p> : null}
+                        {form.errors.updated_at ? <p className="field-error">{form.errors.updated_at}</p> : null}
 
                         <label className="form-field">
                             <span>{t('adminTopics.key')}</span>
