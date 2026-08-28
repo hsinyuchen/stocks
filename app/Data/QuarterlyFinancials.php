@@ -31,6 +31,15 @@ final readonly class QuarterlyFinancials
         public ?float $contractLiabilities = null,
         public ?float $operatingCashFlow = null,
         public ?float $capex = null,
+        /**
+         * 公司自己的財政年度，取自 SEC fact 的 fy／fp。
+         *
+         * 與 $period 不同：$period 來自 SEC 的 frame（CY####Q#），那是「依日曆期間
+         * 最接近配對」的結果，不是財政年度。輝達 FY2026 的第一季結束在 2025-04-27，
+         * frame 是 CY2025Q1。年營收歸戶必須用這兩欄，不能用 $period 或 $endDate。
+         */
+        public ?int $fiscalYear = null,
+        public ?string $fiscalPeriod = null,
     ) {}
 
     /**
@@ -55,6 +64,8 @@ final readonly class QuarterlyFinancials
             'contract_liabilities' => $this->contractLiabilities,
             'operating_cash_flow' => $this->operatingCashFlow,
             'capex' => $this->capex,
+            'fiscal_year' => $this->fiscalYear,
+            'fiscal_period' => $this->fiscalPeriod,
         ];
     }
 
@@ -84,6 +95,8 @@ final readonly class QuarterlyFinancials
             contractLiabilities: $num('contract_liabilities'),
             operatingCashFlow: $num('operating_cash_flow'),
             capex: $num('capex'),
+            fiscalYear: isset($data['fiscal_year']) ? (int) $data['fiscal_year'] : null,
+            fiscalPeriod: isset($data['fiscal_period']) ? (string) $data['fiscal_period'] : null,
         );
     }
 }

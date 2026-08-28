@@ -97,4 +97,29 @@ class OrderInventoryDataTest extends TestCase
         $this->assertNull($restored->latestQuarter()->inventories);
         $this->assertNull($restored->latestQuarter()->revenue);
     }
+
+    public function test_fiscal_fields_round_trip(): void
+    {
+        $quarter = new QuarterlyFinancials(period: '2025Q1', fiscalYear: 2026, fiscalPeriod: 'Q1');
+
+        $restored = QuarterlyFinancials::fromArray($quarter->toArray());
+
+        $this->assertSame(2026, $restored->fiscalYear);
+        $this->assertSame('Q1', $restored->fiscalPeriod);
+    }
+
+    public function test_fiscal_fields_default_to_null_for_legacy_data_without_the_keys(): void
+    {
+        // order_inventory 是 JSON 欄位，正式站有這個 task 之前存的舊資料，
+        // 沒有 fiscal_year／fiscal_period 這兩個鍵。fromArray() 不得因此拋錯。
+        $legacy = new QuarterlyFinancials(period: '2026Q2', inventories: 600.0);
+        $legacyArray = $legacy->toArray();
+        unset($legacyArray['fiscal_year'], $legacyArray['fiscal_period']);
+
+        $restored = QuarterlyFinancials::fromArray($legacyArray);
+
+        $this->assertNull($restored->fiscalYear);
+        $this->assertNull($restored->fiscalPeriod);
+        $this->assertSame(600.0, $restored->inventories);
+    }
 }

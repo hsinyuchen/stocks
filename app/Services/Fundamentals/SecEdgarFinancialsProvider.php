@@ -152,6 +152,8 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
                     if (! isset($out[$period][$field])) {
                         $out[$period][$field] = (float) $row['val'];
                         $out[$period]['end_date'] ??= isset($row['end']) ? (string) $row['end'] : null;
+                        $out[$period]['fiscal_year'] ??= isset($row['fy']) ? (int) $row['fy'] : null;
+                        $out[$period]['fiscal_period'] ??= isset($row['fp']) ? (string) $row['fp'] : null;
                     }
                 }
             }
@@ -212,6 +214,8 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
             contractLiabilities: $num('contract_liabilities'),
             operatingCashFlow: $num('operating_cash_flow'),
             capex: $num('capex'),
+            fiscalYear: isset($v['fiscal_year']) ? (int) $v['fiscal_year'] : null,
+            fiscalPeriod: isset($v['fiscal_period']) ? (string) $v['fiscal_period'] : null,
         );
     }
 }

@@ -18,7 +18,9 @@ class SecEdgarFinancialsProviderTest extends TestCase
     }
 
     /**
-     * @param  array<string, array<string, mixed>>  $tags  標籤 => [frame => val]
+     * @param  array<string, array<string, mixed>>  $tags  標籤 => [frame => 值]
+     *                                                     值可以是純數字（沿用預設 form/fy/fp），或
+     *                                                     ['val' => n, 'fy' => 2026, 'fp' => 'Q1', 'form' => '10-Q', 'end' => '2026-04-27']
      */
     private function fakeSec(array $tags): void
     {
@@ -33,11 +35,14 @@ class SecEdgarFinancialsProviderTest extends TestCase
 
         foreach ($tags as $tag => $frames) {
             $units = [];
-            foreach ($frames as $frame => $val) {
+            foreach ($frames as $frame => $spec) {
+                $row = is_array($spec) ? $spec : ['val' => $spec];
                 $units[] = [
-                    'val' => $val,
-                    'end' => '2026-06-30',
-                    'form' => '10-Q',
+                    'val' => $row['val'],
+                    'end' => $row['end'] ?? '2026-06-30',
+                    'form' => $row['form'] ?? '10-Q',
+                    'fy' => $row['fy'] ?? null,
+                    'fp' => $row['fp'] ?? null,
                     'frame' => $frame,
                 ];
             }
@@ -226,6 +231,35 @@ class SecEdgarFinancialsProviderTest extends TestCase
         ]);
 
         $this->assertFalse($this->provider()->financials('NVDA', 30)->hasAny());
+    }
+
+    public function test_fiscal_year_comes_from_sec_not_from_the_calendar_frame(): void
+    {
+        // 輝達型：FY2026 的第一季結束在 2025-04-27，SEC 把它配到日曆 frame CY2025Q1。
+        // 用 frame 的年份或 end 的日曆年歸戶都會得到 2025，而公司自己的財政年度是 2026。
+        $this->fakeSec([
+            'Revenues' => [
+                'CY2025Q1' => ['val' => 3000, 'fy' => 2026, 'fp' => 'Q1', 'end' => '2025-04-27'],
+            ],
+        ]);
+
+        $quarter = $this->provider()->financials('NVDA', 60)->quarters[0];
+
+        $this->assertSame('2025Q1', $quarter->period, 'period 是既有欄位，判定引擎在用，不得改變');
+        $this->assertSame('2025-04-27', $quarter->endDate);
+        $this->assertSame(2026, $quarter->fiscalYear);
+        $this->assertSame('Q1', $quarter->fiscalPeriod);
+    }
+
+    public function test_fiscal_fields_are_null_when_sec_omits_them(): void
+    {
+        $this->fakeSec(['Revenues' => ['CY2026Q1' => 100]]);
+
+        $quarter = $this->provider()->financials('NVDA', 60)->quarters[0];
+
+        // 缺席就是缺席，不要用 frame 的年份補——那正是這個 task 要修掉的錯誤。
+        $this->assertNull($quarter->fiscalYear);
+        $this->assertNull($quarter->fiscalPeriod);
     }
 
     public function test_sends_a_contactable_user_agent_to_data_sec_gov(): void
