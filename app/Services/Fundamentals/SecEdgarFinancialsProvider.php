@@ -383,20 +383,23 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
                 $groups[$row['start'].'|'.$row['end']][] = $row;
             }
 
-            foreach ($groups as $rows) {
+            foreach ($groups as $groupRows) {
                 // filed 缺席或相同時退化成「陣列中先出現者勝出」（見 usort 的
                 // 穩定排序）——已知的 fallback，不是刻意設計；SEC 實務回應
                 // 一律帶 filed。
-                usort($rows, static fn (array $a, array $b): int => $a['filed'] <=> $b['filed']);
+                usort($groupRows, static fn (array $a, array $b): int => $a['filed'] <=> $b['filed']);
 
-                $year = $rows[0]['fy'];
+                $year = $groupRows[0]['fy'];
 
-                // 同一標籤照理一個財政年度只會分到一組 (start,end)；真的撞到時
-                // 沿用「先出現者勝出」，與別處的偏好序規則一致。
+                // 實測不成立「同一標籤一個財政年度只會分到一組 (start,end)」：
+                // NVDA 的 Revenues 標籤裡，2010-02-01|2011-01-30（真 FY2011，
+                // 3,543,309,000）與 2009-01-26|2010-01-31 修正後都變成 fy=2010，
+                // 後者先插入、前者整組被丟。目前被 10 年窗口遮住不影響輸出，
+                // 撞到時沿用「先出現者勝出」。
                 if (! isset($byTag[$tag][$year])) {
                     $byTag[$tag][$year] = [
-                        'revenue' => $rows[count($rows) - 1]['val'],
-                        'end' => $rows[0]['end'],
+                        'revenue' => $groupRows[count($groupRows) - 1]['val'],
+                        'end' => $groupRows[0]['end'],
                     ];
                 }
             }
@@ -424,10 +427,12 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
      * 理所當然比當期少一個財政年度）。accn 缺席時（測試 fixture 或未來
      * 上游改動）每一列自成一組，不做任何偏移——與修正前行為一致。
      *
-     * 這個偏移量與哪一份申報書判定無關：同一段期間即使出現在三份不同
-     * 申報書裡，各自算出來的修正後 fy 會是同一個值（都是「以各自申報書
-     * 最新一期為基準往前退幾年」），所以不影響第一步之後「跨 accn 取最早
-     * filed」的判定。
+     * 這個偏移量跨 accn 不會互相打架——各自以自己申報書最新一期為基準
+     * 往前退幾年，不影響第一步之後「跨 accn 取最早 filed」的判定。但若
+     * 某份申報書本身的 fy 就偏移（fy 是申報文件層級欄位，見本檔案開頭
+     * 對此問題的說明），該申報書內三段期間會**一致地偏移同一格**，這正是
+     * 10 年窗口在擋的東西（實測 NVDA 的 0001045810-11-000015，filed
+     * 2011-03-16、fy=2010、最新期間 end 2011-01-30，三段期間一起偏移）。
      *
      * @param  list<array{fy: int, filed: string, val: float, start: string, end: string, accn: ?string}>  $rows
      * @return list<array{fy: int, filed: string, val: float, start: string, end: string, accn: ?string}>
@@ -446,8 +451,13 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
             usort($group, static fn (array $a, array $b): int => $b['end'] <=> $a['end']);
 
             $latestFiscalYear = $group[0]['fy'];
+            $latestEnd = $group[0]['end'];
 
-            foreach ($group as $offset => $row) {
+            foreach ($group as $row) {
+                // 用 end 的年距而非陣列位置：accn 內的年度期間可能不連續
+                // （財政年度變更的過渡期 stub 被 330~400 天濾掉、或申報只列部分年度），
+                // 位置式 -1 會把缺口後面的年度整批往新的方向錯配一年。
+                $offset = (int) round($this->daysBetween($row['end'], $latestEnd) / 365);
                 $row['fy'] = $latestFiscalYear - $offset;
                 $out[] = $row;
             }
@@ -486,6 +496,11 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
 
         usort($rows, static fn (array $a, array $b): int => $a['end'] <=> $b['end']);
 
+        // 先截窗口再檢查：嚴格遞增檢查錨定最舊那筆，而最舊那筆正是本方法
+        // docblock 說「fy 不可信」的區間；先檢查會讓一筆古早爛列把後面全部
+        // 正確年度連坐丟棄。
+        $rows = array_slice($rows, -10);
+
         $kept = [];
         $lastFiscalYear = null;
 
@@ -498,7 +513,7 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
             $lastFiscalYear = $row['fiscal_year'];
         }
 
-        return array_slice($kept, -10);
+        return $kept;
     }
 
     /**

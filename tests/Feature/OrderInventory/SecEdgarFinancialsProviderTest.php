@@ -501,6 +501,32 @@ class SecEdgarFinancialsProviderTest extends TestCase
         $this->assertSame(11716.0, $revenues[2019] ?? null, 'end 2019-01-27：同 accn 內最新一期，沿用 fy');
     }
 
+    public function test_annual_revenue_correct_fiscal_year_uses_end_year_gap_not_array_position_when_accn_has_a_gap(): void
+    {
+        // 同一 accn 內的年度期間可能不連續（財政年度變更的過渡期 stub 被
+        // 330~400 天濾掉、或申報只列部分年度）。此處只揭露 end 2026-01-31
+        // 與 end 2024-01-31 兩組，中間缺 end 2025-01-31 那組。位置式偏移
+        // （group[0] offset 0、group[1] offset 1）會把後者錯配成 FY2025；
+        // 正確作法是用 end 的年距（相差 2 年）算出 offset=2，落在 FY2024。
+        $this->fakeSec([
+            'Revenues' => [
+                'CY2026' => ['val' => 300, 'fy' => 2026, 'fp' => 'FY', 'start' => '2025-02-01', 'end' => '2026-01-31', 'filed' => '2026-03-01', 'accn' => '0001045810-26-000001'],
+                'CY2024' => ['val' => 200, 'fy' => 2026, 'fp' => 'FY', 'start' => '2023-02-01', 'end' => '2024-01-31', 'filed' => '2026-03-01', 'accn' => '0001045810-26-000001'],
+            ],
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $revenues = [];
+        foreach ($data->annualRevenue as $row) {
+            $revenues[$row['fiscal_year']] = $row['revenue'];
+        }
+
+        $this->assertSame(300.0, $revenues[2026] ?? null, 'end 2026-01-31：同 accn 內最新一期，沿用 fy');
+        $this->assertArrayNotHasKey(2025, $revenues, '缺口不能被位置式偏移憑空生出一個 FY2025');
+        $this->assertSame(200.0, $revenues[2024] ?? null, 'end 2024-01-31：與最新一期相差 2 年，須落在 FY2024 而非位置式算出的 FY2025');
+    }
+
     public function test_annual_revenue_keeps_only_the_most_recent_ten_fiscal_years(): void
     {
         // FY2015 前後申報慣例本身改過命名，古早年度的 fy 不可信；限定只
