@@ -42,6 +42,18 @@ final readonly class OrderInventoryData
         return $this->quarters !== [];
     }
 
+    /**
+     * 是否帶有月營收序列。
+     *
+     * 與 {@see hasAny()} 刻意分開：hasAny() 決定訂單庫存評級是否棄權，那需要季報；
+     * 月營收自己就是個股頁營收區塊的主體資料，季報缺席時仍必須保留。
+     * 兩者合併會讓沒有季報的個股被評出一個沒有依據的等級。
+     */
+    public function hasRevenueSeries(): bool
+    {
+        return $this->monthlyRevenue !== [];
+    }
+
     public function latestQuarter(): ?QuarterlyFinancials
     {
         return $this->quarters === [] ? null : $this->quarters[count($this->quarters) - 1];

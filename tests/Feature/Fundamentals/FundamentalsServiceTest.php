@@ -4,6 +4,7 @@ namespace Tests\Feature\Fundamentals;
 
 use App\Contracts\FundamentalsProvider;
 use App\Data\FundamentalsData;
+use App\Data\OrderInventoryData;
 use App\Models\Fundamental;
 use App\Models\Instrument;
 use App\Services\Fundamentals\FundamentalsService;
@@ -188,6 +189,43 @@ class FundamentalsServiceTest extends TestCase
             ->update(['failed_at' => now()->subHours(3)]);
         app(FundamentalsService::class)->forInstrument($instrument);
         $this->assertSame(2, $stub->calls);
+    }
+
+    public function test_fresh_monthly_revenue_is_kept_when_quarters_are_missing(): void
+    {
+        $instrument = Instrument::factory()->create(['symbol' => '2330.TW', 'market' => 'TW']);
+
+        $previous = new OrderInventoryData(
+            quarters: [],
+            monthlyRevenue: [['month' => '2026-06-01', 'revenue' => 900.0, 'yoy' => 0.05]],
+            market: 'tw',
+        );
+        $fresh = new OrderInventoryData(
+            quarters: [],
+            monthlyRevenue: [['month' => '2026-07-01', 'revenue' => 1000.0, 'yoy' => 0.10]],
+            market: 'tw',
+        );
+
+        // 專案沒有 FundamentalFactory，直接建列。fetched_at 是必填（migration 未設 nullable）。
+        $row = Fundamental::create([
+            'instrument_id' => $instrument->id,
+            'order_inventory' => $previous->toArray(),
+            'data_as_of' => '2026-07-01',
+            'fetched_at' => now(),
+        ]);
+
+        $result = $this->invokeCarryForward($fresh, $row);
+
+        // 舊行為會回 $previous，讓新抓到的 7 月營收無聲消失。
+        $this->assertSame('2026-07-01', $result->monthlyRevenue[0]['month']);
+    }
+
+    private function invokeCarryForward(OrderInventoryData $fresh, Fundamental $row): ?OrderInventoryData
+    {
+        $method = new \ReflectionMethod(FundamentalsService::class, 'carryForwardOrderInventory');
+        $method->setAccessible(true);
+
+        return $method->invoke(app(FundamentalsService::class), $fresh, $row);
     }
 
     public function test_payload_numbers_are_floats_not_strings(): void

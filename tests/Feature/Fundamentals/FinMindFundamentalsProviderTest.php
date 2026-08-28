@@ -9,13 +9,19 @@ use Tests\TestCase;
 
 class FinMindFundamentalsProviderTest extends TestCase
 {
-    private function fakeFinMind(): void
+    /** @param  array<string, list<array<string, mixed>>>  $overrides  dataset => 列 */
+    private function fakeFinMind(array $overrides = []): void
     {
         Http::fake([
-            'api.finmindtrade.com/*' => function ($request) {
+            'api.finmindtrade.com/*' => function ($request) use ($overrides) {
                 $ds = $request['dataset'] ?? '';
 
-                return Http::response(['status' => 200, 'data' => $this->dataFor($ds)]);
+                return Http::response([
+                    'status' => 200,
+                    // array_key_exists 而非 ??：覆寫成空陣列（測試季報缺席的情境）必須生效，
+                    // 用 ?? 會在空陣列時退回預設資料。
+                    'data' => array_key_exists($ds, $overrides) ? $overrides[$ds] : $this->dataFor($ds),
+                ]);
             },
         ]);
     }
@@ -89,6 +95,26 @@ class FinMindFundamentalsProviderTest extends TestCase
         (new FinMindFundamentalsProvider(new FinMindTokenResolver, 20))->fetch('2330.TW');
 
         Http::assertSent(fn ($request) => ($request['data_id'] ?? '') === '2330');
+    }
+
+    public function test_monthly_revenue_survives_when_quarterly_statements_are_missing(): void
+    {
+        // 季報與資產負債表回空、月營收有資料。實際發生在剛上市或財報延遲的個股，
+        // 而月營收是個股頁營收區塊的主體資料，不能因為季報缺席就整包丟掉。
+        $this->fakeFinMind([
+            'TaiwanStockFinancialStatements' => [],
+            'TaiwanStockBalanceSheet' => [],
+            'TaiwanStockMonthRevenue' => [
+                ['date' => '2025-08-01', 'stock_id' => '2330', 'revenue' => 800, 'revenue_month' => 7, 'revenue_year' => 2025],
+                ['date' => '2026-08-01', 'stock_id' => '2330', 'revenue' => 1000, 'revenue_month' => 7, 'revenue_year' => 2026],
+            ],
+        ]);
+
+        $data = (new FinMindFundamentalsProvider(new FinMindTokenResolver, 20))->financials('2330.TW', 30);
+
+        $this->assertFalse($data->hasAny(), '沒有季報時評級仍須棄權');
+        $this->assertTrue($data->hasRevenueSeries());
+        $this->assertSame('2026-07-01', $data->monthlyRevenue[count($data->monthlyRevenue) - 1]['month']);
     }
 
     public function test_missing_data_yields_nulls_not_exceptions(): void

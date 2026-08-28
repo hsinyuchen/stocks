@@ -409,7 +409,9 @@ class FundamentalsService
             ? OrderInventoryData::fromArray($row->order_inventory)
             : null;
 
-        if (! $fresh->hasAny()) {
+        // hasAny() 只看季度。這次若抓到了月營收，即使季報缺席也要用新的——
+        // 否則剛上市或財報延遲的個股，月營收永遠停在第一次抓到的那個月。
+        if (! $fresh->hasAny() && ! $fresh->hasRevenueSeries()) {
             return $previous;
         }
 
