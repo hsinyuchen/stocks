@@ -415,20 +415,35 @@ class FundamentalsService
             return $previous;
         }
 
-        // 只有月營收 dataset 失敗（季度序列仍有值）：其餘欄位用新的，月營收沿用舊的，
-        // 否則整條月營收序列會被 [] 蓋掉，而它是階段 2 判斷 YoY 連續性的唯一來源。
-        if ($fresh->monthlyRevenue === [] && $previous !== null && $previous->monthlyRevenue !== []) {
-            return new OrderInventoryData(
-                quarters: $fresh->quarters,
-                monthlyRevenue: $previous->monthlyRevenue,
-                market: $fresh->market,
-                industry: $fresh->industry,
-                inventoryCompositionAvailable: $fresh->inventoryCompositionAvailable,
-                dataAsOf: $fresh->dataAsOf,
-            );
+        if ($previous === null) {
+            return $fresh;
         }
 
-        return $fresh;
+        // 季度與月營收來自不同 FinMind dataset，同一次請求裡任一個可能單獨撞額度
+        // 或故障而回空陣列，另一個仍可能正常抓到新資料，故分開判斷、各自決定是否
+        // 沿用舊值：
+        // - 季度序列是訂單庫存評級唯一來源，被 [] 蓋掉會讓評級從有結論靜默變棄權。
+        // - 月營收序列是階段 2 判斷 YoY 連續性唯一來源，理由同上、不可被 [] 覆蓋。
+        $quarters = $fresh->quarters === [] && $previous->quarters !== []
+            ? $previous->quarters
+            : $fresh->quarters;
+
+        $monthlyRevenue = $fresh->monthlyRevenue === [] && $previous->monthlyRevenue !== []
+            ? $previous->monthlyRevenue
+            : $fresh->monthlyRevenue;
+
+        if ($quarters === $fresh->quarters && $monthlyRevenue === $fresh->monthlyRevenue) {
+            return $fresh;
+        }
+
+        return new OrderInventoryData(
+            quarters: $quarters,
+            monthlyRevenue: $monthlyRevenue,
+            market: $fresh->market,
+            industry: $fresh->industry,
+            inventoryCompositionAvailable: $fresh->inventoryCompositionAvailable,
+            dataAsOf: $fresh->dataAsOf,
+        );
     }
 
     /**

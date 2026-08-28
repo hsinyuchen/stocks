@@ -5,6 +5,7 @@ namespace Tests\Feature\Fundamentals;
 use App\Contracts\FundamentalsProvider;
 use App\Data\FundamentalsData;
 use App\Data\OrderInventoryData;
+use App\Data\QuarterlyFinancials;
 use App\Models\Fundamental;
 use App\Models\Instrument;
 use App\Services\Fundamentals\FundamentalsService;
@@ -218,6 +219,72 @@ class FundamentalsServiceTest extends TestCase
 
         // 舊行為會回 $previous，讓新抓到的 7 月營收無聲消失。
         $this->assertSame('2026-07-01', $result->monthlyRevenue[0]['month']);
+    }
+
+    /**
+     * 本次的缺陷：季報 dataset 這次失敗（fresh->quarters 為空），但月營收 dataset
+     * 成功。季度序列是訂單庫存評級唯一來源，回歸前的程式碼會讓 $fresh 帶著空
+     * quarters 一路蓋過既有非空的季度序列，使評級從有結論靜默變成棄權。
+     */
+    public function test_previous_quarters_are_kept_when_fresh_quarters_dataset_fails(): void
+    {
+        $instrument = Instrument::factory()->create(['symbol' => '2330.TW', 'market' => 'TW']);
+
+        $previous = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(period: '2026Q1', revenue: 500.0)],
+            monthlyRevenue: [['month' => '2026-06-01', 'revenue' => 900.0, 'yoy' => 0.05]],
+            market: 'tw',
+        );
+        $fresh = new OrderInventoryData(
+            quarters: [],
+            monthlyRevenue: [['month' => '2026-07-01', 'revenue' => 1000.0, 'yoy' => 0.10]],
+            market: 'tw',
+        );
+
+        $row = Fundamental::create([
+            'instrument_id' => $instrument->id,
+            'order_inventory' => $previous->toArray(),
+            'data_as_of' => '2026-07-01',
+            'fetched_at' => now(),
+        ]);
+
+        $result = $this->invokeCarryForward($fresh, $row);
+
+        $this->assertSame('2026Q1', $result->quarters[0]->period);
+        $this->assertSame('2026-07-01', $result->monthlyRevenue[0]['month']);
+    }
+
+    /**
+     * 既有保護（不得回歸）：月營收 dataset 這次失敗（fresh->monthlyRevenue 為空），
+     * 季報 dataset 成功。月營收序列是階段 2 判斷 YoY 連續性唯一來源，須沿用舊值，
+     * 季度序列改用新抓到的。
+     */
+    public function test_previous_monthly_revenue_is_kept_when_fresh_revenue_dataset_fails(): void
+    {
+        $instrument = Instrument::factory()->create(['symbol' => '2330.TW', 'market' => 'TW']);
+
+        $previous = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(period: '2026Q1', revenue: 500.0)],
+            monthlyRevenue: [['month' => '2026-06-01', 'revenue' => 900.0, 'yoy' => 0.05]],
+            market: 'tw',
+        );
+        $fresh = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(period: '2026Q2', revenue: 600.0)],
+            monthlyRevenue: [],
+            market: 'tw',
+        );
+
+        $row = Fundamental::create([
+            'instrument_id' => $instrument->id,
+            'order_inventory' => $previous->toArray(),
+            'data_as_of' => '2026-07-01',
+            'fetched_at' => now(),
+        ]);
+
+        $result = $this->invokeCarryForward($fresh, $row);
+
+        $this->assertSame('2026Q2', $result->quarters[0]->period);
+        $this->assertSame('2026-06-01', $result->monthlyRevenue[0]['month']);
     }
 
     private function invokeCarryForward(OrderInventoryData $fresh, Fundamental $row): ?OrderInventoryData
