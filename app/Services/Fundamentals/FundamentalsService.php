@@ -290,7 +290,10 @@ class FundamentalsService
         // 失敗與部分失敗一律沿用舊值，與估值那條路的 last-known-good 同一條規則。
         $merged = $this->carryForwardOrderInventory($fresh, $row);
 
-        if (! $fresh->hasAny()) {
+        // hasAny() 只看季度。美股可能走「只有年報」的救援分支（SEC 季度 frame
+        // 全缺，但年度申報仍在），此時 hasAny() 為 false 卻不是抓取失敗，不可
+        // 落入下面的失敗節流路徑（那會把剛抓到的年營收整包丟掉）。
+        if (! $fresh->hasAny() && ! $fresh->hasAnnualRevenue()) {
             if ($row !== null) {
                 // 既有列：保留原本的序列、data_as_of 與 fetched_at，只刷新 failed_at
                 // 節流重試。另開一列會讓放棄的抓取在序列裡留下一筆空資料。
@@ -305,7 +308,12 @@ class FundamentalsService
             return null;
         }
 
-        $this->persistOrderInventory($instrument, $merged, $fresh->dataAsOf, null);
+        // 用 $merged->dataAsOf 而非 $fresh->dataAsOf：季度被 carryForwardOrderInventory()
+        // 沿用 previous 時，$merged->dataAsOf 也會一併沿用 previous 的值（見該方法），
+        // 這裡若仍用 $fresh->dataAsOf 當落地列的 data_as_of 鍵，會把「舊季度」存進
+        // 一把「新資料日」的鑰匙底下，之後任何以 data_as_of 判斷新鮮度的讀者都會
+        // 誤以為這批季度是新的。
+        $this->persistOrderInventory($instrument, $merged, $merged?->dataAsOf, null);
 
         return $merged;
     }
@@ -409,9 +417,10 @@ class FundamentalsService
             ? OrderInventoryData::fromArray($row->order_inventory)
             : null;
 
-        // hasAny() 只看季度。這次若抓到了月營收，即使季報缺席也要用新的——
-        // 否則剛上市或財報延遲的個股，月營收永遠停在第一次抓到的那個月。
-        if (! $fresh->hasAny() && ! $fresh->hasRevenueSeries()) {
+        // hasAny() 只看季度，hasRevenueSeries() 只看月營收。這次若抓到了月營收
+        // 或年營收（美股「只有年報」的救援分支），即使季報缺席也要用新的——
+        // 否則剛上市／財報延遲的個股，月營收或年營收永遠停在第一次抓到那筆。
+        if (! $fresh->hasAny() && ! $fresh->hasRevenueSeries() && ! $fresh->hasAnnualRevenue()) {
             return $previous;
         }
 
@@ -419,11 +428,12 @@ class FundamentalsService
             return $fresh;
         }
 
-        // 季度與月營收來自不同 FinMind dataset，同一次請求裡任一個可能單獨撞額度
-        // 或故障而回空陣列，另一個仍可能正常抓到新資料，故分開判斷、各自決定是否
-        // 沿用舊值：
+        // 季度、月營收、年營收來自不同資料集（甚至不同上游 API），同一次請求裡
+        // 任一個可能單獨撞額度或故障而回空陣列，另一個仍可能正常抓到新資料，
+        // 故分開判斷、各自決定是否沿用舊值：
         // - 季度序列是訂單庫存評級唯一來源，被 [] 蓋掉會讓評級從有結論靜默變棄權。
         // - 月營收序列是階段 2 判斷 YoY 連續性唯一來源，理由同上、不可被 [] 覆蓋。
+        // - 年營收（美股）道理相同：SEC 年報那條路單獨失敗不該清空既有年營收。
         $quarters = $fresh->quarters === [] && $previous->quarters !== []
             ? $previous->quarters
             : $fresh->quarters;
@@ -432,7 +442,15 @@ class FundamentalsService
             ? $previous->monthlyRevenue
             : $fresh->monthlyRevenue;
 
-        if ($quarters === $fresh->quarters && $monthlyRevenue === $fresh->monthlyRevenue) {
+        $annualRevenue = $fresh->annualRevenue === [] && $previous->annualRevenue !== []
+            ? $previous->annualRevenue
+            : $fresh->annualRevenue;
+
+        $carriedQuarters = $quarters !== $fresh->quarters;
+        $carriedRevenue = $monthlyRevenue !== $fresh->monthlyRevenue;
+        $carriedAnnual = $annualRevenue !== $fresh->annualRevenue;
+
+        if (! $carriedQuarters && ! $carriedRevenue && ! $carriedAnnual) {
             return $fresh;
         }
 
@@ -442,7 +460,11 @@ class FundamentalsService
             market: $fresh->market,
             industry: $fresh->industry,
             inventoryCompositionAvailable: $fresh->inventoryCompositionAvailable,
-            dataAsOf: $fresh->dataAsOf,
+            // 季度沿用了 previous 時，dataAsOf 也要一併沿用——dataAsOf 語意綁在
+            // 「最新季度」，沿用舊季度卻宣稱是新的 dataAsOf（或 $fresh 本來就沒有
+            // 資料日）會產生「季度是舊的、資料日卻說沒有資料」的自相矛盾紀錄。
+            dataAsOf: $carriedQuarters ? $previous->dataAsOf : $fresh->dataAsOf,
+            annualRevenue: $annualRevenue,
         );
     }
 

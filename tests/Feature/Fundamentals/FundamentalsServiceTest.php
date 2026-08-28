@@ -287,6 +287,41 @@ class FundamentalsServiceTest extends TestCase
         $this->assertSame('2026-06-01', $result->monthlyRevenue[0]['month']);
     }
 
+    /**
+     * 美股「只有年報」的救援分支：季報與月營收都缺席，但年營收有新值，
+     * 須沿用而非被 hasAny()／hasRevenueSeries() 判定成失敗而整包丟棄。
+     */
+    public function test_fresh_annual_revenue_is_kept_when_quarters_and_monthly_revenue_are_missing(): void
+    {
+        $instrument = Instrument::factory()->create(['symbol' => 'NVDA', 'market' => 'US']);
+
+        $previous = new OrderInventoryData(
+            quarters: [new QuarterlyFinancials(period: '2026Q2', revenue: 500.0)],
+            market: 'us',
+            dataAsOf: '2026-06-30',
+            annualRevenue: [['fiscal_year' => 2025, 'revenue' => 130497000000.0]],
+        );
+        $fresh = new OrderInventoryData(
+            quarters: [],
+            monthlyRevenue: [],
+            market: 'us',
+            annualRevenue: [['fiscal_year' => 2026, 'revenue' => 215938000000.0]],
+        );
+
+        $row = Fundamental::create([
+            'instrument_id' => $instrument->id,
+            'order_inventory' => $previous->toArray(),
+            'data_as_of' => '2026-06-30',
+            'fetched_at' => now(),
+        ]);
+
+        $result = $this->invokeCarryForward($fresh, $row);
+
+        $this->assertSame('2026Q2', $result->quarters[0]->period, '季度沿用既有序列');
+        $this->assertSame(215938000000.0, $result->annualRevenue[0]['revenue'], '年營收改用新抓到的');
+        $this->assertSame('2026-06-30', $result->dataAsOf, '季度沿用時 dataAsOf 也要一併沿用，不得宣稱沒有資料日');
+    }
+
     private function invokeCarryForward(OrderInventoryData $fresh, Fundamental $row): ?OrderInventoryData
     {
         $method = new \ReflectionMethod(FundamentalsService::class, 'carryForwardOrderInventory');

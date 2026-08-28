@@ -63,6 +63,18 @@ final readonly class OrderInventoryData
         return $this->monthlyRevenue !== [];
     }
 
+    /**
+     * 是否帶有年營收序列。
+     *
+     * 與 {@see hasAny()} 分開的理由同 {@see hasRevenueSeries()}：美股「只有
+     * 年報、沒有可用季度 frame」是合法的救援結果（見 SecEdgarFinancialsProvider
+     * 的救援分支），不能被「季度序列是否存在」這把尺誤判成抓取失敗。
+     */
+    public function hasAnnualRevenue(): bool
+    {
+        return $this->annualRevenue !== [];
+    }
+
     public function latestQuarter(): ?QuarterlyFinancials
     {
         return $this->quarters === [] ? null : $this->quarters[count($this->quarters) - 1];

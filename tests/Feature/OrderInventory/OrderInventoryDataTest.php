@@ -32,4 +32,19 @@ class OrderInventoryDataTest extends TestCase
         $this->assertTrue($monthlyOnly->hasRevenueSeries());
         $this->assertFalse(OrderInventoryData::empty()->hasRevenueSeries());
     }
+
+    public function test_has_annual_revenue_reports_annual_revenue_only(): void
+    {
+        // 美股「只有年報」救援分支：季度與月營收都缺席，只有年營收。
+        $annualOnly = new OrderInventoryData(
+            quarters: [],
+            monthlyRevenue: [],
+            market: 'us',
+            annualRevenue: [['fiscal_year' => 2026, 'revenue' => 215938000000.0]],
+        );
+
+        $this->assertTrue($annualOnly->hasAnnualRevenue());
+        $this->assertFalse($annualOnly->hasAny(), 'hasAny() 只看季度，不能被年營收頂替');
+        $this->assertFalse(OrderInventoryData::empty()->hasAnnualRevenue());
+    }
 }
