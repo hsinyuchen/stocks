@@ -200,7 +200,7 @@ class DashboardController extends Controller
                 'total' => $watchlistTotal,
             ],
             'latestNews' => $this->latestNews($watchlistSymbols),
-            'transmissionFocus' => $this->transmissionFocus($watchlistSymbols),
+            'transmissionFocus' => $this->transmissionFocus($watchlistSymbols, $user->profile?->locale ?? 'zh'),
             'recentAnalyses' => $this->recentAnalyses($user),
             'disclaimer' => self::DISCLAIMER,
             'generatedAt' => CarbonImmutable::now()->toIso8601String(),
@@ -351,7 +351,7 @@ class DashboardController extends Controller
      * @param  list<string>  $watchlistSymbols
      * @return list<array<string, mixed>>
      */
-    private function transmissionFocus(array $watchlistSymbols): array
+    private function transmissionFocus(array $watchlistSymbols, string $locale = 'zh'): array
     {
         $mapper = app(TransmissionMapper::class);
         $since = CarbonImmutable::now()->subHours((int) config('dashboard.transmission_lookback_hours', 48));
@@ -367,7 +367,7 @@ class DashboardController extends Controller
         $chains = [];
 
         foreach ($news as $item) {
-            foreach ($mapper->map((string) $item->title, (string) $item->summary, (array) ($item->domains ?? [])) as $chain) {
+            foreach ($mapper->map((string) $item->title, (string) $item->summary, (array) ($item->domains ?? []), $locale) as $chain) {
                 $key = $chain['key'];
 
                 $chains[$key] ??= [

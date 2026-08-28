@@ -59,8 +59,9 @@ class NewsController extends Controller
             ->withQueryString();
 
         $latestAnalyses = $this->latestItemAnalyses($user, $items->getCollection()->pluck('id')->all());
+        $locale = $user?->profile?->locale ?? 'zh';
 
-        $items->through(fn (NewsItem $item): array => $this->itemPayload($item, $latestAnalyses[$item->id] ?? null));
+        $items->through(fn (NewsItem $item): array => $this->itemPayload($item, $latestAnalyses[$item->id] ?? null, $locale));
 
         return Inertia::render('News/Index', [
             'items' => $items,
@@ -136,7 +137,7 @@ class NewsController extends Controller
         return is_string($host) && $host !== '' ? 'https://'.$host : null;
     }
 
-    private function itemPayload(NewsItem $item, ?NewsAnalysis $analysis): array
+    private function itemPayload(NewsItem $item, ?NewsAnalysis $analysis, string $locale = 'zh'): array
     {
         return [
             'id' => $item->id,
@@ -157,6 +158,7 @@ class NewsController extends Controller
                 (string) $item->title,
                 (string) $item->summary,
                 (array) ($item->domains ?? []),
+                $locale,
             ),
             'published_at' => $item->published_at?->toIso8601String(),
             'latest_analysis' => $analysis === null ? null : [
