@@ -117,10 +117,10 @@ class TopicCandidateResolver
     /**
      * 傳導表列名的個股。
      *
-     * 方向取 config 的**宣告值**，不取 TransmissionMapper 被新聞極性翻轉過的值
+     * 方向取 {@see TransmissionRuleProvider} 規則的**宣告值**，不取 TransmissionMapper 被新聞極性翻轉過的值
      * ——理由見 {@see TopicDirection}。
      *
-     * 同一檔若出現在多個 sector，**取第一次出現的那個**：目前 config 沒有這種
+     * 同一檔若出現在多個 sector，**取第一次出現的那個**：目前規則資料（{@see TransmissionRuleProvider}）沒有這種
      * 情形，但也沒有禁止。取第一個而不是合併，是因為「同時受惠又受衝擊」對
      * 使用者沒有可行動的意義，而挑一個至少是可解釋的（傳導表的排列順序就是
      * 作者的敘事順序）。

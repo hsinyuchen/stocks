@@ -113,10 +113,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     // 題材傳導規則為全站共用資料（新聞頁傳導區塊、儀表板、題材候選都吃它），限 admin 維護。
     Route::get('/topics', [TopicRuleController::class, 'index'])->name('topics.index');
-    // 具名靜態區段，須排在下方 /topics/{rule} 動態綁定之前，否則會被當成 model binding。
     Route::get('/topics/create', [TopicRuleController::class, 'create'])->name('topics.create');
     Route::post('/topics', [TopicRuleController::class, 'store'])->name('topics.store');
-    // 試跑同樣是靜態區段，一樣要排在 /topics/{rule} 之前。
     Route::post('/topics/preview', [TopicRuleController::class, 'preview'])->name('topics.preview');
     Route::get('/topics/{rule}/edit', [TopicRuleController::class, 'edit'])->name('topics.edit');
     Route::patch('/topics/{rule}', [TopicRuleController::class, 'update'])->name('topics.update');

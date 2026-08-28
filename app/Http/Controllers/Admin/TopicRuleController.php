@@ -153,7 +153,9 @@ class TopicRuleController extends Controller
                 $keptIds[] = $existing->id;
             }
 
-            $rule->sectors()->whereNotIn('id', $keptIds)->delete();
+            // reorder()：sectors() 帶著 orderBy，MySQL 上會產生合法但沒必要的
+            // DELETE ... ORDER BY（sqlite 測試跑不出這個差異）。
+            $rule->sectors()->whereNotIn('id', $keptIds)->reorder()->delete();
         });
 
         return $this->redirectWithCoverageWarning($rule->fresh(), $sectors, $coverage, '題材已更新。');
@@ -190,7 +192,13 @@ class TopicRuleController extends Controller
         $matched = 0;
         $samples = [];
 
-        $items = NewsItem::query()->orderByDesc('published_at')->limit(self::PREVIEW_ITEMS)->get();
+        // relevant 過濾與 DashboardController::transmissionFocus()、news:transmission-gaps
+        // 一致，否則命中數會把非投資意義的新聞也算進分母，高估命中率。
+        $items = NewsItem::query()
+            ->where('relevant', true)
+            ->orderByDesc('published_at')
+            ->limit(self::PREVIEW_ITEMS)
+            ->get();
 
         foreach ($items as $item) {
             $hits = $mapper->map((string) $item->title, (string) $item->summary, (array) ($item->domains ?? []));
@@ -247,6 +255,6 @@ class TopicRuleController extends Controller
 
         return $missing === []
             ? $redirect
-            : $redirect->with('warning', '已存檔。下列代號查無標的或近 30 日無行情，使用者點進去會是空白：'.implode('、', $missing));
+            : $redirect->with('warning', '下列代號查無標的或近 30 日無行情，使用者點進去會是空白：'.implode('、', $missing));
     }
 }
