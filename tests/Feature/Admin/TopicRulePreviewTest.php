@@ -1,0 +1,67 @@
+<?php
+
+namespace Tests\Feature\Admin;
+
+use App\Models\NewsItem;
+use App\Models\TransmissionRule;
+use App\Models\User;
+use Carbon\CarbonImmutable;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class TopicRulePreviewTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function payload(array $overrides = []): array
+    {
+        return array_merge([
+            'key' => 'preview_topic',
+            'label' => '試跑題材',
+            'keywords' => ['荷莫茲'],
+            'domains' => [],
+            'chain' => ['一'],
+            'direction_cues' => ['forward' => [], 'reverse' => []],
+            'is_active' => true,
+            'sectors' => [['name' => '航運', 'direction' => 'positive', 'symbols' => []]],
+        ], $overrides);
+    }
+
+    public function test_reports_matches_without_writing_anything(): void
+    {
+        NewsItem::create([
+            'source' => 'demo',
+            'title' => '荷莫茲海峽航運受阻',
+            'summary' => '',
+            'url' => 'https://example.com/1',
+            'url_hash' => hash('sha256', 'https://example.com/1'),
+            'published_at' => CarbonImmutable::now(),
+            'relevant' => true,
+        ]);
+
+        $response = $this->actingAs(User::factory()->create(['is_admin' => true]))
+            ->from('/admin/topics/create')
+            ->post('/admin/topics/preview', $this->payload());
+
+        $response->assertRedirect('/admin/topics/create');
+        $result = session('previewResult');
+        $this->assertSame(1, $result['matched']);
+        $this->assertSame(['荷莫茲海峽航運受阻'], $result['samples']);
+        // 試跑不得留下任何痕跡。
+        $this->assertSame(0, TransmissionRule::count());
+    }
+
+    public function test_validation_applies_to_preview_too(): void
+    {
+        $this->actingAs(User::factory()->create(['is_admin' => true]))
+            ->post('/admin/topics/preview', $this->payload(['keywords' => []]))
+            ->assertSessionHasErrors('keywords');
+    }
+
+    public function test_non_admin_is_forbidden(): void
+    {
+        $this->actingAs(User::factory()->create())
+            ->post('/admin/topics/preview', $this->payload())
+            ->assertForbidden();
+    }
+}

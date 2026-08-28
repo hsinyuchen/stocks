@@ -1,4 +1,4 @@
-import { useForm, usePage } from '@inertiajs/react';
+import { router, useForm, usePage } from '@inertiajs/react';
 import AppShell from '../../Layouts/AppShell';
 import { useI18n } from '../../i18n';
 
@@ -54,6 +54,20 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
         form.setData('sectors', form.data.sectors.map((s, i) => (i === index ? { ...s, ...patch } : s)));
     };
 
+    const preview = usePage().props.flash?.previewResult ?? null;
+
+    // 走 Inertia router 而非自行 fetch：app.blade.php 沒有輸出 csrf-token meta，
+    // 手寫 fetch 得自己處理 XSRF cookie。preserveState 讓試跑後表單內容不被重置。
+    const runPreview = () => {
+        router.post('/admin/topics/preview', {
+            ...form.data,
+            keywords: linesToArray(form.data.keywords),
+            chain: linesToArray(form.data.chain),
+            direction_cues: { forward: linesToArray(form.data.cues_forward), reverse: linesToArray(form.data.cues_reverse) },
+            sectors: form.data.sectors.map((s) => ({ ...s, symbols: linesToArray(s.symbols) })),
+        }, { preserveScroll: true, preserveState: true });
+    };
+
     return (
         <AppShell title={t('adminTopics.formTitle')}>
             <div className="admin-page">
@@ -66,7 +80,7 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
                             </div>
                         </div>
 
-                        {flash?.warning ? <p className="form-status">{flash.warning}</p> : null}
+                        {flash?.warning ? <p className="form-warning">{flash.warning}</p> : null}
                         {flash?.success ? <p className="form-status">{flash.success}</p> : null}
                         {form.errors.rule ? <p className="field-error">{form.errors.rule}</p> : null}
                         {form.errors.updated_at ? <p className="field-error">{form.errors.updated_at}</p> : null}
@@ -168,7 +182,7 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
                                 </label>
 
                                 <label className="form-field">
-                                    <span>{t('adminTopics.direction')}</span>
+                                    <span>{t('adminTopics.directionLabel')}</span>
                                     <select onChange={(e) => updateSector(index, { direction: e.target.value })} value={sector.direction}>
                                         {directions.map((direction) => (
                                             <option key={direction} value={direction}>{t(`adminTopics.direction.${direction}`)}</option>
@@ -209,7 +223,14 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
                             <button className="button-primary" disabled={form.processing} type="submit">
                                 {t('adminTopics.save')}
                             </button>
+                            <button type="button" className="button-secondary" onClick={runPreview}>{t('adminTopics.preview')}</button>
                         </div>
+                        {preview ? (
+                            <div className="field-hint">
+                                <p>{t('adminTopics.previewResult', { matched: preview.matched, scanned: preview.scanned })}</p>
+                                <ul>{preview.samples.map((title) => <li key={title}>{title}</li>)}</ul>
+                            </div>
+                        ) : null}
                     </section>
                 </form>
             </div>

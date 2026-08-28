@@ -5,7 +5,10 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\SectorDirection;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\TopicRuleRequest;
+use App\Models\NewsItem;
 use App\Models\TransmissionRule;
+use App\Services\News\ArrayTransmissionRuleProvider;
+use App\Services\News\TransmissionMapper;
 use App\Services\Topics\SymbolCoverageChecker;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +23,9 @@ use Inertia\Response;
  */
 class TopicRuleController extends Controller
 {
+    /** 試跑掃描最近幾則新聞。與畫面上的文案（adminTopics.preview）保持一致。 */
+    private const PREVIEW_ITEMS = 200;
+
     public function index(): Response
     {
         $rules = TransmissionRule::query()
@@ -151,6 +157,60 @@ class TopicRuleController extends Controller
         });
 
         return $this->redirectWithCoverageWarning($rule->fresh(), $sectors, $coverage, '題材已更新。');
+    }
+
+    /**
+     * 用尚未存檔的表單內容對最近的新聞試跑比對。
+     *
+     * 不寫 DB、不碰正式 provider：把表單內容包成一份 ArrayTransmissionRuleProvider
+     * 交給臨時的 mapper。少了這個回饋，管理員只能存檔之後等下一輪 ingest
+     * 才知道規則到底配不配得到東西。
+     */
+    public function preview(TopicRuleRequest $request): RedirectResponse
+    {
+        $normalized = $request->normalized();
+        $rule = [
+            'key' => 'preview',
+            'label' => $normalized['label'],
+            'when' => ['keywords' => $normalized['keywords'], 'domains' => $normalized['domains']],
+            'chain' => $normalized['chain'],
+            'sectors' => array_map(fn (array $sector): array => [
+                'name' => $sector['name'],
+                'direction' => $sector['direction'],
+                'symbols' => $sector['symbols'],
+            ], $request->normalizedSectors()),
+        ];
+
+        if ($normalized['direction_cues'] !== null) {
+            $rule['direction_cues'] = $normalized['direction_cues'];
+        }
+
+        $mapper = new TransmissionMapper(new ArrayTransmissionRuleProvider([$rule]));
+
+        $matched = 0;
+        $samples = [];
+
+        $items = NewsItem::query()->orderByDesc('published_at')->limit(self::PREVIEW_ITEMS)->get();
+
+        foreach ($items as $item) {
+            $hits = $mapper->map((string) $item->title, (string) $item->summary, (array) ($item->domains ?? []));
+
+            if ($hits === []) {
+                continue;
+            }
+
+            $matched++;
+
+            if (count($samples) < 5) {
+                $samples[] = (string) $item->title;
+            }
+        }
+
+        return back()->with('previewResult', [
+            'scanned' => $items->count(),
+            'matched' => $matched,
+            'samples' => $samples,
+        ]);
     }
 
     public function destroy(TransmissionRule $rule): RedirectResponse

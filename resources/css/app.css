@@ -3223,6 +3223,18 @@ select:focus-visible {
     padding: 10px 12px;
 }
 
+/* 存檔成功但有需要提醒的事（例如掛了沒有行情的代號）：語意介於成功與錯誤
+   之間，不能沿用 .form-status 的綠色，否則使用者會把警告誤讀成單純成功。 */
+.form-warning {
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 0.86rem;
+    margin: 0 0 14px;
+    padding: 10px 12px;
+}
+
 .admin-page {
     display: flex;
     flex-direction: column;
