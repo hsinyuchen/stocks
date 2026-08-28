@@ -83,9 +83,9 @@ class TopicFormPageContractTest extends TestCase
         $source = $this->source();
 
         $this->assertMatchesRegularExpression(
-            '/form\.errors\.updated_at.*?router\.reload\(\{\s*preserveState:\s*false\s*\}\).*?adminTopics\.reload/s',
+            '/form\.errors\.updated_at.*?router\.visit.*?preserveState:\s*false.*?adminTopics\.reload/s',
             $source,
-            '樂觀鎖衝突的錯誤區塊必須提供 router.reload({ preserveState: false }) 的重新載入按鈕。'
+            '樂觀鎖衝突的錯誤區塊必須提供 router.visit(window.location.href, { preserveState: false, ... }) 的重新載入按鈕（而非 router.reload，因為 Inertia 核心會覆寫 preserveState）。'
         );
     }
 }
