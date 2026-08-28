@@ -30,6 +30,15 @@ final readonly class OrderInventoryData
         public ?string $industry = null,
         public bool $inventoryCompositionAvailable = false,
         public ?string $dataAsOf = null,
+        /**
+         * 年營收，取自年度申報（fp = FY），舊→新。
+         *
+         * 刻意不由季度相加：SEC 的季度 frame 允許缺口（實測 NVDA 沒有 Q4 的
+         * revenue frame），相加會少算，而少算的數字看起來跟真的一樣。
+         *
+         * @var list<array{fiscal_year: int, revenue: float}>
+         */
+        public array $annualRevenue = [],
     ) {}
 
     public static function empty(): self
@@ -82,6 +91,7 @@ final readonly class OrderInventoryData
             'industry' => $this->industry,
             'inventory_composition_available' => $this->inventoryCompositionAvailable,
             'data_as_of' => $this->dataAsOf,
+            'annual_revenue' => $this->annualRevenue,
         ];
     }
 
@@ -100,6 +110,7 @@ final readonly class OrderInventoryData
             industry: isset($data['industry']) ? (string) $data['industry'] : null,
             inventoryCompositionAvailable: (bool) ($data['inventory_composition_available'] ?? false),
             dataAsOf: isset($data['data_as_of']) ? (string) $data['data_as_of'] : null,
+            annualRevenue: array_values((array) ($data['annual_revenue'] ?? [])),
         );
     }
 }

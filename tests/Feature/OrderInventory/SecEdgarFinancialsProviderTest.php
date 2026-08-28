@@ -19,8 +19,8 @@ class SecEdgarFinancialsProviderTest extends TestCase
 
     /**
      * @param  array<string, array<string, mixed>>  $tags  標籤 => [frame => 值]
-     *                                                     值可以是純數字（沿用預設 form/fy/fp），或
-     *                                                     ['val' => n, 'fy' => 2026, 'fp' => 'Q1', 'form' => '10-Q', 'end' => '2026-04-27']
+     *                                                     值可以是純數字（沿用預設 form/fy/fp/filed），或
+     *                                                     ['val' => n, 'fy' => 2026, 'fp' => 'Q1', 'form' => '10-Q', 'end' => '2026-04-27', 'filed' => '2026-05-01']
      */
     private function fakeSec(array $tags): void
     {
@@ -43,6 +43,7 @@ class SecEdgarFinancialsProviderTest extends TestCase
                     'form' => $row['form'] ?? '10-Q',
                     'fy' => $row['fy'] ?? null,
                     'fp' => $row['fp'] ?? null,
+                    'filed' => $row['filed'] ?? null,
                     'frame' => $frame,
                 ];
             }
@@ -279,5 +280,46 @@ class SecEdgarFinancialsProviderTest extends TestCase
         // 反向：不得存在缺聯絡資訊的 companyfacts 請求。
         Http::assertNotSent(fn ($request): bool => $isCompanyFacts($request)
             && ! str_contains($request->header('User-Agent')[0] ?? '', '@'));
+    }
+
+    public function test_annual_revenue_comes_from_annual_filings_not_quarter_sums(): void
+    {
+        // 季度缺 Q4（SEC frame 本來就允許缺口），相加只有三季；
+        // 年度申報那一列才是真正的全年數字。
+        $this->fakeSec([
+            'Revenues' => [
+                'CY2025Q1' => ['val' => 100, 'fy' => 2025, 'fp' => 'Q1'],
+                'CY2025Q2' => ['val' => 110, 'fy' => 2025, 'fp' => 'Q2'],
+                'CY2025Q3' => ['val' => 120, 'fy' => 2025, 'fp' => 'Q3'],
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K'],
+            ],
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $this->assertSame([['fiscal_year' => 2025, 'revenue' => 500.0]], $data->annualRevenue);
+        // 三季相加是 330，若出現這個數字代表走了相加那條錯路。
+        $this->assertNotSame(330.0, $data->annualRevenue[0]['revenue']);
+    }
+
+    public function test_annual_revenue_is_empty_without_annual_filings(): void
+    {
+        $this->fakeSec(['Revenues' => ['CY2026Q1' => ['val' => 100, 'fy' => 2026, 'fp' => 'Q1']]]);
+
+        // 沒有年度申報就是沒有，不要用季度湊一個出來。
+        $this->assertSame([], $this->provider()->financials('NVDA', 60)->annualRevenue);
+    }
+
+    public function test_later_annual_filing_supersedes_the_earlier_one(): void
+    {
+        // 重編（restatement）：同一個財政年度會有兩列，取 filed 較晚的那一列。
+        $this->fakeSec([
+            'Revenues' => [
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K', 'filed' => '2026-02-01'],
+                'CY2025X' => ['val' => 520, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K/A', 'filed' => '2026-05-01'],
+            ],
+        ]);
+
+        $this->assertSame(520.0, $this->provider()->financials('NVDA', 60)->annualRevenue[0]['revenue']);
     }
 }

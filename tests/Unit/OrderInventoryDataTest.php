@@ -108,6 +108,19 @@ class OrderInventoryDataTest extends TestCase
         $this->assertSame('Q1', $restored->fiscalPeriod);
     }
 
+    public function test_annual_revenue_defaults_to_empty_for_legacy_data_without_the_key(): void
+    {
+        // order_inventory 是 JSON 欄位，正式站有這個 task 之前存的舊資料，
+        // 沒有 annual_revenue 這個鍵。fromArray() 不得因此拋錯。
+        $legacy = OrderInventoryData::empty();
+        $legacyArray = $legacy->toArray();
+        unset($legacyArray['annual_revenue']);
+
+        $restored = OrderInventoryData::fromArray($legacyArray);
+
+        $this->assertSame([], $restored->annualRevenue);
+    }
+
     public function test_fiscal_fields_default_to_null_for_legacy_data_without_the_keys(): void
     {
         // order_inventory 是 JSON 欄位，正式站有這個 task 之前存的舊資料，

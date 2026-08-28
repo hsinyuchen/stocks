@@ -58,7 +58,13 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
         $byPeriod = $this->collect($facts);
 
         if ($byPeriod === []) {
-            return OrderInventoryData::empty();
+            // 季度 frame 全缺不代表沒有資料——同一份 companyfacts 仍可能有年度
+            // 申報，比照台股「只有月營收」的作法，能帶多少就帶多少。
+            $annual = $this->annualRevenueFrom($facts);
+
+            return $annual === []
+                ? OrderInventoryData::empty()
+                : new OrderInventoryData(market: 'us', annualRevenue: $annual);
         }
 
         ksort($byPeriod);
@@ -85,6 +91,7 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
             industry: null,              // 美股改用存貨佔比啟發式，不抓 SIC
             inventoryCompositionAvailable: $hasComposition,
             dataAsOf: $latest->endDate,
+            annualRevenue: $this->annualRevenueFrom($facts),
         );
     }
 
@@ -152,11 +159,62 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
                     if (! isset($out[$period][$field])) {
                         $out[$period][$field] = (float) $row['val'];
                         $out[$period]['end_date'] ??= isset($row['end']) ? (string) $row['end'] : null;
+                        // 注意：fiscal_year / fiscal_period 是同一個 period slot 共用，
+                        // 不分欄位——同一 period 底下第一個寫入的欄位（不一定是 revenue）
+                        // 決定整個 period 的 fy/fp，其餘欄位即使晚到也不會再覆蓋。
                         $out[$period]['fiscal_year'] ??= isset($row['fy']) ? (int) $row['fy'] : null;
                         $out[$period]['fiscal_period'] ??= isset($row['fp']) ? (string) $row['fp'] : null;
                     }
                 }
             }
+        }
+
+        return $out;
+    }
+
+    /**
+     * 年營收：取 fp = FY 的申報列，依 fiscal year 歸戶，同年取 filed 較晚者（重編）。
+     *
+     * 不用 frame：frame 是日曆期間配對，年度 frame 的年份未必等於公司的財政年度。
+     * 也不由季度相加：SEC 的季度 frame 允許缺口，相加會少算。
+     *
+     * @param  array<string, mixed>  $facts
+     * @return list<array{fiscal_year: int, revenue: float}>
+     */
+    private function annualRevenueFrom(array $facts): array
+    {
+        $best = [];
+
+        foreach ((array) config('order_inventory.sec_tags.revenue', []) as $tag) {
+            $units = $facts[$tag]['units']['USD'] ?? null;
+
+            if (! is_array($units)) {
+                continue;
+            }
+
+            foreach ($units as $row) {
+                if (($row['fp'] ?? null) !== 'FY' || ! is_numeric($row['val'] ?? null) || ! isset($row['fy'])) {
+                    continue;
+                }
+
+                $year = (int) $row['fy'];
+                $filed = (string) ($row['filed'] ?? '');
+
+                // 同一個財政年度可能有原始申報與重編，取申報日較晚的那一列。
+                if (isset($best[$year]) && $best[$year]['filed'] >= $filed) {
+                    continue;
+                }
+
+                $best[$year] = ['revenue' => (float) $row['val'], 'filed' => $filed];
+            }
+        }
+
+        ksort($best);
+
+        $out = [];
+
+        foreach ($best as $year => $entry) {
+            $out[] = ['fiscal_year' => $year, 'revenue' => $entry['revenue']];
         }
 
         return $out;
