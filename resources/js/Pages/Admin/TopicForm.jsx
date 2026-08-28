@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { router, useForm, usePage } from '@inertiajs/react';
 import AppShell from '../../Layouts/AppShell';
 import { useI18n } from '../../i18n';
@@ -55,6 +56,10 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
     };
 
     const preview = usePage().props.flash?.previewResult ?? null;
+    // 試跑走全域 router.post，不是 useForm() 的 post/patch，所以驗證失敗不會落進
+    // form.errors（那是 useForm 實例的本地 state，只有它自己發的請求才會被
+    // onError 寫回去）。錯誤另存一份 local state，靠 onError 手動接住。
+    const [previewErrors, setPreviewErrors] = useState(null);
 
     // 走 Inertia router 而非自行 fetch：app.blade.php 沒有輸出 csrf-token meta，
     // 手寫 fetch 得自己處理 XSRF cookie。preserveState 讓試跑後表單內容不被重置。
@@ -65,7 +70,12 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
             chain: linesToArray(form.data.chain),
             direction_cues: { forward: linesToArray(form.data.cues_forward), reverse: linesToArray(form.data.cues_reverse) },
             sectors: form.data.sectors.map((s) => ({ ...s, symbols: linesToArray(s.symbols) })),
-        }, { preserveScroll: true, preserveState: true });
+        }, {
+            preserveScroll: true,
+            preserveState: true,
+            onError: (errors) => setPreviewErrors(errors),
+            onSuccess: () => setPreviewErrors(null),
+        });
     };
 
     return (
@@ -225,9 +235,16 @@ export default function TopicForm({ rule = null, domains = [], directions = [] }
                             </button>
                             <button type="button" className="button-secondary" onClick={runPreview}>{t('adminTopics.preview')}</button>
                         </div>
+                        {previewErrors ? (
+                            <div className="field-error">
+                                <p>{t('adminTopics.previewFailed')}</p>
+                                <ul>{Object.values(previewErrors).map((message, index) => <li key={index}>{message}</li>)}</ul>
+                            </div>
+                        ) : null}
                         {preview ? (
                             <div className="field-hint">
                                 <p>{t('adminTopics.previewResult', { matched: preview.matched, scanned: preview.scanned })}</p>
+                                {preview.rule_disabled ? <p className="form-warning">{t('adminTopics.previewRuleDisabled')}</p> : null}
                                 <ul>{preview.samples.map((title) => <li key={title}>{title}</li>)}</ul>
                             </div>
                         ) : null}

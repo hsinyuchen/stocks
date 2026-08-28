@@ -1009,7 +1009,9 @@ export default {
         "state": "狀態",
         "noResults": "目前沒有題材規則。",
         "preview": "試跑最近 200 則新聞",
-        "previewResult": "命中 :matched 則（掃描 :scanned 則）"
+        "previewResult": "命中 :matched 則（掃描 :scanned 則）",
+        "previewFailed": "試跑失敗，請修正下列欄位：",
+        "previewRuleDisabled": "此規則目前為停用狀態，存檔後不會實際參與比對。"
     },
     "placeholder": {
         "comingSoon": "即將推出"

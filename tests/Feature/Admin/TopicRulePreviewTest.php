@@ -58,6 +58,37 @@ class TopicRulePreviewTest extends TestCase
             ->assertSessionHasErrors('keywords');
     }
 
+    public function test_preview_still_matches_when_form_marks_the_rule_disabled(): void
+    {
+        // 試跑要回答「關鍵字抓不抓得到東西」，這跟存檔後會不會生效無關；
+        // 停用中的草稿一樣要能看到命中數，只是要多帶一個旗標讓畫面提醒。
+        NewsItem::create([
+            'source' => 'demo',
+            'title' => '荷莫茲海峽航運受阻',
+            'summary' => '',
+            'url' => 'https://example.com/2',
+            'url_hash' => hash('sha256', 'https://example.com/2'),
+            'published_at' => CarbonImmutable::now(),
+            'relevant' => true,
+        ]);
+
+        $response = $this->actingAs(User::factory()->create(['is_admin' => true]))
+            ->post('/admin/topics/preview', $this->payload(['is_active' => false]));
+
+        $response->assertSessionHasNoErrors();
+        $result = session('previewResult');
+        $this->assertSame(1, $result['matched']);
+        $this->assertTrue($result['rule_disabled']);
+    }
+
+    public function test_preview_flag_is_false_when_rule_is_active(): void
+    {
+        $this->actingAs(User::factory()->create(['is_admin' => true]))
+            ->post('/admin/topics/preview', $this->payload(['is_active' => true]));
+
+        $this->assertFalse(session('previewResult')['rule_disabled']);
+    }
+
     public function test_non_admin_is_forbidden(): void
     {
         $this->actingAs(User::factory()->create())

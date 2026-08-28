@@ -1008,7 +1008,9 @@ export default {
         "state": "State",
         "noResults": "No topic rules yet.",
         "preview": "Preview against the latest 200 news items",
-        "previewResult": "Matched :matched (scanned :scanned)"
+        "previewResult": "Matched :matched (scanned :scanned)",
+        "previewFailed": "Preview failed. Please fix the following fields:",
+        "previewRuleDisabled": "This rule is currently disabled; it will not actually run once saved."
     },
     "placeholder": {
         "comingSoon": "Coming soon"

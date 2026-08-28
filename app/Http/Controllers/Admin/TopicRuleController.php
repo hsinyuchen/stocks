@@ -210,6 +210,12 @@ class TopicRuleController extends Controller
             'scanned' => $items->count(),
             'matched' => $matched,
             'samples' => $samples,
+            // 試跑刻意不吃 is_active：管理員要問的是「關鍵字抓不抓得到東西」，
+            // 這與規則存檔後生不生效無關；直接把停用規則回報 0 命中，反而讓
+            // 停用中的草稿沒辦法調關鍵字。改用旗標讓前端另外提示「存檔後不會
+            // 實際參與比對」，正式路徑 DbTransmissionRuleProvider::load() 才會
+            // 過濾 is_active。
+            'rule_disabled' => ! $normalized['is_active'],
         ]);
     }
 
