@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\InstrumentController;
+use App\Http\Controllers\Admin\TopicRuleController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\AlertController;
 use App\Http\Controllers\AnalysesController;
@@ -109,4 +110,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('/instruments/import', [InstrumentController::class, 'import'])->name('instruments.import');
     Route::patch('/instruments/{instrument}', [InstrumentController::class, 'update'])->name('instruments.update');
     Route::delete('/instruments/{instrument}', [InstrumentController::class, 'destroy'])->name('instruments.destroy');
+
+    // 題材傳導規則為全站共用資料（新聞頁傳導區塊、儀表板、題材候選都吃它），限 admin 維護。
+    Route::get('/topics', [TopicRuleController::class, 'index'])->name('topics.index');
+    Route::delete('/topics/{rule}', [TopicRuleController::class, 'destroy'])->name('topics.destroy');
 });
