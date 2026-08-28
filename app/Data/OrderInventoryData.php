@@ -110,7 +110,17 @@ final readonly class OrderInventoryData
             industry: isset($data['industry']) ? (string) $data['industry'] : null,
             inventoryCompositionAvailable: (bool) ($data['inventory_composition_available'] ?? false),
             dataAsOf: isset($data['data_as_of']) ? (string) $data['data_as_of'] : null,
-            annualRevenue: array_values((array) ($data['annual_revenue'] ?? [])),
+            // 逐欄位強制轉型：order_inventory 是 DB 的 JSON 欄位，SEC 申報金額
+            // 幾乎都是整數美元，json_encode(500.0) 會輸出 500，json_decode 讀回來
+            // 就是 PHP int，與 annualRevenue 的 docblock 契約（revenue: float）
+            // 不符，純 array_values() 接不住這個退化。
+            annualRevenue: array_map(
+                static fn (array $row): array => [
+                    'fiscal_year' => (int) ($row['fiscal_year'] ?? 0),
+                    'revenue' => (float) ($row['revenue'] ?? 0),
+                ],
+                array_values((array) ($data['annual_revenue'] ?? [])),
+            ),
         );
     }
 }

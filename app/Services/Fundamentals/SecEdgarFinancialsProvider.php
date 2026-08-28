@@ -173,19 +173,29 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
     }
 
     /**
-     * 年營收：取 fp = FY 的申報列，依 fiscal year 歸戶，同年取 filed 較晚者（重編）。
+     * 年營收：取 fp = FY 的申報列，依 fiscal year 歸戶。
      *
      * 不用 frame：frame 是日曆期間配對，年度 frame 的年份未必等於公司的財政年度。
      * 也不由季度相加：SEC 的季度 frame 允許缺口，相加會少算。
+     *
+     * 標籤偏好順序必須跟 collect()（季度那條路）一致：年營收與季營收要來自
+     * 同一個 XBRL 科目，否則兩者用不同標籤（各自排除的項目不同），四季相加
+     * 對不上年營收卻無從解釋。故逐財政年度判斷——同一年度先看偏好序中第一個
+     * 「有該年度 FY 列」的標籤；filed 的新舊只在同一個標籤內部拿來判斷重編
+     * （restatement）版本，不能跨標籤比較 filed 新舊（那樣年營收會跟著哪個
+     * 標籤先申報而漂移，即使季營收仍固定用第一順位）。
      *
      * @param  array<string, mixed>  $facts
      * @return list<array{fiscal_year: int, revenue: float}>
      */
     private function annualRevenueFrom(array $facts): array
     {
-        $best = [];
+        $tags = (array) config('order_inventory.sec_tags.revenue', []);
 
-        foreach ((array) config('order_inventory.sec_tags.revenue', []) as $tag) {
+        // 第一步：同一標籤內部的重編——同年度兩列，取 filed 較晚者。
+        $byTag = [];
+
+        foreach ($tags as $tag) {
             $units = $facts[$tag]['units']['USD'] ?? null;
 
             if (! is_array($units)) {
@@ -200,12 +210,22 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
                 $year = (int) $row['fy'];
                 $filed = (string) ($row['filed'] ?? '');
 
-                // 同一個財政年度可能有原始申報與重編，取申報日較晚的那一列。
-                if (isset($best[$year]) && $best[$year]['filed'] >= $filed) {
+                if (isset($byTag[$tag][$year]) && $byTag[$tag][$year]['filed'] >= $filed) {
                     continue;
                 }
 
-                $best[$year] = ['revenue' => (float) $row['val'], 'filed' => $filed];
+                $byTag[$tag][$year] = ['revenue' => (float) $row['val'], 'filed' => $filed];
+            }
+        }
+
+        // 第二步：逐年度依偏好序取值——先命中的標籤勝出，與 collect() 同規則。
+        $best = [];
+
+        foreach ($tags as $tag) {
+            foreach ($byTag[$tag] ?? [] as $year => $entry) {
+                if (! isset($best[$year])) {
+                    $best[$year] = $entry['revenue'];
+                }
             }
         }
 
@@ -213,8 +233,8 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
 
         $out = [];
 
-        foreach ($best as $year => $entry) {
-            $out[] = ['fiscal_year' => $year, 'revenue' => $entry['revenue']];
+        foreach ($best as $year => $revenue) {
+            $out[] = ['fiscal_year' => $year, 'revenue' => $revenue];
         }
 
         return $out;

@@ -322,4 +322,66 @@ class SecEdgarFinancialsProviderTest extends TestCase
 
         $this->assertSame(520.0, $this->provider()->financials('NVDA', 60)->annualRevenue[0]['revenue']);
     }
+
+    public function test_annual_revenue_keeps_the_tag_preference_order_even_when_a_later_tag_files_later(): void
+    {
+        // 年營收與季營收（collect()）必須來自同一個科目，否則四季相加對不起年營收
+        // 卻無從解釋。第一順位標籤即使 filed 較早，仍應勝出——不能改用「比 filed
+        // 新舊」，那會讓兩者各自挑到不同科目。
+        $this->fakeSec([
+            'RevenueFromContractWithCustomerExcludingAssessedTax' => [
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'filed' => '2026-01-01'],
+            ],
+            'Revenues' => [
+                'CY2025X' => ['val' => 600, 'fy' => 2025, 'fp' => 'FY', 'filed' => '2026-06-01'],
+            ],
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $this->assertSame(500.0, $data->annualRevenue[0]['revenue'], '第一順位標籤勝出，即使第二順位 filed 較晚');
+    }
+
+    public function test_annual_revenue_falls_back_per_fiscal_year_when_preferred_tag_lacks_that_year(): void
+    {
+        // 偏好順序是逐年度判斷，不是整個欄位一次決定：第一順位標籤只覆蓋到
+        // 2024 年度，2025 年度要單獨退而求其次到 Revenues，不能因為某一年缺席
+        // 就整檔股票都放棄第一順位（這與 test_later_tag_fills_periods_the_
+        // preferred_tag_stops_covering() 是同一個道理，只是換成年度申報）。
+        $this->fakeSec([
+            'RevenueFromContractWithCustomerExcludingAssessedTax' => [
+                'CY2024' => ['val' => 400, 'fy' => 2024, 'fp' => 'FY', 'filed' => '2025-01-01'],
+            ],
+            'Revenues' => [
+                'CY2024X' => ['val' => 450, 'fy' => 2024, 'fp' => 'FY', 'filed' => '2025-06-01'],
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'filed' => '2026-01-01'],
+            ],
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $revenues = [];
+        foreach ($data->annualRevenue as $row) {
+            $revenues[$row['fiscal_year']] = $row['revenue'];
+        }
+
+        $this->assertSame(400.0, $revenues[2024], '2024 年度第一順位有資料，須勝出');
+        $this->assertSame(500.0, $revenues[2025], '2025 年度第一順位缺席，退而求其次到第二順位');
+    }
+
+    public function test_annual_revenue_restatement_only_compares_filed_within_the_same_tag(): void
+    {
+        // 重編比較只發生在同一個標籤內部：偏好序決定「用哪個標籤」，filed 新舊
+        // 只用來在那個標籤底下挑「原始申報 vs 重編」。
+        $this->fakeSec([
+            'RevenueFromContractWithCustomerExcludingAssessedTax' => [
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'filed' => '2026-01-01'],
+                'CY2025X' => ['val' => 520, 'fy' => 2025, 'fp' => 'FY', 'filed' => '2026-03-01'],
+            ],
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $this->assertSame(520.0, $data->annualRevenue[0]['revenue'], '同標籤內部取 filed 較晚者（重編）');
+    }
 }

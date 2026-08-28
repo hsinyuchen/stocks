@@ -121,6 +121,24 @@ class OrderInventoryDataTest extends TestCase
         $this->assertSame([], $restored->annualRevenue);
     }
 
+    public function test_annual_revenue_survives_a_json_database_round_trip_as_float(): void
+    {
+        // order_inventory 是 DB 的 JSON 欄位。SEC 申報金額幾乎都是整數美元，
+        // json_encode(500.0) 會輸出 500，json_decode 讀回來就是 PHP int，
+        // 與 annualRevenue 的 docblock 契約（revenue: float）不符。只測
+        // toArray()/fromArray() 直接串接測不出這個問題——中間必須真的走一趟
+        // json_encode／json_decode 才會讓浮點數退化成整數。
+        $data = new OrderInventoryData(annualRevenue: [
+            ['fiscal_year' => 2025, 'revenue' => 500.0],
+        ]);
+
+        $decoded = json_decode(json_encode($data->toArray()), true);
+        $restored = OrderInventoryData::fromArray($decoded);
+
+        $this->assertIsFloat($restored->annualRevenue[0]['revenue']);
+        $this->assertSame(500.0, $restored->annualRevenue[0]['revenue']);
+    }
+
     public function test_fiscal_fields_default_to_null_for_legacy_data_without_the_keys(): void
     {
         // order_inventory 是 JSON 欄位，正式站有這個 task 之前存的舊資料，
