@@ -2,6 +2,7 @@
 
 namespace App\Services\Topics;
 
+use App\Contracts\TransmissionRuleProvider;
 use App\Data\TopicBoard;
 use App\Data\TopicCandidate;
 use App\Enums\AssetType;
@@ -47,6 +48,7 @@ class TopicCandidateResolver
     public function __construct(
         private readonly OrderInventoryAssessor $orderInventory,
         private readonly FundamentalsService $fundamentals,
+        private readonly TransmissionRuleProvider $rules,
     ) {}
 
     /**
@@ -55,11 +57,11 @@ class TopicCandidateResolver
      *
      * @return list<array{key: string, label: string}>
      */
-    public function availableTopics(): array
+    public function availableTopics(string $locale = 'zh'): array
     {
         $out = [];
 
-        foreach ((array) config('news.transmission', []) as $rule) {
+        foreach ($this->rules->rules($locale) as $rule) {
             $key = (string) ($rule['key'] ?? '');
 
             if ($key === '') {
@@ -76,9 +78,9 @@ class TopicCandidateResolver
      * 未知題材回 null 而不是空 board：呼叫端要能分辨「這個題材沒有候選」
      * 與「根本沒有這個題材」，前者顯示空清單、後者回到題材選擇畫面。
      */
-    public function resolve(string $topicKey, ?CarbonImmutable $now = null): ?TopicBoard
+    public function resolve(string $topicKey, ?CarbonImmutable $now = null, string $locale = 'zh'): ?TopicBoard
     {
-        $rule = $this->rule($topicKey);
+        $rule = $this->rule($topicKey, $locale);
 
         if ($rule === null) {
             return null;
@@ -101,9 +103,9 @@ class TopicCandidateResolver
     }
 
     /** @return array<string, mixed>|null */
-    private function rule(string $topicKey): ?array
+    private function rule(string $topicKey, string $locale = 'zh'): ?array
     {
-        foreach ((array) config('news.transmission', []) as $rule) {
+        foreach ($this->rules->rules($locale) as $rule) {
             if ((string) ($rule['key'] ?? '') === $topicKey) {
                 return $rule;
             }

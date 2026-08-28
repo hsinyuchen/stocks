@@ -9,7 +9,7 @@ class RatePolicyNewsRuleTest extends TestCase
 {
     public function test_rate_news_still_identifies_affected_sectors(): void
     {
-        $chains = (new TransmissionMapper)->map('聯準會宣布升息一碼', '市場關注後續政策路徑', ['finance']);
+        $chains = app(TransmissionMapper::class)->map('聯準會宣布升息一碼', '市場關注後續政策路徑', ['finance']);
 
         $keys = array_column($chains, 'key');
 
@@ -20,7 +20,7 @@ class RatePolicyNewsRuleTest extends TestCase
     {
         // 關鍵字只能猜，殖利率是事實。方向一律交給 RatesRegimeService，
         // 否則「升息利多金融」的新聞判讀會與實際的熊平環境（殺利差）相矛盾。
-        $mapper = new TransmissionMapper;
+        $mapper = app(TransmissionMapper::class);
 
         foreach (['聯準會升息一碼', '聯準會降息一碼'] as $title) {
             $chains = $mapper->map($title, '', ['finance']);
@@ -44,7 +44,7 @@ class RatePolicyNewsRuleTest extends TestCase
     public function test_other_transmission_rules_keep_their_direction_cues(): void
     {
         // 只中性化利率規則，其餘事件的方向判讀不受影響。
-        $chains = (new TransmissionMapper)->map('記憶體報價大漲', 'DRAM 供不應求', []);
+        $chains = app(TransmissionMapper::class)->map('記憶體報價大漲', 'DRAM 供不應求', []);
 
         $memory = array_values(array_filter($chains, static fn (array $c): bool => $c['key'] === 'memory_cycle'));
 

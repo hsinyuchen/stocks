@@ -2,34 +2,41 @@
 
 namespace App\Services\News;
 
+use App\Contracts\TransmissionRuleProvider;
+
 /**
  * 事件 → 產業 → 個股的傳導鏈。
  *
  * 分類器回答「這則新聞屬於哪個領域」，這裡回答下一步：事件透過什麼路徑影響
  * 哪些板塊，以及該板塊有哪些代表個股可以觀察。
  *
- * 規則來自 config('news.transmission')，純比對、不呼叫 LLM——傳導路徑本身是
- * 穩定的產業知識，用規則表達比每次請模型重推更可靠也更便宜。模型的價值在於
- * 判斷「這次事件的強度與方向」，不在於重新發明因果鏈。
+ * 規則來自 {@see TransmissionRuleProvider}（資料庫，管理頁可維護），純比對、
+ * 不呼叫 LLM——傳導路徑本身是穩定的產業知識，用規則表達比每次請模型重推更
+ * 可靠也更便宜。模型的價值在於判斷「這次事件的強度與方向」，不在於重新
+ * 發明因果鏈。
  *
  * 輸出僅為觀察起點，不是投資建議，也不保證後續走勢。
  */
 class TransmissionMapper
 {
-    public function __construct(private readonly NewsClassifier $classifier = new NewsClassifier) {}
+    public function __construct(
+        private readonly TransmissionRuleProvider $rules,
+        private readonly NewsClassifier $classifier = new NewsClassifier,
+    ) {}
 
     /**
      * 命中的傳導鏈。
      *
      * @param  list<string>  $domains  分類器判出的領域
+     * @param  string  $locale  'zh'|'en'，由呼叫端傳入；不可改讀 app()->getLocale()
      * @return list<array<string, mixed>>
      */
-    public function map(string $title, string $summary, array $domains = []): array
+    public function map(string $title, string $summary, array $domains = [], string $locale = 'zh'): array
     {
         $haystack = mb_strtolower(trim($title.' '.$summary));
         $out = [];
 
-        foreach ((array) config('news.transmission', []) as $rule) {
+        foreach ($this->rules->rules($locale) as $rule) {
             if (! $this->triggers($rule, $haystack, $domains)) {
                 continue;
             }

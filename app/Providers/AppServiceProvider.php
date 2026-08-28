@@ -12,6 +12,7 @@ use App\Contracts\MarketDataProvider;
 use App\Contracts\MarketInstitutionalProvider;
 use App\Contracts\NewsProvider;
 use App\Contracts\SymbolNewsProvider;
+use App\Contracts\TransmissionRuleProvider;
 use App\Contracts\YieldCurveProvider;
 use App\Contracts\YoutubeWorkerRunner;
 use App\Services\BrokerBranch\FinMindBrokerBranchDataProvider;
@@ -43,6 +44,7 @@ use App\Services\Market\FinMindMarketInstitutionalProvider;
 use App\Services\Market\RoutingMarketDataProvider;
 use App\Services\Market\YahooChartMarketDataProvider;
 use App\Services\News\DbNewsProvider;
+use App\Services\News\DbTransmissionRuleProvider;
 use App\Services\News\GoogleNewsSymbolNewsProvider;
 use App\Services\News\ProcessYoutubeWorkerRunner;
 use App\Services\Rates\YahooYieldCurveProvider;
@@ -87,6 +89,11 @@ class AppServiceProvider extends ServiceProvider
         // 說出不同的立場（實測各消費端的技術面視窗不同，尾值可能跨過門檻）；
         // 但常駐 worker 不該跨請求沿用昨天的行情，所以是 scoped 不是 singleton。
         $this->app->scoped(HealthSnapshotBuilder::class);
+
+        // 題材傳導規則來自 DB。scoped 而非 singleton：常駐 worker 不該跨 job
+        // 沿用管理員改動前的規則；而同一次請求／job 內共用一份，實例內的記憶化
+        // 就足以讓 news:ingest 的數千次 map() 只查一次 DB。
+        $this->app->scoped(TransmissionRuleProvider::class, DbTransmissionRuleProvider::class);
 
         $this->app->bind(NewsProvider::class, function ($app): NewsProvider {
             return config('services.news.driver') === 'fake'

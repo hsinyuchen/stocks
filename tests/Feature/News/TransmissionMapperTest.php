@@ -12,7 +12,7 @@ class TransmissionMapperTest extends TestCase
     {
         $domains = (new NewsClassifier)->classify($title, $summary)['domains'];
 
-        return (new TransmissionMapper)->map($title, $summary, $domains);
+        return app(TransmissionMapper::class)->map($title, $summary, $domains);
     }
 
     public function test_hormuz_event_maps_to_shipping_energy_and_airlines(): void
@@ -59,7 +59,7 @@ class TransmissionMapperTest extends TestCase
     public function test_domain_restriction_prevents_false_triggers(): void
     {
         // 命中 chip_export_control 的關鍵字，但語境是餐飲，不屬 geopolitics。
-        $chains = (new TransmissionMapper)->map('餐廳關稅成本轉嫁消費者', '', ['other']);
+        $chains = app(TransmissionMapper::class)->map('餐廳關稅成本轉嫁消費者', '', ['other']);
 
         $this->assertNotContains('chip_export_control', array_column($chains, 'key'));
     }
@@ -81,7 +81,7 @@ class TransmissionMapperTest extends TestCase
     public function test_symbols_collects_every_sector_ticker_deduplicated(): void
     {
         $chains = $this->map('Iran hosts Hormuz calls', 'Oil supply risk.');
-        $symbols = (new TransmissionMapper)->symbols($chains);
+        $symbols = app(TransmissionMapper::class)->symbols($chains);
 
         $this->assertContains('2603.TW', $symbols);
         $this->assertSame(array_values(array_unique($symbols)), $symbols);
@@ -91,7 +91,7 @@ class TransmissionMapperTest extends TestCase
     public function test_keyword_matching_uses_word_boundaries(): void
     {
         // "aid" 不該命中 ai_capex 的 'ai'。
-        $chains = (new TransmissionMapper)->map('Humanitarian aid arrives', '', ['tech']);
+        $chains = app(TransmissionMapper::class)->map('Humanitarian aid arrives', '', ['tech']);
 
         $this->assertNotContains('ai_capex', array_column($chains, 'key'));
     }
@@ -99,7 +99,7 @@ class TransmissionMapperTest extends TestCase
     /** 每條規則的設定形狀都要完整，缺欄位會讓 UI 與 prompt 拿到破碎資料。 */
     public function test_all_configured_rules_are_well_shaped(): void
     {
-        foreach ((array) config('news.transmission') as $rule) {
+        foreach (require database_path('seeders/data/transmission_rules.php') as $rule) {
             $this->assertArrayHasKey('key', $rule);
             $this->assertArrayHasKey('label', $rule);
             $this->assertNotEmpty($rule['chain'], "{$rule['key']} 缺傳導路徑");
