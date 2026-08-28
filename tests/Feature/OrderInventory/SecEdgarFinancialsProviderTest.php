@@ -20,7 +20,9 @@ class SecEdgarFinancialsProviderTest extends TestCase
     /**
      * @param  array<string, array<string, mixed>>  $tags  標籤 => [frame => 值]
      *                                                     值可以是純數字（沿用預設 form/fy/fp/filed），或
-     *                                                     ['val' => n, 'fy' => 2026, 'fp' => 'Q1', 'form' => '10-Q', 'end' => '2026-04-27', 'filed' => '2026-05-01']
+     *                                                     ['val' => n, 'fy' => 2026, 'fp' => 'Q1', 'form' => '10-Q', 'start' => '2026-01-28', 'end' => '2026-04-27', 'filed' => '2026-05-01']
+     *                                                     start 只有年營收測試需要（annualRevenueGroups() 靠期間長度
+     *                                                     330~400 天篩年度列），季度／時點測試可省略。
      */
     private function fakeSec(array $tags): void
     {
@@ -39,6 +41,7 @@ class SecEdgarFinancialsProviderTest extends TestCase
                 $row = is_array($spec) ? $spec : ['val' => $spec];
                 $units[] = [
                     'val' => $row['val'],
+                    'start' => $row['start'] ?? null,
                     'end' => $row['end'] ?? '2026-06-30',
                     'form' => $row['form'] ?? '10-Q',
                     'fy' => $row['fy'] ?? null,
@@ -263,6 +266,28 @@ class SecEdgarFinancialsProviderTest extends TestCase
         $this->assertNull($quarter->fiscalPeriod);
     }
 
+    public function test_fiscal_focus_uses_earliest_filed_when_the_same_period_is_refiled_under_another_tag(): void
+    {
+        // 真實 bug：fy／fp 是申報文件層級欄位，不是期間本身的財政年度。同一段
+        // 期間（此處以 frame CY2025Q1 代表）先被第一順位標籤的 10-Q 揭露為
+        // 「當期」（fy=2026），隔年又被第二順位標籤的 10-Q 拿來當「去年同期
+        // 比較數」重新列出（fy=2027）。直接用 framed 列自己的 fy 會拿到 2027；
+        // 正確答案是最早 filed 的那一份申報書：2026。
+        $this->fakeSec([
+            'RevenueFromContractWithCustomerExcludingAssessedTax' => [
+                'CY2025Q1' => ['val' => 44062, 'fy' => 2026, 'fp' => 'Q1', 'filed' => '2025-05-28'],
+            ],
+            'Revenues' => [
+                'CY2025Q1' => ['val' => 44062, 'fy' => 2027, 'fp' => 'Q1', 'filed' => '2026-05-20'],
+            ],
+        ]);
+
+        $quarter = $this->provider()->financials('NVDA', 60)->quarter('2025Q1');
+
+        $this->assertSame(2026, $quarter->fiscalYear, '取最早 filed 的申報書，不是後面把它降級成比較期的那份');
+        $this->assertSame('Q1', $quarter->fiscalPeriod);
+    }
+
     public function test_sends_a_contactable_user_agent_to_data_sec_gov(): void
     {
         $this->fakeSec(['InventoryNet' => ['CY2026Q1I' => 100]]);
@@ -284,14 +309,14 @@ class SecEdgarFinancialsProviderTest extends TestCase
 
     public function test_annual_revenue_comes_from_annual_filings_not_quarter_sums(): void
     {
-        // 季度缺 Q4（SEC frame 本來就允許缺口），相加只有三季；
-        // 年度申報那一列才是真正的全年數字。
+        // 季度列（~90 天）依期間長度濾網被排除，不會被相加湊成年營收；
+        // 年度申報那一列（~365 天）才是真正的全年數字。
         $this->fakeSec([
             'Revenues' => [
-                'CY2025Q1' => ['val' => 100, 'fy' => 2025, 'fp' => 'Q1'],
-                'CY2025Q2' => ['val' => 110, 'fy' => 2025, 'fp' => 'Q2'],
-                'CY2025Q3' => ['val' => 120, 'fy' => 2025, 'fp' => 'Q3'],
-                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K'],
+                'CY2025Q1' => ['val' => 100, 'fy' => 2025, 'fp' => 'Q1', 'start' => '2024-02-01', 'end' => '2024-05-01'],
+                'CY2025Q2' => ['val' => 110, 'fy' => 2025, 'fp' => 'Q2', 'start' => '2024-05-02', 'end' => '2024-08-01'],
+                'CY2025Q3' => ['val' => 120, 'fy' => 2025, 'fp' => 'Q3', 'start' => '2024-08-02', 'end' => '2024-11-01'],
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K', 'start' => '2024-02-01', 'end' => '2025-01-31'],
             ],
         ]);
 
@@ -304,19 +329,78 @@ class SecEdgarFinancialsProviderTest extends TestCase
 
     public function test_annual_revenue_is_empty_without_annual_filings(): void
     {
-        $this->fakeSec(['Revenues' => ['CY2026Q1' => ['val' => 100, 'fy' => 2026, 'fp' => 'Q1']]]);
+        $this->fakeSec(['Revenues' => [
+            'CY2026Q1' => ['val' => 100, 'fy' => 2026, 'fp' => 'Q1', 'start' => '2025-01-27', 'end' => '2025-04-27'],
+        ]]);
 
         // 沒有年度申報就是沒有，不要用季度湊一個出來。
         $this->assertSame([], $this->provider()->financials('NVDA', 60)->annualRevenue);
     }
 
-    public function test_later_annual_filing_supersedes_the_earlier_one(): void
+    public function test_annual_revenue_excludes_periods_shorter_than_330_days(): void
     {
-        // 重編（restatement）：同一個財政年度會有兩列，取 filed 較晚的那一列。
+        // fp 是申報文件層級欄位、不可信——即使 fp 被標成 FY，期間長度不足
+        // 330 天（此處是一季）也不能算年營收。
+        $this->fakeSec(['Revenues' => [
+            'CY2025Q1' => ['val' => 100, 'fy' => 2025, 'fp' => 'FY', 'start' => '2025-01-27', 'end' => '2025-04-27'],
+        ]]);
+
+        $this->assertSame([], $this->provider()->financials('NVDA', 60)->annualRevenue);
+    }
+
+    public function test_annual_revenue_excludes_periods_longer_than_400_days(): void
+    {
+        $this->fakeSec(['Revenues' => [
+            'CY2025LONG' => ['val' => 900, 'fy' => 2025, 'fp' => 'FY', 'start' => '2024-01-01', 'end' => '2025-06-30'],
+        ]]);
+
+        $this->assertSame([], $this->provider()->financials('NVDA', 60)->annualRevenue);
+    }
+
+    public function test_annual_revenue_excludes_stub_transition_period(): void
+    {
+        // 財政年度變更公司的過渡期年報（stub period）通常短於一年，長度濾網
+        // 要一併擋掉，不能因為它有 fp=FY 就當成正常整年。
+        $this->fakeSec(['Revenues' => [
+            'CY2025STUB' => ['val' => 300, 'fy' => 2025, 'fp' => 'FY', 'start' => '2025-01-01', 'end' => '2025-06-30'],
+        ]]);
+
+        $this->assertSame([], $this->provider()->financials('NVDA', 60)->annualRevenue);
+    }
+
+    public function test_annual_revenue_groups_by_period_not_by_declared_fiscal_year(): void
+    {
+        // 真實 NVDA 案例：同一段 2018-01-29~2019-01-27 期間，因為每次申報都把
+        // 它列成比較期，依序在 2019／2020／2021 三份 10-K 裡各出現一次，fy
+        // 隨申報年份遞增（2019/2020/2021），但期間本身只有一個。依 fy 分組
+        // 會把同一段期間灌到三個不同年度；正確只能算一次，年度取最早 filed
+        // 那一列（2019），revenue 取最晚 filed 那一列（三份數字相同，此處刻意
+        // 讓最晚 filed 的數字不同，驗證真的有取到它）。
         $this->fakeSec([
             'Revenues' => [
-                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K', 'filed' => '2026-02-01'],
-                'CY2025X' => ['val' => 520, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K/A', 'filed' => '2026-05-01'],
+                'CY2019' => ['val' => 11716, 'fy' => 2019, 'fp' => 'FY', 'form' => '10-K', 'start' => '2018-01-29', 'end' => '2019-01-27', 'filed' => '2019-02-21'],
+                'CY2020' => ['val' => 11716, 'fy' => 2020, 'fp' => 'FY', 'form' => '10-K', 'start' => '2018-01-29', 'end' => '2019-01-27', 'filed' => '2020-02-20'],
+                'CY2021' => ['val' => 11800, 'fy' => 2021, 'fp' => 'FY', 'form' => '10-K', 'start' => '2018-01-29', 'end' => '2019-01-27', 'filed' => '2021-02-26'],
+            ],
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $this->assertSame(
+            [['fiscal_year' => 2019, 'revenue' => 11800.0]],
+            $data->annualRevenue,
+            '同一段期間只能算一次；年度取最早 filed（2019），revenue 取最晚 filed（重編）'
+        );
+    }
+
+    public function test_later_annual_filing_supersedes_the_earlier_one(): void
+    {
+        // 重編（restatement）：同一個財政年度（同一組 start/end）會有兩列，
+        // 取 filed 較晚的那一列。
+        $this->fakeSec([
+            'Revenues' => [
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K', 'start' => '2024-02-01', 'end' => '2025-01-31', 'filed' => '2026-02-01'],
+                'CY2025X' => ['val' => 520, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K/A', 'start' => '2024-02-01', 'end' => '2025-01-31', 'filed' => '2026-05-01'],
             ],
         ]);
 
@@ -330,10 +414,10 @@ class SecEdgarFinancialsProviderTest extends TestCase
         // 新舊」，那會讓兩者各自挑到不同科目。
         $this->fakeSec([
             'RevenueFromContractWithCustomerExcludingAssessedTax' => [
-                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'filed' => '2026-01-01'],
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'start' => '2024-02-01', 'end' => '2025-01-31', 'filed' => '2026-01-01'],
             ],
             'Revenues' => [
-                'CY2025X' => ['val' => 600, 'fy' => 2025, 'fp' => 'FY', 'filed' => '2026-06-01'],
+                'CY2025X' => ['val' => 600, 'fy' => 2025, 'fp' => 'FY', 'start' => '2024-02-01', 'end' => '2025-01-31', 'filed' => '2026-06-01'],
             ],
         ]);
 
@@ -350,11 +434,11 @@ class SecEdgarFinancialsProviderTest extends TestCase
         // preferred_tag_stops_covering() 是同一個道理，只是換成年度申報）。
         $this->fakeSec([
             'RevenueFromContractWithCustomerExcludingAssessedTax' => [
-                'CY2024' => ['val' => 400, 'fy' => 2024, 'fp' => 'FY', 'filed' => '2025-01-01'],
+                'CY2024' => ['val' => 400, 'fy' => 2024, 'fp' => 'FY', 'start' => '2023-02-01', 'end' => '2024-01-31', 'filed' => '2025-01-01'],
             ],
             'Revenues' => [
-                'CY2024X' => ['val' => 450, 'fy' => 2024, 'fp' => 'FY', 'filed' => '2025-06-01'],
-                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'filed' => '2026-01-01'],
+                'CY2024X' => ['val' => 450, 'fy' => 2024, 'fp' => 'FY', 'start' => '2023-02-01', 'end' => '2024-01-31', 'filed' => '2025-06-01'],
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'start' => '2024-02-01', 'end' => '2025-01-31', 'filed' => '2026-01-01'],
             ],
         ]);
 
@@ -375,13 +459,69 @@ class SecEdgarFinancialsProviderTest extends TestCase
         // 只用來在那個標籤底下挑「原始申報 vs 重編」。
         $this->fakeSec([
             'RevenueFromContractWithCustomerExcludingAssessedTax' => [
-                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'filed' => '2026-01-01'],
-                'CY2025X' => ['val' => 520, 'fy' => 2025, 'fp' => 'FY', 'filed' => '2026-03-01'],
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'start' => '2024-02-01', 'end' => '2025-01-31', 'filed' => '2026-01-01'],
+                'CY2025X' => ['val' => 520, 'fy' => 2025, 'fp' => 'FY', 'start' => '2024-02-01', 'end' => '2025-01-31', 'filed' => '2026-03-01'],
             ],
         ]);
 
         $data = $this->provider()->financials('NVDA', 60);
 
         $this->assertSame(520.0, $data->annualRevenue[0]['revenue'], '同標籤內部取 filed 較晚者（重編）');
+    }
+
+    public function test_us_only_annual_revenue_rescue_branch_carries_a_data_as_of(): void
+    {
+        // 季度 frame 全缺，但年度申報還在——救援分支必須帶 dataAsOf，
+        // 否則落地時 FundamentalsService 會把它當成沒有資料日的觀測值。
+        $this->fakeSec([
+            'Revenues' => [
+                'CY2025' => ['val' => 500, 'fy' => 2025, 'fp' => 'FY', 'form' => '10-K', 'start' => '2024-02-01', 'end' => '2025-01-31'],
+            ],
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $this->assertFalse($data->hasAny(), '季度 frame 全缺，救援分支不帶季度');
+        $this->assertTrue($data->hasAnnualRevenue());
+        $this->assertSame('2025-01-31', $data->dataAsOf, 'dataAsOf 取最新財政年度的期間結束日');
+    }
+
+    public function test_annual_revenue_matches_real_nvda_companyfacts_fixture(): void
+    {
+        // 真實 NVDA companyfacts 切片（僅 revenue 三個標籤，見
+        // tests/Fixtures/sec/nvda_revenue_companyfacts.json），釘住兩個曾經
+        // 錯位的真值：年營收三個財政年度、以及 2025Q1 這個 frame 的正確 fy。
+        $facts = json_decode(
+            (string) file_get_contents(base_path('tests/Fixtures/sec/nvda_revenue_companyfacts.json')),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+
+        Http::fake([
+            'www.sec.gov/files/company_tickers.json' => Http::response(
+                ['0' => ['cik_str' => 1045810, 'ticker' => 'NVDA', 'title' => 'NVIDIA CORP']],
+                200,
+            ),
+            'data.sec.gov/api/xbrl/companyfacts/*' => Http::response($facts, 200),
+        ]);
+
+        $data = $this->provider()->financials('NVDA', 60);
+
+        $revenues = [];
+        foreach ($data->annualRevenue as $row) {
+            $revenues[$row['fiscal_year']] = $row['revenue'];
+        }
+
+        $this->assertSame(60_922_000_000.0, $revenues[2024] ?? null, 'FY2024 年營收');
+        $this->assertSame(130_497_000_000.0, $revenues[2025] ?? null, 'FY2025 年營收');
+        $this->assertSame(215_938_000_000.0, $revenues[2026] ?? null, 'FY2026 年營收（舊演算法算不出這年）');
+
+        $quarter = $data->quarter('2025Q1');
+        $this->assertNotNull($quarter, 'frame CY2025Q1 必須存在於保留的最近 12 季窗口內');
+        $this->assertSame(
+            2026,
+            $quarter->fiscalYear,
+            '2025Q1 這個 frame 真正的財政年度是 2026（最早 filed 的申報書），不是後續比較期申報書自帶的 2027'
+        );
     }
 }

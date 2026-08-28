@@ -60,11 +60,21 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
         if ($byPeriod === []) {
             // 季度 frame 全缺不代表沒有資料——同一份 companyfacts 仍可能有年度
             // 申報，比照台股「只有月營收」的作法，能帶多少就帶多少。
-            $annual = $this->annualRevenueFrom($facts);
+            $groups = $this->annualRevenueGroups($facts);
 
-            return $annual === []
-                ? OrderInventoryData::empty()
-                : new OrderInventoryData(market: 'us', annualRevenue: $annual);
+            if ($groups === []) {
+                return OrderInventoryData::empty();
+            }
+
+            // dataAsOf 語意與正常路徑一致（見下方主回傳）：序列裡最新一筆的期間
+            // 結束日。這裡沒有季度可取，改取年營收最新一個財政年度的期間結束日。
+            $latest = $groups[count($groups) - 1];
+
+            return new OrderInventoryData(
+                market: 'us',
+                annualRevenue: $this->stripEndDate($groups),
+                dataAsOf: $latest['end'],
+            );
         }
 
         ksort($byPeriod);
@@ -133,6 +143,7 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
     private function collect(array $facts): array
     {
         $out = [];
+        $fiscalFocus = $this->fiscalFocusByPeriod($facts);
 
         foreach ((array) config('order_inventory.sec_tags', []) as $field => $tags) {
             $instant = in_array($field, self::INSTANT_FIELDS, true);
@@ -161,9 +172,10 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
                         $out[$period]['end_date'] ??= isset($row['end']) ? (string) $row['end'] : null;
                         // 注意：fiscal_year / fiscal_period 是同一個 period slot 共用，
                         // 不分欄位——同一 period 底下第一個寫入的欄位（不一定是 revenue）
-                        // 決定整個 period 的 fy/fp，其餘欄位即使晚到也不會再覆蓋。
-                        $out[$period]['fiscal_year'] ??= isset($row['fy']) ? (int) $row['fy'] : null;
-                        $out[$period]['fiscal_period'] ??= isset($row['fp']) ? (string) $row['fp'] : null;
+                        // 決定整個 period 的 fy/fp，其餘欄位即使晚到也不會再覆蓋。查表見
+                        // fiscalFocusByPeriod()，不可直接用這一列自己的 fy/fp（見該方法註解）。
+                        $out[$period]['fiscal_year'] ??= $fiscalFocus[$period]['fy'] ?? null;
+                        $out[$period]['fiscal_period'] ??= $fiscalFocus[$period]['fp'] ?? null;
                     }
                 }
             }
@@ -173,26 +185,147 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
     }
 
     /**
-     * 年營收：取 fp = FY 的申報列，依 fiscal year 歸戶。
+     * period（如 '2026Q1'）→ 該期間真正的申報焦點 (fy, fp)。
      *
-     * 不用 frame：frame 是日曆期間配對，年度 frame 的年份未必等於公司的財政年度。
-     * 也不由季度相加：SEC 的季度 frame 允許缺口，相加會少算。
+     * 根因：SEC fact 的 fy／fp 是**申報文件層級**的欄位（DocumentFiscalYearFocus／
+     * DocumentFiscalPeriodFocus），不是「這段期間所屬的財政年度」——一份 10-K
+     * 裡的每一列（含兩年比較期、去年的四個季度）全部帶著同一組 fy／fp。若直接
+     * 拿 framed 列自己的 fy／fp，通常會拿到把該期間當「去年同期比較數」列出的
+     * 後續申報書，年度因此多算一到兩年（實測 NVDA：2025Q1 這個 frame 命中的是
+     * 2026 年 10-Q 裡的比較期，自己帶 fy=2027；2023Q4 命中的是後續 10-K，自己
+     * 帶 fp=FY／fy=2025）。
+     *
+     * 更棘手的是：SEC 的 companyfacts API 只在**它認為最具代表性的單一列**上
+     * 標記 frame（實測確認：2025Q1 這段期間在原始資料裡出現兩次——一次是
+     * 2025-05-28 申報、fy=2026 的當期揭露，一次是 2026-05-20 申報、fy=2027 的
+     * 比較期重複列出——但只有後者帶 frame）。若只看帶 frame 的那一列，連
+     * 「掃全部標籤找最早 filed」都救不回來，因為真正最早 filed 的那一列根本
+     * 沒被標 frame。故正確做法分兩步：
+     *
+     *  1. 用帶 frame 的列取得該期間的實際 (start, end)（instant 欄位只有 end）
+     *     ——frame 對「這是哪一段期間」仍然可信，不可信的只有它附帶的 fy／fp。
+     *  2. 用這組 (start, end) 回查全部原始列（不限於帶 frame 的那一列），取
+     *     **最早 filed** 的一列的 fy／fp——它是第一次把這段期間當「當期」揭露
+     *     的申報書，而不是後續把它降級成比較期的申報書。
+     *
+     * 掃描範圍是全部 sec_tags（不只 revenue）：不分欄位都可能命中同一個
+     * period，樣本越多越不容易被單一標籤的巧合誤導。
+     *
+     * @param  array<string, mixed>  $facts
+     * @return array<string, array{fy: ?int, fp: ?string}>
+     */
+    private function fiscalFocusByPeriod(array $facts): array
+    {
+        // 第一步：period → 實際 (start, end)。同一 period 字串理論上只對應一組
+        // 日期，用第一個遇到的帶 frame 列即可。
+        $ranges = [];
+
+        foreach ((array) config('order_inventory.sec_tags', []) as $field => $tags) {
+            $instant = in_array($field, self::INSTANT_FIELDS, true);
+
+            foreach ((array) $tags as $tag) {
+                $units = $facts[$tag]['units']['USD'] ?? null;
+
+                if (! is_array($units)) {
+                    continue;
+                }
+
+                foreach ($units as $row) {
+                    $period = $this->periodFrom($row['frame'] ?? null, $instant);
+
+                    if ($period === null || ! isset($row['end'])) {
+                        continue;
+                    }
+
+                    $ranges[$period] ??= [
+                        'start' => $instant ? null : ($row['start'] ?? null),
+                        'end' => (string) $row['end'],
+                    ];
+                }
+            }
+        }
+
+        // 第二步：依 (start, end) 回查全部原始列（不限帶 frame 的那一列），
+        // 取最早 filed 的 fy／fp。
+        $out = [];
+
+        foreach ($ranges as $period => $range) {
+            $candidates = [];
+
+            foreach ((array) config('order_inventory.sec_tags', []) as $field => $tags) {
+                $instant = in_array($field, self::INSTANT_FIELDS, true);
+
+                foreach ((array) $tags as $tag) {
+                    $units = $facts[$tag]['units']['USD'] ?? null;
+
+                    if (! is_array($units)) {
+                        continue;
+                    }
+
+                    foreach ($units as $row) {
+                        if (! isset($row['end']) || (string) $row['end'] !== $range['end']) {
+                            continue;
+                        }
+
+                        if (! $instant && ($row['start'] ?? null) !== $range['start']) {
+                            continue;
+                        }
+
+                        // filed 缺席時退化成「陣列中先出現者勝出」——已知的 fallback，
+                        // 不是刻意設計，SEC 實務回應一律帶 filed，尚未遇過需要更精確
+                        // 判準的案例。
+                        $candidates[] = [
+                            'fy' => isset($row['fy']) ? (int) $row['fy'] : null,
+                            'fp' => isset($row['fp']) ? (string) $row['fp'] : null,
+                            'filed' => (string) ($row['filed'] ?? ''),
+                        ];
+                    }
+                }
+            }
+
+            if ($candidates === []) {
+                continue;
+            }
+
+            usort($candidates, static fn (array $a, array $b): int => $a['filed'] <=> $b['filed']);
+            $out[$period] = ['fy' => $candidates[0]['fy'], 'fp' => $candidates[0]['fp']];
+        }
+
+        return $out;
+    }
+
+    /**
+     * 年營收：依 (start, end) 分組，不依 fy 分組。
+     *
+     * 根因（與 fiscalFocusByPeriod() 同一個）：fy／fp 是申報文件層級欄位，不是
+     * 「這段期間所屬的財政年度」。同一段期間會在後續申報書裡反覆以「去年同期
+     * 比較數」的身分出現，每次都帶著申報當下的 fy——實測 NVDA 的 2018-01-29～
+     * 2019-01-27 這段期間，依序在 2019／2020／2021 三份申報書裡出現，fy 分別是
+     * 2019／2020／2021。依 fy 分組會把同一段期間灌到三個不同年度，年年錯位。
+     *
+     * 正確作法：
+     *  1. 只收期間長度落在 330～400 天的列——擋掉混進來的季度列，以及財政
+     *     年度變更公司的過渡期年報（stub period，通常短於一年）。不看 fp：
+     *     fp 跟 fy 一樣是申報文件層級欄位，不可信。
+     *  2. 依 (start, end) 分組。
+     *  3. 該組真正的財政年度 = 該組**最早 filed** 那一列的 fy。
+     *  4. 該組的營收 = 該組**最晚 filed** 那一列的 val（重編／restatement）。
      *
      * 標籤偏好順序必須跟 collect()（季度那條路）一致：年營收與季營收要來自
      * 同一個 XBRL 科目，否則兩者用不同標籤（各自排除的項目不同），四季相加
      * 對不上年營收卻無從解釋。故逐財政年度判斷——同一年度先看偏好序中第一個
-     * 「有該年度 FY 列」的標籤；filed 的新舊只在同一個標籤內部拿來判斷重編
-     * （restatement）版本，不能跨標籤比較 filed 新舊（那樣年營收會跟著哪個
+     * 「有該年度資料」的標籤；filed 的新舊只在同一個標籤、同一組 (start,end)
+     * 內部拿來判斷重編版本，不能跨標籤比較 filed 新舊（那樣年營收會跟著哪個
      * 標籤先申報而漂移，即使季營收仍固定用第一順位）。
      *
      * @param  array<string, mixed>  $facts
-     * @return list<array{fiscal_year: int, revenue: float}>
+     * @return list<array{fiscal_year: int, revenue: float, end: string}>
      */
-    private function annualRevenueFrom(array $facts): array
+    private function annualRevenueGroups(array $facts): array
     {
         $tags = (array) config('order_inventory.sec_tags.revenue', []);
 
-        // 第一步：同一標籤內部的重編——同年度兩列，取 filed 較晚者。
+        // 第一步：逐標籤，依 (start, end) 分組，組內取最早 filed 的 fy、最晚 filed 的 val。
         $byTag = [];
 
         foreach ($tags as $tag) {
@@ -202,19 +335,42 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
                 continue;
             }
 
+            $groups = [];
+
             foreach ($units as $row) {
-                if (($row['fp'] ?? null) !== 'FY' || ! is_numeric($row['val'] ?? null) || ! isset($row['fy'])) {
+                if (! is_numeric($row['val'] ?? null) || ! isset($row['fy'], $row['start'], $row['end'])) {
                     continue;
                 }
 
-                $year = (int) $row['fy'];
-                $filed = (string) ($row['filed'] ?? '');
+                $length = $this->daysBetween((string) $row['start'], (string) $row['end']);
 
-                if (isset($byTag[$tag][$year]) && $byTag[$tag][$year]['filed'] >= $filed) {
+                if ($length < 330 || $length > 400) {
                     continue;
                 }
 
-                $byTag[$tag][$year] = ['revenue' => (float) $row['val'], 'filed' => $filed];
+                // filed 缺席時退化成「陣列中先出現者勝出」（見 usort 的穩定排序）
+                // ——已知的 fallback，不是刻意設計；SEC 實務回應一律帶 filed。
+                $groups[$row['start'].'|'.$row['end']][] = [
+                    'fy' => (int) $row['fy'],
+                    'filed' => (string) ($row['filed'] ?? ''),
+                    'val' => (float) $row['val'],
+                    'end' => (string) $row['end'],
+                ];
+            }
+
+            foreach ($groups as $rows) {
+                usort($rows, static fn (array $a, array $b): int => $a['filed'] <=> $b['filed']);
+
+                $year = $rows[0]['fy'];
+
+                // 同一標籤照理一個財政年度只會分到一組 (start,end)；真的撞到時
+                // 沿用「先出現者勝出」，與別處的偏好序規則一致。
+                if (! isset($byTag[$tag][$year])) {
+                    $byTag[$tag][$year] = [
+                        'revenue' => $rows[count($rows) - 1]['val'],
+                        'end' => $rows[0]['end'],
+                    ];
+                }
             }
         }
 
@@ -224,7 +380,7 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
         foreach ($tags as $tag) {
             foreach ($byTag[$tag] ?? [] as $year => $entry) {
                 if (! isset($best[$year])) {
-                    $best[$year] = $entry['revenue'];
+                    $best[$year] = $entry;
                 }
             }
         }
@@ -233,11 +389,36 @@ class SecEdgarFinancialsProvider implements CompanyFinancialsProvider
 
         $out = [];
 
-        foreach ($best as $year => $revenue) {
-            $out[] = ['fiscal_year' => $year, 'revenue' => $revenue];
+        foreach ($best as $year => $entry) {
+            $out[] = ['fiscal_year' => $year, 'revenue' => $entry['revenue'], 'end' => $entry['end']];
         }
 
         return $out;
+    }
+
+    /**
+     * @return list<array{fiscal_year: int, revenue: float}>
+     */
+    private function annualRevenueFrom(array $facts): array
+    {
+        return $this->stripEndDate($this->annualRevenueGroups($facts));
+    }
+
+    /**
+     * @param  list<array{fiscal_year: int, revenue: float, end: string}>  $groups
+     * @return list<array{fiscal_year: int, revenue: float}>
+     */
+    private function stripEndDate(array $groups): array
+    {
+        return array_map(
+            static fn (array $row): array => ['fiscal_year' => $row['fiscal_year'], 'revenue' => $row['revenue']],
+            $groups,
+        );
+    }
+
+    private function daysBetween(string $start, string $end): int
+    {
+        return (int) (new \DateTimeImmutable($start))->diff(new \DateTimeImmutable($end))->days;
     }
 
     /**
