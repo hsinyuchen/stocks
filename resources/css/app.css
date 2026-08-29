@@ -142,15 +142,21 @@ button {
     min-height: 100vh;
 }
 
+/* 選單項目數量隨權限變動（管理員多三項），高度可能超過視窗，
+   因此側欄自身必須能捲動，否則超出的項目會被畫在可視區外且碰不到。 */
 .sidebar {
     background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     gap: 28px;
-    min-height: 100vh;
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 24px 18px;
     position: sticky;
+    scrollbar-width: thin;
     top: 0;
 }
 
@@ -1452,6 +1458,9 @@ button {
     .sidebar {
         bottom: 0;
         box-shadow: var(--shadow);
+        /* 高度交給 top/bottom 決定：行動瀏覽器的 100vh 會忽略網址列，
+           導致底部項目被工具列遮住。 */
+        height: auto;
         left: 0;
         max-width: min(82vw, 320px);
         position: fixed;
