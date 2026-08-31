@@ -167,22 +167,43 @@ class IsolationSeamTest extends TestCase
         //
         // 用 config( 呼叫的字串樣式比對（而非單純比對檔名字串），刻意不擋
         // 純文件性質的提及。
+        //
+        // 除了 config() helper，也要涵蓋 Config facade 的等價寫法
+        // （Config::get() / Config::has() 及型別化存取器 string()/integer()/
+        // float()/boolean()/array()）——這些是功能完全相同的「讀取對方設定」，
+        // 只用 config( 比對會被 \Illuminate\Support\Facades\Config::get(...)
+        // 這種寫法繞過（正則掃描純文字，前面的具名空間反斜線不影響 \b 邊界，
+        // 不需要額外處理）。
         $financialStatements = (string) file_get_contents(config_path('financial_statements.php'));
         $orderInventory = (string) file_get_contents(config_path('order_inventory.php'));
 
+        $configReadPattern = '(?:\bconfig\(|\bConfig::(?:get|has|string|integer|float|boolean|array)\()\s*[\'"]%s';
+
         $this->assertDoesNotMatchRegularExpression(
-            '/config\(\s*[\'"]order_inventory/',
+            '/'.sprintf($configReadPattern, 'order_inventory').'/',
             $financialStatements,
-            'config/financial_statements.php 不得用 config() 讀取 order_inventory 的值。'
+            'config/financial_statements.php 不得用 config() 或 Config facade 讀取 order_inventory 的值。'
         );
 
         $this->assertDoesNotMatchRegularExpression(
-            '/config\(\s*[\'"]financial_statements/',
+            '/'.sprintf($configReadPattern, 'financial_statements').'/',
             $orderInventory,
-            'config/order_inventory.php 不得用 config() 讀取 financial_statements 的值。'
+            'config/order_inventory.php 不得用 config() 或 Config facade 讀取 financial_statements 的值。'
         );
     }
 
+    /**
+     * 有效期注意（why，不是 what）：BASE_COMMIT 是寫死的短 SHA，只在本子專案
+     * 這條分支的歷史存續期間有意義——它守的是「本子專案沒有動到既有評級鏈路」。
+     * 分支合併回主線之後（尤其 squash merge 會改寫/丟棄這段分支歷史），這顆
+     * SHA 對後續所有新 PR 不再有實質把關作用，此時維護者可視情況 retire 這條
+     * 測試；不要誤以為它會長期擋住所有人往後的改動。
+     *
+     * 刻意不改用 `git merge-base` 換掉寫死的 SHA：合併之後 merge-base(main, HEAD)
+     * 會退化成 HEAD 本身，diff 永遠是空的，這條測試會從「有效期已過的斷言」
+     * 靜默劣化成「恆真的空測試」——比現在誠實地失去意義還更糟（會讓人誤以為
+     * 這條防線仍然生效）。
+     */
     public function test_old_provider_files_are_untouched_since_the_subprojects_base_commit(): void
     {
         // 純內容比對（如上兩條）證明不了「完全沒改」——只能證明「沒改成我想到
@@ -203,7 +224,10 @@ class IsolationSeamTest extends TestCase
 
         $this->assertTrue(
             $process->isSuccessful(),
-            'git diff 指令應該成功。stderr: '.$process->getErrorOutput()
+            'git diff 指令應該成功。stderr: '.$process->getErrorOutput()."\n\n".
+            "若上面訊息含 'bad object'：通常是 CI 用 shallow clone、沒 fetch 到基準 commit ".
+            self::BASE_COMMIT.'（見本方法 docblock）。請把 CI 設定改成 fetch-depth: 0 或明確 '.
+            'fetch 該 SHA；不要把這條測試標記為 flaky 略過——那等於用另一種方式廢掉這條隔離防線。'
         );
 
         $changed = array_filter(preg_split('/\R/', trim($process->getOutput())) ?: []);
