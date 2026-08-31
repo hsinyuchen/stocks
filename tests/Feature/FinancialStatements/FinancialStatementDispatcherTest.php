@@ -116,10 +116,13 @@ class FinancialStatementDispatcherTest extends TestCase
         $this->assertSame(0, $fetch->attempts);
     }
 
-    public function test_concurrent_first_requests_only_dispatch_once(): void
+    public function test_dispatching_twice_in_a_row_is_idempotent(): void
     {
-        // INSERT IGNORE 讓第二個請求的 affected = 0，落到第二步的條件 UPDATE，
-        // 而該列此時是 queued，不在允許集合裡 → 不派工。
+        // 這是單執行緒測試，驗的是「同一請求路徑連續呼叫兩次」的冪等性，
+        // 不是多連線併發下 INSERT IGNORE／唯一鍵的行為：第一次呼叫後該列
+        // 已是 queued，第二次呼叫落到第二步的條件 UPDATE，queued 不在允許
+        // 集合裡 → 不派工。真正的併發安全由 DB 唯一鍵約束保證，要驗證那個
+        // 需要多程序整合測試，不在本測試範圍內。
         $this->assertTrue($this->dispatcher()->dispatchFor($this->instrument));
         $this->assertFalse($this->dispatcher()->dispatchFor($this->instrument));
 
