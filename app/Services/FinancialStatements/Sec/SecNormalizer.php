@@ -198,8 +198,16 @@ class SecNormalizer
             periodEnd: $year->end,
             fiscalYearComplete: true,
             currency: 'USD',
-            // EPS 不推導，所以推導結果裡沒有它，這裡也不補。
-            values: array_merge($income['values'], $annualInstant['values'], $cash['values']),
+            // EPS 不推導（每股盈餘不可加減），但 FinancialPeriod::$values 的不變式是
+            // 「全欄位預先鋪好、缺的填 null」——EPS 不在 income/instant/cashflow
+            // 任何一組裡，這裡要顯式補 null 鍵，否則推導 Q4 的鍵集合會比直接季度
+            // 少兩個，消費端直接存取 $values['eps_basic'] 會撞 undefined array key。
+            values: array_merge(
+                $income['values'],
+                $annualInstant['values'],
+                $cash['values'],
+                array_fill_keys(array_keys((array) config('financial_statements.sec_eps_tags')), null),
+            ),
             incomeDerivation: $income['kind'],
             cashflowDerivation: $cash['kind'],
             incomeRestatementMixed: $this->deriver->isMixed($facts, $sources),

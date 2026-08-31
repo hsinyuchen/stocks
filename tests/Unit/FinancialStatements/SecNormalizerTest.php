@@ -295,4 +295,35 @@ class SecNormalizerTest extends TestCase
 
         $this->assertEmpty($stubYearQuarters, 'Stub 年度不得鏈季、不得推導出任何季度期間');
     }
+
+    // --- I1：推導 Q4 的 values 少了 eps_basic／eps_diluted 兩個鍵 ---
+
+    public function test_every_period_has_the_same_value_key_set_including_derived_q4(): void
+    {
+        // FinancialPeriod::$values 的不變式是「全欄位預先鋪好、缺的填 null」，
+        // 消費端直接存取 $values['eps_basic'] 不該撞 undefined array key。
+        // derivedFourthQuarter() 原本只 merge income/instant/cashflow 三組值，
+        // EPS 不在任何一組裡（EPS 本來就不可推導），導致推導 Q4 的鍵集合比
+        // 直接季度少兩個（33 → 31，缺 eps_basic、eps_diluted）。
+        $expectedKeys = array_merge(
+            (array) config('financial_statements.income_fields'),
+            (array) config('financial_statements.instant_fields'),
+            (array) config('financial_statements.cashflow_fields'),
+            array_keys((array) config('financial_statements.sec_eps_tags')),
+        );
+        sort($expectedKeys);
+
+        foreach (['rgti', 'cost', 'aapl'] as $fixture) {
+            foreach ($this->normalize($fixture) as $period) {
+                $keys = array_keys($period->values);
+                sort($keys);
+
+                $this->assertSame(
+                    $expectedKeys,
+                    $keys,
+                    "{$fixture} {$period->periodLabel} 的 values 鍵集合必須是同一組"
+                );
+            }
+        }
+    }
 }
