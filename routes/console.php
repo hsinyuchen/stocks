@@ -86,6 +86,8 @@ if (config('host_probe.enabled')) {
  * 頁面才會看到狀態。頻率用每五分鐘而不是每分鐘：判定門檻本來就是 240 秒，
  * 掃得再密也只是多打幾次同樣的 UPDATE。
  */
+// withoutOverlapping() 的互斥鍵是 name() 給的字串，框架不查重：日後若複製這段
+// 加第二條 Schedule::call，務必換一個 name 字串，否則兩者會共用同一把鎖互相排斥。
 Schedule::call(fn () => app(StaleFetchReaper::class)->reap())
     ->everyFiveMinutes()
     ->name('financial-statements:reap')

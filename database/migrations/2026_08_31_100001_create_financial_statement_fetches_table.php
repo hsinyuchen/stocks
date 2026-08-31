@@ -35,7 +35,14 @@ return new class extends Migration
             $table->timestamp('retry_after')->nullable();
             $table->timestamps();
 
-            // reaper 的掃描條件：status ∈ {running, queued} 且起始時間過舊。
+            // StaleFetchReaper 的實際條件是 WHERE status IN (...) AND
+            // COALESCE(started_at, queued_at) < ?：COALESCE 是運算式，MySQL
+            // 無法對它做 range scan，索引裡的 started_at 那一段吃不到，只有
+            // status 前綴能縮小掃描範圍。仍保留 started_at 在索引裡，是因為
+            // 一個 instrument 一列、資料量小，status 過濾已經足夠快；拆掉
+            // 這一段不會有實質收益，反而少了一個未來若改用可 sargable 的
+            // 條件（例如拆成 started_at 與 queued_at 各自比較）時能直接用上
+            // 的複合前綴。
             $table->index(['status', 'started_at'], 'financial_statement_fetches_reap_idx');
         });
     }
