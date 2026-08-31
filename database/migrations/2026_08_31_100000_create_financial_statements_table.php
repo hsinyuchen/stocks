@@ -88,12 +88,13 @@ return new class extends Migration
 
             $table->timestamps();
 
+            // 唯一鍵欄位順序即 reader 的主要查詢路徑（某標的、某種期間、依槽位序
+            // 排序），MySQL 唯一索引本身就能服務相同前綴的查詢與排序，不需要另建
+            // 一支欄位完全相同的一般索引。
             $table->unique(
                 ['instrument_id', 'period_type', 'fiscal_year', 'fiscal_quarter'],
                 'financial_statements_slot_unique'
             );
-            // reader 的主要查詢：某標的某種期間，依槽位序排序。
-            $table->index(['instrument_id', 'period_type', 'fiscal_year', 'fiscal_quarter'], 'financial_statements_series_idx');
         });
 
         // 唯一鍵擋得住重複槽位，擋不住「annual 卻填了 fiscal_quarter = 2」這種
