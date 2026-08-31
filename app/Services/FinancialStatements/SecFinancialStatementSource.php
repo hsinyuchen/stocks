@@ -35,10 +35,12 @@ class SecFinancialStatementSource implements FinancialStatementSource
      * 讀取它私有的快取鍵是本層唯一能做到「區分暫時性故障與永久不支援」的
      * 方法——見下面 cikMapAvailable() 的說明。
      *
-     * 脆弱點：resolver 若哪天改了這個快取鍵，這裡會悄悄退化成「永遠判定對照表
-     * 可用」（Cache::get() 拿到 null，is_array() 為 false，cikMapAvailable()
-     * 回 false，行為等同修復前）——不會出現例外或明顯錯誤，只會讓這個修復
-     * 靜默失效。改動 resolver 的快取鍵時務必同步檢查這裡。
+     * 脆弱點：resolver 若哪天改了這個快取鍵，這裡的 Cache::get() 會永遠拿到
+     * null（沒有人再寫入這個舊鍵），is_array(null) 恆為 false，
+     * cikMapAvailable() 恆回 false，等於**每次 resolve() 為 null 都會被誤判
+     * 成「對照表不可用」**——不會出現例外，但會讓真正永久不支援的標的（指數、
+     * 非美股、多數 ETF）也一律回 Failed 無限重試，而不是正確的 Unsupported。
+     * 改動 resolver 的快取鍵時務必同步檢查這裡。
      */
     private const CIK_MAP_CACHE_KEY = 'sec:ticker_cik_map';
 
