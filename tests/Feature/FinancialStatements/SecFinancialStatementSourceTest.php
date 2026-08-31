@@ -1,0 +1,294 @@
+<?php
+
+namespace Tests\Feature\FinancialStatements;
+
+use App\Enums\DatasetStatus;
+use App\Enums\FetchStatus;
+use App\Services\FinancialStatements\SecFinancialStatementSource;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Tests\Support\SecFixture;
+use Tests\TestCase;
+
+class SecFinancialStatementSourceTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Cache::flush();
+    }
+
+    private function fakeTickerMap(): void
+    {
+        Http::fake([
+            'www.sec.gov/files/company_tickers.json' => Http::response([
+                ['cik_str' => 1838359, 'ticker' => 'RGTI', 'title' => 'Rigetti'],
+            ]),
+        ]);
+    }
+
+    private function source(): SecFinancialStatementSource
+    {
+        return app(SecFinancialStatementSource::class);
+    }
+
+    public function test_complete_fetch_returns_periods(): void
+    {
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response(SecFixture::load('rgti'))]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Complete, $result->status);
+        $this->assertNotEmpty($result->periods->periods);
+        $this->assertTrue($result->isCacheable());
+    }
+
+    public function test_http_error_429_is_failed_not_unsupported(): void
+    {
+        // 429／403／5xx 都是暫時性的。判成 unsupported 會讓標的被錯誤地卡住 7 天。
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response('rate limited', 429)]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Failed, $result->status);
+        $this->assertFalse($result->isCacheable());
+        $this->assertSame('http_429', $result->errorCategory);
+    }
+
+    public function test_http_error_5xx_is_failed(): void
+    {
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response('server error', 503)]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Failed, $result->status);
+        $this->assertSame('http_503', $result->errorCategory);
+    }
+
+    public function test_http_error_404_is_unsupported_not_failed(): void
+    {
+        // SEC 對「這個 CIK 從未申報任何 XBRL 資料」回 404——語意上等同於「結構合法但
+        // 沒有目標科目」，屬於永久不支援。判成 failed 會讓標的無限重試，白打 SEC。
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response('not found', 404)]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Unsupported, $result->status);
+        $this->assertSame('not_found', $result->errorCategory);
+    }
+
+    public function test_connection_timeout_is_failed(): void
+    {
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => function () {
+            throw new ConnectionException('cURL error 28: Operation timed out after 20001 milliseconds');
+        }]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Failed, $result->status);
+        $this->assertSame('unreachable', $result->errorCategory);
+    }
+
+    public function test_connection_refused_is_failed(): void
+    {
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => function () {
+            throw new ConnectionException('cURL error 7: Failed to connect to data.sec.gov port 443');
+        }]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Failed, $result->status);
+        $this->assertSame('unreachable', $result->errorCategory);
+    }
+
+    public function test_response_that_is_not_valid_json_is_failed(): void
+    {
+        // HTTP 200 不等於合法的 companyfacts。
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response('<html>oops</html>', 200)]);
+        Http::preventStrayRequests();
+
+        $this->assertSame(FetchStatus::Failed, $this->source()->fetch('RGTI', 12, 5)->status);
+    }
+
+    public function test_valid_json_without_facts_key_is_failed(): void
+    {
+        // 合法 JSON，但缺 facts 結構——與「根本不是 JSON」是不同的程式路徑，須各自釘住。
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response(['cik' => 1838359, 'entityName' => 'Rigetti'])]);
+        Http::preventStrayRequests();
+
+        $this->assertSame(FetchStatus::Failed, $this->source()->fetch('RGTI', 12, 5)->status);
+    }
+
+    public function test_missing_us_gaap_taxonomy_is_unsupported(): void
+    {
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response([
+            'cik' => 1838359, 'entityName' => 'X', 'facts' => ['ifrs-full' => []],
+        ])]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Unsupported, $result->status);
+    }
+
+    public function test_us_gaap_without_target_fields_is_unsupported(): void
+    {
+        // 只申報少量無關 us-gaap facts 的 ETF：「有任一 USD 單位」的判準會誤判成可支援。
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response([
+            'cik' => 1838359, 'entityName' => 'X',
+            'facts' => ['us-gaap' => ['SomeUnrelatedTag' => ['units' => ['USD' => [
+                ['end' => '2025-12-31', 'val' => 1, 'form' => '10-K', 'filed' => '2026-02-01', 'accn' => 'a'],
+            ]]]]],
+        ])]);
+        Http::preventStrayRequests();
+
+        $this->assertSame(FetchStatus::Unsupported, $this->source()->fetch('RGTI', 12, 5)->status);
+    }
+
+    public function test_cik_mismatch_is_failed(): void
+    {
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response([
+            'cik' => 999999, 'entityName' => 'Someone Else',
+            'facts' => ['us-gaap' => []],
+        ])]);
+        Http::preventStrayRequests();
+
+        $this->assertSame(FetchStatus::Failed, $this->source()->fetch('RGTI', 12, 5)->status);
+    }
+
+    public function test_unknown_ticker_is_unsupported_no_cik(): void
+    {
+        // 對照表本身可用（非空），只是查的這個代號不在裡面——真的永久不支援
+        // （指數、非美股、多數 ETF）。
+        //
+        // 註（I3）：原本這裡用 Http::response([]) 讓對照表端點成功但回空陣列，
+        // 這個輸入形狀在 I3 修復後會被 cikMapAvailable() 判定為「對照表不可用」
+        // （空陣列與抓取失敗在 resolver 的快取裡無法區分），導致這裡改回
+        // Failed 而不是 Unsupported。改用 fakeTickerMap()（非空、但不含 NOPE）
+        // 讓這條測試維持「對照表可用、查無此代號」的原意，斷言不變。
+        $this->fakeTickerMap();
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('NOPE', 12, 5);
+
+        $this->assertSame(FetchStatus::Unsupported, $result->status);
+        $this->assertSame('no_cik', $result->errorCategory);
+    }
+
+    public function test_ticker_map_unavailable_is_failed_not_unsupported(): void
+    {
+        // I3：SecTickerCikResolver::map()（禁區、唯讀）在 HTTP 失敗時寫入空 map
+        // 並快取，resolve() 因此回 null，與「這檔真的沒有 CIK」在 resolver 這層
+        // 完全無法區分。這裡驗證 Source 層有把兩者分開——SEC 對照表端點短暫
+        // 故障的 10 分鐘內，不該讓每一檔美股都被永久判定不支援。
+        Http::fake([
+            'www.sec.gov/files/company_tickers.json' => Http::response('server error', 500),
+        ]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Failed, $result->status);
+        $this->assertSame('cik_map_unavailable', $result->errorCategory);
+    }
+
+    public function test_entity_name_is_not_compared(): void
+    {
+        // 公司更名與簡稱本來就與 Instrument::name 不一致，拿它當判準會製造假失敗。
+        $this->fakeTickerMap();
+
+        $facts = SecFixture::load('rgti');
+        $facts['entityName'] = 'COMPLETELY DIFFERENT NAME INC';
+
+        Http::fake(['data.sec.gov/*' => Http::response($facts)]);
+        Http::preventStrayRequests();
+
+        $this->assertSame(FetchStatus::Complete, $this->source()->fetch('RGTI', 12, 5)->status);
+    }
+
+    public function test_request_uses_ten_digit_zero_padded_cik(): void
+    {
+        // 變異驗證標的：SEC 的 URL 格式要求 CIK 補零到 10 位，位數錯了會打到不存在的資源。
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response(SecFixture::load('rgti'))]);
+        Http::preventStrayRequests();
+
+        $this->source()->fetch('RGTI', 12, 5);
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://data.sec.gov/api/xbrl/companyfacts/CIK0001838359.json'
+        );
+    }
+
+    public function test_only_10q_filings_yields_complete_with_empty_dataset(): void
+    {
+        // 只申報過 10-Q、還沒申報第一份 10-K 的公司（剛上市或剛完成 SPAC 合併）：
+        // hasTargetFields() 只看「目標科目在任一 form 下有沒有資料」，10-Q 的
+        // Revenues 列足以讓它判真；但 SecFiscalCalendar::boundaries() 只認
+        // annual_forms（10-K 系列），全部列都是 10-Q 時拼不出任何年度邊界，
+        // inProgress() 也因為沒有 Annual 起點而回 null——正規化結果必然是空集合。
+        //
+        // 這不是「抓取失敗」（HTTP 全部成功、payload 結構合法），也不是「永久
+        // 不支援」（等這家公司申報第一份 10-K，年曆就能推出邊界、資料就會出現）。
+        // 所以維持 Complete + DatasetStatus::Empty 是對的，不該改成 Failed
+        // （會讓下游無限重試白打 SEC）或 Unsupported（會把明明會恢復的標的
+        // 錯誤地永久卡住）。
+        //
+        // 已知限制：這類公司已經申報的 10-Q 季度資料，目前完全無法呈現——
+        // 年曆需要年報當起點，光有零散的 10-Q 拼不出任何期間邊界。
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response([
+            'cik' => 1838359, 'entityName' => 'Freshly SPAC-Merged Co',
+            'facts' => ['us-gaap' => ['Revenues' => ['units' => ['USD' => [
+                ['start' => '2025-01-01', 'end' => '2025-03-31', 'val' => 100, 'form' => '10-Q', 'filed' => '2025-05-01', 'fy' => 2025, 'accn' => 'a1'],
+                ['start' => '2025-04-01', 'end' => '2025-06-30', 'val' => 120, 'form' => '10-Q', 'filed' => '2025-08-01', 'fy' => 2025, 'accn' => 'a2'],
+                ['start' => '2025-07-01', 'end' => '2025-09-30', 'val' => 130, 'form' => '10-Q', 'filed' => '2025-11-01', 'fy' => 2025, 'accn' => 'a3'],
+            ]]]]],
+        ])]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Complete, $result->status);
+        $this->assertSame(DatasetStatus::Empty, $result->datasetStatuses['companyfacts']);
+        $this->assertTrue($result->periods->isEmpty());
+        $this->assertTrue($result->isCacheable());
+    }
+
+    public function test_request_includes_configured_user_agent(): void
+    {
+        // 變異驗證標的：SEC 要求可識別的 User-Agent，缺了會被直接拒絕（403）。
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response(SecFixture::load('rgti'))]);
+        Http::preventStrayRequests();
+
+        $this->source()->fetch('RGTI', 12, 5);
+
+        $expected = (string) config('order_inventory.sec.user_agent');
+
+        // 必須限定 data.sec.gov 這個請求：SecTickerCikResolver 抓 ticker map 時
+        // 也帶同一組 User-Agent，若不限定 URL，拿掉本層的 header 也會被那個請求蓋過去。
+        Http::assertSent(function ($request) use ($expected) {
+            return str_contains($request->url(), 'data.sec.gov')
+                && $expected !== ''
+                && $request->hasHeader('User-Agent', $expected);
+        });
+    }
+}
