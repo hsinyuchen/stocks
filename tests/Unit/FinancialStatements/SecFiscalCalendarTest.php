@@ -176,4 +176,76 @@ class SecFiscalCalendarTest extends TestCase
 
         $this->assertNotEmpty($long, 'COST 的 53 週年度（370 天）不得被判成過渡期');
     }
+
+    /**
+     * 決勝規則要釘住「長度最接近中位數」，而不是「陣列裡先出現的那個」。
+     *
+     * 用合成資料而非 fixture：RGTI fixture 的 364 天候選在 JSON tag 迭代順序中
+     * 恰好排第一，就算把 pickWinner() 換成 `return $group[0];`（完全不看中位數）
+     * 既有測試也全線通過——決勝規則和陣列順序這兩件事被 fixture 的巧合疊在一起，
+     * 沒有測試把它們分開釘住。
+     *
+     * 兩組無歧義的單候選年度（364、366 天）讓中位數落在 365；
+     * 第三組刻意做成有歧義（同一個 end 底下 340 天與 360 天兩個合法候選，
+     * 都落在年度長度窗 330–400 內），340 天離中位數遠、360 天近，
+     * 只有 360 天在任何插入順序下都該勝出。
+     *
+     * @return array<string, list<array<string, mixed>>>
+     */
+    private function medianTiebreakRows(array $ambiguousGroupInOrder): array
+    {
+        return ['Revenues' => [
+            // 無歧義組一：364 天，孤例。
+            ['start' => '2019-01-01', 'end' => '2019-12-31', 'val' => 1, 'fy' => 2019, 'fp' => 'FY',
+                'form' => '10-K', 'filed' => '2020-02-01', 'accn' => 'u1'],
+            // 無歧義組二：366 天，孤例。與組一的 end 相隔兩年以上，不會被 ±3 天容忍併組。
+            ['start' => '2021-01-01', 'end' => '2022-01-02', 'val' => 1, 'fy' => 2021, 'fp' => 'FY',
+                'form' => '10-K', 'filed' => '2022-02-01', 'accn' => 'u2'],
+            // 有歧義組：同一個 end，兩個候選，順序由呼叫端決定。
+            ...$ambiguousGroupInOrder,
+        ]];
+    }
+
+    private function candidate340(): array
+    {
+        // 340 天，離中位數 365 遠（差 25 天），落在年度窗內但決勝該輸。
+        return ['start' => '2025-01-25', 'end' => '2025-12-31', 'val' => 1, 'fy' => 2025, 'fp' => 'FY',
+            'form' => '10-K', 'filed' => '2026-02-01', 'accn' => 'g3-340'];
+    }
+
+    private function candidate360(): array
+    {
+        // 360 天，離中位數 365 近（差 5 天），決勝該贏。
+        return ['start' => '2025-01-05', 'end' => '2025-12-31', 'val' => 1, 'fy' => 2025, 'fp' => 'FY',
+            'form' => '10-K', 'filed' => '2026-02-01', 'accn' => 'g3-360'];
+    }
+
+    private function assertThreeHundredSixtyDayCandidateWins(array $years): void
+    {
+        $winner = array_values(array_filter(
+            $years,
+            fn (FiscalYearBoundary $y) => $y->end === '2025-12-31' && $y->type === PeriodType::Annual
+        ));
+
+        $this->assertCount(1, $winner, '2025-12-31 這組只能有一個年度勝出者');
+        $this->assertSame(360, $winner[0]->lengthDays(),
+            '決勝要選長度最接近中位數（365）者；`return $group[0]` 會依插入順序選錯');
+    }
+
+    public function test_pick_winner_selects_closest_to_median_when_far_candidate_is_inserted_first(): void
+    {
+        $facts = $this->facts($this->medianTiebreakRows([$this->candidate340(), $this->candidate360()]));
+
+        $this->assertThreeHundredSixtyDayCandidateWins($this->calendar()->boundaries($facts));
+    }
+
+    public function test_pick_winner_selects_closest_to_median_when_near_candidate_is_inserted_first(): void
+    {
+        // 與上一版唯一差異：兩個候選的插入順序相反。
+        // 只跑其中一版測不出「決勝依賴陣列順序」的 bug——兩版之中必有一版會撞到
+        // `return $group[0];` 這種寫法，單一順序無法保證抓到。
+        $facts = $this->facts($this->medianTiebreakRows([$this->candidate360(), $this->candidate340()]));
+
+        $this->assertThreeHundredSixtyDayCandidateWins($this->calendar()->boundaries($facts));
+    }
 }
