@@ -233,4 +233,52 @@ class SecQuarterChainTest extends TestCase
             '距目標長度相同時取 filed 最晚者'
         );
     }
+
+    /**
+     * 天數窗下界 70 天是閉區間：恰好 70 天要接受，69 天要拒絕。
+     *
+     * 年度邊界刻意對齊候選的 end，讓 start/end 濾除條件恆為「相等不觸發」，
+     * 唯一變因只剩天數本身——這樣「鏈出 0 季」才能歸因於天數窗，而不是被
+     * 其他濾除條件順手擋掉。
+     */
+    public function test_quarter_day_window_lower_bound_is_inclusive(): void
+    {
+        $acceptedEnd = $this->plusDays('2025-01-01', 70);
+        $rejectedEnd = $this->plusDays('2025-01-01', 69);
+
+        $accepted = $this->chain()->chain(
+            $this->facts(['Revenues' => [$this->row('2025-01-01', $acceptedEnd)]]),
+            $this->year('2025-01-01', $acceptedEnd)
+        );
+        $rejected = $this->chain()->chain(
+            $this->facts(['Revenues' => [$this->row('2025-01-01', $rejectedEnd)]]),
+            $this->year('2025-01-01', $rejectedEnd)
+        );
+
+        $this->assertCount(1, $accepted, '恰好 70 天應被接受');
+        $this->assertSame($acceptedEnd, $accepted[0]['end']);
+        $this->assertCount(0, $rejected, '69 天應被天數窗拒絕（start/end 已對齊年度邊界，非它們濾除）');
+    }
+
+    /**
+     * 天數窗上界 125 天是閉區間：恰好 125 天要接受，126 天要拒絕。
+     */
+    public function test_quarter_day_window_upper_bound_is_inclusive(): void
+    {
+        $acceptedEnd = $this->plusDays('2025-01-01', 125);
+        $rejectedEnd = $this->plusDays('2025-01-01', 126);
+
+        $accepted = $this->chain()->chain(
+            $this->facts(['Revenues' => [$this->row('2025-01-01', $acceptedEnd)]]),
+            $this->year('2025-01-01', $acceptedEnd)
+        );
+        $rejected = $this->chain()->chain(
+            $this->facts(['Revenues' => [$this->row('2025-01-01', $rejectedEnd)]]),
+            $this->year('2025-01-01', $rejectedEnd)
+        );
+
+        $this->assertCount(1, $accepted, '恰好 125 天應被接受');
+        $this->assertSame($acceptedEnd, $accepted[0]['end']);
+        $this->assertCount(0, $rejected, '126 天應被天數窗拒絕（start/end 已對齊年度邊界，非它們濾除）');
+    }
 }
