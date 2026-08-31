@@ -5,6 +5,8 @@ namespace Tests\Unit\FinancialStatements;
 use App\Data\FiscalYearBoundary;
 use App\Enums\PeriodType;
 use App\Services\FinancialStatements\Sec\SecFiscalCalendar;
+use App\Services\FinancialStatements\Sec\SecQuarterChain;
+use Carbon\CarbonImmutable;
 use Tests\Support\SecFixture;
 use Tests\TestCase;
 
@@ -247,5 +249,117 @@ class SecFiscalCalendarTest extends TestCase
         $facts = $this->facts($this->medianTiebreakRows([$this->candidate360(), $this->candidate340()]));
 
         $this->assertThreeHundredSixtyDayCandidateWins($this->calendar()->boundaries($facts));
+    }
+
+    // ------------------------------------------------------------------
+    // Task 7b: inProgress() —— 尚未申報 10-K 的進行中財政年度暫定邊界。
+    // ------------------------------------------------------------------
+
+    public function test_in_progress_year_starts_the_day_after_the_last_annual_boundary(): void
+    {
+        $facts = SecFixture::load('rgti');
+        $boundaries = (new SecFiscalCalendar)->boundaries($facts);
+        $lastAnnual = null;
+        foreach ($boundaries as $b) {
+            if ($b->type === PeriodType::Annual) {
+                $lastAnnual = $b;
+            }
+        }
+
+        $inProgress = (new SecFiscalCalendar)->inProgress($facts);
+
+        $this->assertNotNull($inProgress, 'RGTI 在 FY2025 年報之後已申報 2026 年的 10-Q，應有進行中年度');
+        $this->assertSame(
+            date('Y-m-d', strtotime($lastAnnual->end.' +1 day')),
+            $inProgress->start,
+            '進行中年度的起點是上一年度結束的次日'
+        );
+        $this->assertSame($lastAnnual->fiscalYear + 1, $inProgress->fiscalYear);
+    }
+
+    public function test_in_progress_year_is_not_included_in_boundaries(): void
+    {
+        $facts = SecFixture::load('rgti');
+        $inProgress = (new SecFiscalCalendar)->inProgress($facts);
+
+        foreach ((new SecFiscalCalendar)->boundaries($facts) as $b) {
+            $this->assertNotSame(
+                $inProgress->fiscalYear,
+                $b->fiscalYear,
+                'boundaries() 不得混入推測出來的年度——呼叫端要能分辨實據與推測'
+            );
+        }
+    }
+
+    public function test_in_progress_year_chains_the_already_filed_quarters(): void
+    {
+        $facts = SecFixture::load('rgti');
+        $inProgress = (new SecFiscalCalendar)->inProgress($facts);
+
+        $quarters = (new SecQuarterChain)->chain($facts, $inProgress);
+
+        $this->assertNotEmpty($quarters, '2026 年已申報的 10-Q 應該鏈得出來');
+        $this->assertLessThanOrEqual(3, count($quarters), '年報還沒出，不可能鏈滿四季');
+        $this->assertSame($inProgress->start, $quarters[0]['start']);
+    }
+
+    public function test_in_progress_returns_null_when_no_new_quarter_has_been_filed(): void
+    {
+        // 只有一筆年報列、沒有任何超出年度邊界的季度列：年報剛出，2026 年還沒有
+        // 任何 10-Q，回一個空殼邊界只會讓下游多跑一趟卻查無資料。
+        $facts = $this->facts(['Revenues' => [
+            ['start' => '2024-01-01', 'end' => '2024-12-31', 'val' => 100, 'fy' => 2024, 'fp' => 'FY',
+                'form' => '10-K', 'filed' => '2025-02-01', 'accn' => 'a1'],
+        ]]);
+
+        $this->assertNull($this->calendar()->inProgress($facts));
+    }
+
+    public function test_in_progress_returns_null_without_any_annual_boundary(): void
+    {
+        // 只有季度列（10-Q），沒有任何年報類 form：boundaries() 回 []，
+        // 沒有年報就無從推「上一年度結束日」這個起點。
+        $facts = $this->facts(['Revenues' => [
+            ['start' => '2025-01-01', 'end' => '2025-03-31', 'val' => 10, 'fy' => 2025, 'fp' => 'Q1',
+                'form' => '10-Q', 'filed' => '2025-05-01', 'accn' => 'q1'],
+        ]]);
+
+        $this->assertNull($this->calendar()->inProgress($facts));
+    }
+
+    public function test_in_progress_does_not_read_system_time(): void
+    {
+        // RGTI fixture 本身已經跨過「2026 年有新季度」的資料事實；用兩個相隔十年
+        // 的系統時間各跑一次，純函式應該完全無視 now()，回傳一模一樣的邊界。
+        $facts = SecFixture::load('rgti');
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2020-01-01'));
+        $first = $this->calendar()->inProgress($facts);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2030-01-01'));
+        $second = $this->calendar()->inProgress($facts);
+
+        CarbonImmutable::setTestNow();
+
+        $this->assertNotNull($first);
+        $this->assertEquals($first, $second, 'inProgress() 讀了系統時間才會讓兩次呼叫結果不同');
+    }
+
+    public function test_in_progress_year_length_is_the_median_of_annual_boundaries_not_a_fixed_365(): void
+    {
+        // COST 是 52/53 週制，年度長度只會是 363 或 370 天，中位數也不是 365。
+        // 若實作寫死 365 天，這裡算出的 end 會跟固定 365 版本的結果不同，
+        // 用「end 必須等於實際中位數推出的值」把這條規則釘死，而不是只驗證
+        // 「不等於 365」這種容易被繞過的弱斷言。
+        $facts = SecFixture::load('cost');
+
+        $inProgress = $this->calendar()->inProgress($facts);
+
+        $this->assertNotNull($inProgress);
+        $this->assertSame(2026, $inProgress->fiscalYear);
+        $this->assertSame('2025-09-01', $inProgress->start, 'COST FY2025 結在 2025-08-31，次日起算');
+        $this->assertSame(363, $inProgress->lengthDays(),
+            'COST 全部 Annual 邊界的長度中位數是 363 天（18 筆中 15 筆 363 天、3 筆 370 天），不是 365');
+        $this->assertSame('2026-08-30', $inProgress->end);
     }
 }
