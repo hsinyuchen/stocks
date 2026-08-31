@@ -302,6 +302,57 @@ class QueuelessEnvironmentTest extends TestCase
         $this->assertSame(0, DB::table('jobs')->count());
     }
 
+    /**
+     * 迴歸測試：ProcessQueuedAnalyses 曾經用字面量 'default' 呼叫
+     * pendingCount()／drain()，與 StaleAnalysisReaper::discardStaleJobs() 的
+     * 動態算式 config('queue.connections.database.queue', 'default') 認知不一致。
+     * DB_QUEUE 被改成非 'default' 的值時（例如共享 DB 上做佇列命名空間隔離），
+     * reaper 仍抓得到正確佇列，但舊版 middleware 會排錯佇列名，inline 模式下
+     * 分析 job 永遠取不到件。這裡把佇列改名成 'analysis-ns'，驗證改動後
+     * 一般頁面瀏覽仍然消化得到它。
+     */
+    public function test_inline_drain_follows_a_renamed_default_queue(): void
+    {
+        config([
+            'queue.default' => 'database',
+            'queue.connections.database.queue' => 'analysis-ns',
+        ]);
+
+        $user = User::factory()->create();
+        $user->llmProviderSettings()->create([
+            'provider_type' => 'ollama',
+            'display_name' => 'Local Ollama',
+            'base_url' => null,
+            'api_key_encrypted' => null,
+            'model' => 'llama3.1',
+            'timeout_seconds' => 30,
+            'temperature' => 0.20,
+            'max_tokens' => 800,
+            'is_default' => true,
+            'default_marker' => true,
+        ]);
+        $instrument = Instrument::factory()->create(['symbol' => 'NVDA']);
+        $analysis = $user->stockAnalyses()->create($this->pendingAttributes($instrument));
+
+        Http::fake([
+            'http://localhost:11434/v1/chat/completions' => Http::response([
+                'model' => 'llama3.1',
+                'choices' => [['message' => ['content' => '補跑的分析']]],
+            ], 200),
+        ]);
+
+        // 不呼叫 onQueue()，走連線設定的預設佇列——此時就是改名後的 'analysis-ns'。
+        Queue::connection('database')->push(
+            new RunStockAnalysis($analysis->id, $user->defaultLlmSetting()->id, 'llama3.1'),
+        );
+        $this->assertSame(1, DB::table('jobs')->where('queue', 'analysis-ns')->count());
+
+        $this->actingAs($user)->get('/dashboard')->assertOk();
+
+        $this->assertSame(AnalysisStatus::Completed, $analysis->fresh()->status);
+        $this->assertSame(0, DB::table('jobs')->count());
+    }
+
     public function test_polling_requests_do_not_drain_the_queue(): void
     {
         $user = User::factory()->create();

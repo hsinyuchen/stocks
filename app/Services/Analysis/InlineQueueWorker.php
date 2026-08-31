@@ -36,12 +36,14 @@ class InlineQueueWorker
     /**
      * 盡量在時間與筆數預算內清掉佇列。
      *
-     * @param  string|null  $queue  指定佇列名；null 時維持既有預設佇列行為（既有
-     *                              呼叫端不必改）。筆數上限依佇列各自從
-     *                              analysis.queues.{queue}.max_jobs 讀取，該鍵
-     *                              不存在時退回 analysis.inline_worker.max_jobs——
-     *                              呼叫端可能分段對多個佇列各呼叫一次 drain()，見
-     *                              ProcessQueuedAnalyses。
+     * @param  string|null  $queue  指定佇列名；null 時解析成
+     *                              queue.connections.{connection}.queue（也就是
+     *                              DB_QUEUE 目前的值，非字面量 'default'）。筆數
+     *                              上限一律依「解析後的佇列名」從
+     *                              analysis.queues.{resolved}.max_jobs 讀取，
+     *                              該鍵不存在時退回 analysis.inline_worker.max_jobs
+     *                              ——呼叫端可能分段對多個佇列各呼叫一次
+     *                              drain()，見 ProcessQueuedAnalyses。
      * @return int 實際處理的 job 數
      */
     public function drain(?string $queue = null): int
@@ -51,14 +53,17 @@ class InlineQueueWorker
         }
 
         $maxSeconds = max(1, (int) config('analysis.inline_worker.max_seconds', 60));
-        $maxJobs = max(1, (int) ($queue === null
-            ? config('analysis.inline_worker.max_jobs', 2)
-            : config("analysis.queues.{$queue}.max_jobs", config('analysis.inline_worker.max_jobs', 2))));
 
         $this->relaxTimeLimit($maxSeconds);
 
         $connection = config('queue.default');
         $resolvedQueue = $queue ?? config("queue.connections.{$connection}.queue", 'default');
+
+        // 配額一律照「解析後的真實佇列名」查，不是照呼叫端傳的 $queue（可能是
+        // null）。這樣呼叫端傳 null 時，也能查到 default 佇列自己的
+        // analysis.queues.default.max_jobs，而不是退回去籠統的
+        // analysis.inline_worker.max_jobs——後者會讓 Task 9 建的配額設定形同虛設。
+        $maxJobs = max(1, (int) config("analysis.queues.{$resolvedQueue}.max_jobs", config('analysis.inline_worker.max_jobs', 2)));
 
         // maxTries=1 與 job 自身的 $tries 一致：LLM 呼叫昂貴且非冪等，逾時重跑
         // 只會把上游的壅塞再放大一次。

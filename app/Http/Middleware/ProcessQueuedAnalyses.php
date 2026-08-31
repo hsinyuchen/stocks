@@ -57,8 +57,15 @@ class ProcessQueuedAnalyses
                 $this->worker->drain('statements');
             }
 
-            if ($this->worker->pendingCount('default') > 0) {
-                $this->worker->drain('default');
+            // default 佇列的真正名字不在這裡決定：不傳參數，讓 InlineQueueWorker
+            // 自己用 config('queue.connections.{connection}.queue', 'default') 解析
+            // ——這是 StaleAnalysisReaper::discardStaleJobs() 早就在用的同一條算式。
+            // 「什麼是 default 佇列」這個知識只能有一份；這裡若寫死字面量 'default'，
+            // 一旦 DB_QUEUE 被設成別的值（例如共享 DB 上做佇列命名空間隔離），
+            // reaper 仍抓得到真正的分析佇列，這裡卻會排錯佇列名，inline 模式下
+            // 分析 job 就永遠取不到件（除非另外還有 cron worker 兜底）。
+            if ($this->worker->pendingCount() > 0) {
+                $this->worker->drain();
             }
         });
 
