@@ -236,4 +236,50 @@ class FinancialStatementsReaderTest extends TestCase
 
         $this->assertTrue($this->read()['isStale']);
     }
+
+    // ------------------------------------------------------------------
+    // 修正：isStale 跨列聚合方向從 min 改成 max（見 FinancialStatementsReader::isStale
+    // docblock）。以下三條釘住新語意，且第一條在變異回舊寫法時必須變紅。
+    // ------------------------------------------------------------------
+
+    public function test_stale_ignores_a_frozen_historical_row_outside_the_fetch_window(): void
+    {
+        // reconcileQuarters() 刻意不動視窗外的歷史列，它的 fetched_at 永遠停在建立當下。
+        // $limit（這裡是預設 20）大於實際擷取深度時，這種凍結列一樣會被 for() 撈進來。
+        // 只要「有一張表最近真的被刷新過」（其餘列 fetched_at 是現在），整體就不該過期——
+        // 逐列逐欄取 min 的舊寫法會誤判為過期，因為那唯一一列 400 天前的時間戳最舊。
+        $this->row(2024, 1, now()->subDays(400)->toDateTimeString());
+        $this->row(2025, 1);
+        $this->row(2026, 1);
+        $this->state('succeeded');
+
+        $this->assertFalse($this->read()['isStale']);
+    }
+
+    public function test_stale_when_one_column_is_stale_across_every_row_even_if_others_are_fresh(): void
+    {
+        // 跨欄仍取 min 的規則沒被改壞：即使 income／balance 每一列都新鮮，
+        // 只要 cashflow 這張表沒有任何一列被最近刷新過，整體仍算過期。
+        $rowA = $this->row(2025, 4);
+        $rowB = $this->row(2026, 1);
+        $stale = now()->subDays(31);
+        $rowA->update(['cashflow_fetched_at' => $stale]);
+        $rowB->update(['cashflow_fetched_at' => $stale]);
+        $this->state('succeeded');
+
+        $this->assertTrue($this->read()['isStale']);
+    }
+
+    public function test_stale_when_one_column_is_null_across_every_row(): void
+    {
+        // 某一欄在「所有」列都是 null（不是只有其中一列）：這張表從沒抓成功過，
+        // 即使 balance／cashflow 每一列都新鮮，整體仍算過期。
+        $rowA = $this->row(2025, 4);
+        $rowB = $this->row(2026, 1);
+        $rowA->update(['income_fetched_at' => null]);
+        $rowB->update(['income_fetched_at' => null]);
+        $this->state('succeeded');
+
+        $this->assertTrue($this->read()['isStale']);
+    }
 }
