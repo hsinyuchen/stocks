@@ -44,8 +44,21 @@ class ProcessQueuedAnalyses
             $this->recordWebRuntime();
             $this->reaper->reapThrottled();
 
-            if ($this->worker->enabled() && $this->worker->pendingCount() > 0) {
-                $this->worker->drain();
+            if (! $this->worker->enabled()) {
+                return;
+            }
+
+            // 分兩段各自取件，先 statements 再 default——不是「剩餘秒數預算給
+            // default」。秒數預算只是「是否開始下一個 job」的判斷，不是執行中的
+            // 硬上限；FetchFinancialStatements 的 timeout 是 60 秒，單一 statements
+            // job 就可能吃掉整個 request 的時間，讓 default 那段秒數預算根本不存在。
+            // 能保證的只有各自的 max_jobs 筆數（config('analysis.queues')）。
+            if ($this->worker->pendingCount('statements') > 0) {
+                $this->worker->drain('statements');
+            }
+
+            if ($this->worker->pendingCount('default') > 0) {
+                $this->worker->drain('default');
             }
         });
 

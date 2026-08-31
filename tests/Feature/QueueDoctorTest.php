@@ -138,12 +138,14 @@ class QueueDoctorTest extends TestCase
             'observed_at' => now()->toDateTimeString(),
         ], now()->addDay());
 
-        // 預設需求 210 > 120，必須報警。
+        // 預設需求是兩段相加：statements 單筆上限 60 秒＋default 的
+        // requiredSeconds()（60+120+30=210）＝270 > 120，必須報警。
         config(['analysis.inline_worker.max_seconds' => 60, 'analysis.llm_timeout_floor' => 120]);
         $this->artisan('queue:doctor')->assertFailed();
 
-        // 壓到 110 之後就在 120 的預算之內。
-        config(['analysis.inline_worker.max_seconds' => 20, 'analysis.llm_timeout_floor' => 60]);
+        // 壓到 60（statements 上限）+45（default 的 requiredSeconds，5+10+30）=105，
+        // 落在 120 的預算之內。
+        config(['analysis.inline_worker.max_seconds' => 5, 'analysis.llm_timeout_floor' => 10]);
         $this->artisan('queue:doctor')->assertSuccessful();
     }
 

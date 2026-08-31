@@ -44,14 +44,25 @@ foreach ((array) config('screener.schedule.times') as $time) {
 }
 
 /*
- * 佇列取件。
+ * 佇列取件——兩個獨立 worker，各自顧一個佇列。
  *
- * 共享主機沒有常駐 daemon，用每分鐘的 cron 拼出一個近乎常駐的 worker：預設存活
+ * 共享主機沒有常駐 daemon，用每分鐘的 cron 拼出近乎常駐的 worker：預設存活
  * 55 秒，下一分鐘接手，空窗只有幾秒。
  *
- * 兩個參數都來自設定（config/analysis.php 的 cron_worker）而不是寫死：主機能容忍
- * 多長的背景程序事前無從得知，量測完（php artisan host:probe:report）改 .env 就好，
- * 不必動程式碼重新部署。
+ * 為什麼不是一個 worker 帶 `--queue=statements,default`：那是嚴格優先序，不是
+ * 公平排程。只要 statements 持續非空，default 就永久排不到；反過來也一樣。
+ * 唯一能同時保證兩邊前進的做法是各給一個獨立 worker。
+ *
+ * 兩條命令字串不同（--queue 參數不同），withoutOverlapping() 的互斥鍵是
+ * sha1(expression . 正規化後的 command)（Illuminate\Console\Scheduling\Event::
+ * mutexName()），因此兩條各鎖各的、不會互相排斥——這是刻意利用的性質，日後若
+ * 把這兩條合併成迴圈產生，務必確認迴圈仍讓每條指令字串不同，否則會共用同一把鎖。
+ *
+ * 兩個 worker 都各自佔一份背景程序額度：上線前務必用 `php artisan
+ * host:probe:report` 確認主機能同時容許兩個常駐背景程序（不只一個）。
+ *
+ * 參數都來自設定（config/analysis.php 的 cron_worker）而不是寫死：主機能容忍
+ * 多長的背景程序事前無從得知，量測完改 .env 就好，不必動程式碼重新部署。
  *
  * 這件事原本完全沒有排程——.env.example 與 queue:doctor 都叫人「每分鐘執行
  * schedule:run」，但排進去的只有新聞與 YouTube 抓取，沒有任何東西會取件。
@@ -59,7 +70,12 @@ foreach ((array) config('screener.schedule.times') as $time) {
 $workerMaxSeconds = max(5, (int) config('analysis.cron_worker.max_seconds'));
 $workerStopWhenEmpty = config('analysis.cron_worker.stop_when_empty') ? ' --stop-when-empty' : '';
 
-Schedule::command("queue:work --max-time={$workerMaxSeconds} --tries=1 --sleep=3{$workerStopWhenEmpty}")
+Schedule::command("queue:work --queue=statements --max-time={$workerMaxSeconds} --tries=1 --sleep=3{$workerStopWhenEmpty}")
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+Schedule::command("queue:work --queue=default --max-time={$workerMaxSeconds} --tries=1 --sleep=3{$workerStopWhenEmpty}")
     ->everyMinute()
     ->withoutOverlapping()
     ->runInBackground();

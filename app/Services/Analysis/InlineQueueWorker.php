@@ -36,21 +36,29 @@ class InlineQueueWorker
     /**
      * 盡量在時間與筆數預算內清掉佇列。
      *
+     * @param  string|null  $queue  指定佇列名；null 時維持既有預設佇列行為（既有
+     *                              呼叫端不必改）。筆數上限依佇列各自從
+     *                              analysis.queues.{queue}.max_jobs 讀取，該鍵
+     *                              不存在時退回 analysis.inline_worker.max_jobs——
+     *                              呼叫端可能分段對多個佇列各呼叫一次 drain()，見
+     *                              ProcessQueuedAnalyses。
      * @return int 實際處理的 job 數
      */
-    public function drain(): int
+    public function drain(?string $queue = null): int
     {
         if (! $this->enabled()) {
             return 0;
         }
 
         $maxSeconds = max(1, (int) config('analysis.inline_worker.max_seconds', 60));
-        $maxJobs = max(1, (int) config('analysis.inline_worker.max_jobs', 2));
+        $maxJobs = max(1, (int) ($queue === null
+            ? config('analysis.inline_worker.max_jobs', 2)
+            : config("analysis.queues.{$queue}.max_jobs", config('analysis.inline_worker.max_jobs', 2))));
 
         $this->relaxTimeLimit($maxSeconds);
 
         $connection = config('queue.default');
-        $queue = config("queue.connections.{$connection}.queue", 'default');
+        $resolvedQueue = $queue ?? config("queue.connections.{$connection}.queue", 'default');
 
         // maxTries=1 與 job 自身的 $tries 一致：LLM 呼叫昂貴且非冪等，逾時重跑
         // 只會把上游的壅塞再放大一次。
@@ -67,13 +75,13 @@ class InlineQueueWorker
         while ($processed < $maxJobs && microtime(true) < $deadline) {
             try {
                 // runNextJob 自己會處理失敗與 failed_jobs 寫入；佇列空時直接返回。
-                $before = $this->pendingCount();
+                $before = $this->pendingCount($queue);
 
                 if ($before === 0) {
                     break;
                 }
 
-                $this->worker()->runNextJob($connection, $queue, $options);
+                $this->worker()->runNextJob($connection, $resolvedQueue, $options);
             } catch (Throwable $exception) {
                 // 這裡炸掉不能影響任何使用者可見行為——回應早就送出去了。
                 Log::warning('inline queue worker: job failed', ['error' => $exception->getMessage()]);
@@ -134,13 +142,15 @@ class InlineQueueWorker
 
     /**
      * 只在確定有待處理 job 時才進入 worker，避免每個 request 都付出建立連線的成本。
+     *
+     * @param  string|null  $queue  指定佇列名；null 時維持既有預設佇列行為。
      */
-    public function pendingCount(): int
+    public function pendingCount(?string $queue = null): int
     {
         try {
-            return app('queue')->connection()->size(
-                config('queue.connections.'.config('queue.default').'.queue', 'default'),
-            );
+            $resolvedQueue = $queue ?? config('queue.connections.'.config('queue.default').'.queue', 'default');
+
+            return app('queue')->connection()->size($resolvedQueue);
         } catch (Throwable) {
             return 0;
         }

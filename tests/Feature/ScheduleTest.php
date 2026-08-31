@@ -36,56 +36,63 @@ class ScheduleTest extends TestCase
         return array_map(fn ($event) => (string) $event->command, $schedule->events());
     }
 
-    private function queueWorkerCommand(array $config = []): string
+    /**
+     * @return list<string>
+     */
+    private function queueWorkerCommands(array $config = []): array
     {
         $commands = array_values(array_filter(
             $this->scheduledCommands($config),
             fn (string $command) => str_contains($command, 'queue:work'),
         ));
 
-        $this->assertCount(1, $commands, '排程必須剛好有一個 queue:work，否則不是沒人取件就是重複取件。');
+        // statements 與 default 各一個獨立 worker：單一 worker 帶多佇列參數是
+        // 嚴格優先序，其中一邊持續非空就會永久餓死另一邊（見 Task 9）。
+        $this->assertCount(2, $commands, '排程必須剛好有兩個 queue:work（statements、default 各一），否則不是沒人取件就是重複取件／餓死另一邊。');
 
-        return $commands[0];
+        return $commands;
     }
 
     public function test_the_queue_is_actually_drained_by_the_schedule(): void
     {
-        $this->assertStringContainsString('queue:work', $this->queueWorkerCommand());
+        $commands = $this->queueWorkerCommands();
+
+        foreach ($commands as $command) {
+            $this->assertStringContainsString('queue:work', $command);
+        }
+
+        $this->assertTrue(collect($commands)->contains(fn ($c) => str_contains($c, '--queue=statements')));
+        $this->assertTrue(collect($commands)->contains(fn ($c) => str_contains($c, '--queue=default')));
     }
 
     public function test_the_worker_lifetime_comes_from_config(): void
     {
-        $this->assertStringContainsString(
-            '--max-time=55',
-            $this->queueWorkerCommand(['analysis.cron_worker.max_seconds' => 55]),
-        );
+        foreach ($this->queueWorkerCommands(['analysis.cron_worker.max_seconds' => 55]) as $command) {
+            $this->assertStringContainsString('--max-time=55', $command);
+        }
 
-        $this->assertStringContainsString(
-            '--max-time=20',
-            $this->queueWorkerCommand(['analysis.cron_worker.max_seconds' => 20]),
-        );
+        foreach ($this->queueWorkerCommands(['analysis.cron_worker.max_seconds' => 20]) as $command) {
+            $this->assertStringContainsString('--max-time=20', $command);
+        }
     }
 
     /** 設 0 會讓 worker 立刻結束，等於沒人取件；下限比照 config 註解擋在 5 秒。 */
     public function test_the_worker_lifetime_has_a_floor(): void
     {
-        $this->assertStringContainsString(
-            '--max-time=5',
-            $this->queueWorkerCommand(['analysis.cron_worker.max_seconds' => 0]),
-        );
+        foreach ($this->queueWorkerCommands(['analysis.cron_worker.max_seconds' => 0]) as $command) {
+            $this->assertStringContainsString('--max-time=5', $command);
+        }
     }
 
     public function test_stop_when_empty_is_opt_in(): void
     {
-        $this->assertStringNotContainsString(
-            '--stop-when-empty',
-            $this->queueWorkerCommand(['analysis.cron_worker.stop_when_empty' => false]),
-        );
+        foreach ($this->queueWorkerCommands(['analysis.cron_worker.stop_when_empty' => false]) as $command) {
+            $this->assertStringNotContainsString('--stop-when-empty', $command);
+        }
 
-        $this->assertStringContainsString(
-            '--stop-when-empty',
-            $this->queueWorkerCommand(['analysis.cron_worker.stop_when_empty' => true]),
-        );
+        foreach ($this->queueWorkerCommands(['analysis.cron_worker.stop_when_empty' => true]) as $command) {
+            $this->assertStringContainsString('--stop-when-empty', $command);
+        }
     }
 
     /**

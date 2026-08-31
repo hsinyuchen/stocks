@@ -91,29 +91,51 @@ Then add an `ollama` provider in Settings with model `llama3.1` and a blank base
 
 ## Queue worker
 
-分析與問答都在佇列執行，**一定要有人取件**，否則會永遠停在「思考中」。
+分析、問答與個股財報擷取都在佇列執行，**一定要有人取件**，否則會永遠停在
+「思考中」／「更新中」。
 
-排程（`routes/console.php`）已內含 `queue:work --max-time=55`：每分鐘啟動、存活
-55 秒，用 cron 拼出近乎常駐的 worker。部署時設好這一行即可：
+財報擷取（`statements` 佇列）與 AI 分析（`default` 佇列）刻意分成**兩個獨立
+佇列**，取件公平性也分兩種模式各自定義，不靠單一參數同時保證兩件事：
+
+- **cron `queue:work`**：`routes/console.php` 已內含**兩個獨立** worker，
+  `--queue=statements --max-time=55` 與 `--queue=default --max-time=55`，
+  各自每分鐘啟動一次、存活 55 秒，用 cron 拼出近乎常駐的 worker。兩個獨立
+  worker 是唯一能同時保證兩邊前進的做法——單一 worker 帶
+  `--queue=statements,default` 是嚴格優先序，其中一邊持續非空就會永久餓死
+  另一邊。**兩個 worker 各佔一份背景程序額度**，上線前務必用下面的
+  `host:probe:report` 確認主機能同時容許兩個常駐背景程序，不是只探測一個。
+- **inline（沒有 cron 時，由 web request 在回應送出後順帶取件）**：改成
+  「每次 request 各佇列最多取幾筆」（`analysis.queues`，對應 `.env` 的
+  `QUEUE_STATEMENTS_MAX_JOBS`／`QUEUE_DEFAULT_MAX_JOBS`），先 statements
+  後 default。只保證筆數不保證秒數——財報 job 的 timeout 是 60 秒，單一
+  statements job 就可能吃掉整個 request 的時間，讓 default 那段秒數預算
+  根本不存在。
+
+部署時設好這一行 cron 即可讓兩個 worker 都跑起來：
 
 ```
 * * * * * cd /path/to/platform && php artisan schedule:run >> /dev/null 2>&1
 ```
 
-有 cron 之後把 `ANALYSIS_INLINE_WORKER` 設為 `false`，LLM 呼叫就完全離開 web 的
-entry process——共享主機的 508 Resource Limit 多半就是被它佔滿的。開發環境用
-`composer dev`（已含 `queue:listen`）。卡住時先跑 `php artisan queue:doctor`。
+有 cron 之後把 `ANALYSIS_INLINE_WORKER` 設為 `false`，LLM 呼叫與財報擷取就
+完全離開 web 的 entry process——共享主機的 508 Resource Limit 多半就是被它
+佔滿的。開發環境用 `composer dev`（已含 `queue:listen --queue=statements,default`；
+本機開發不會有大量財報 job 灌進來，用嚴格優先序不是問題，與 cron 的兩個獨立
+worker 是不同取捨）。卡住時先跑 `php artisan queue:doctor`（現在會逐佇列列出
+待處理筆數與最舊等待時間）。
 
 worker 的兩個參數由 `.env` 決定，不寫死在程式碼裡：`QUEUE_WORKER_MAX_SECONDS`
-（存活秒數）與 `QUEUE_WORKER_STOP_WHEN_EMPTY`（佇列空了就退出）。該填什麼由下面的
-主機探測量測出來。
+（存活秒數）與 `QUEUE_WORKER_STOP_WHEN_EMPTY`（佇列空了就退出），兩個 worker
+共用同一組值。該填什麼由下面的主機探測量測出來。
 
 ## 主機探測
 
 `queue:work --max-time=55` 依賴兩件無法從程式碼判斷、只能量測的事：cPanel 的 cron
 是不是真的每分鐘觸發（有些主機會靜默降頻到 5 或 15 分鐘），以及一個存活 55 秒的
 背景程序會不會被主機當成 daemon 砍掉。後者是真正的風險——它覆蓋每分鐘的 92%，
-不少共享主機的條款把這視為背景常駐服務。
+不少共享主機的條款把這視為背景常駐服務。**上線後會同時有兩個這樣的常駐背景
+程序**（statements、default 各一），探測時請確認主機對「兩個」長壽程序的容忍度，
+不能只用單一 worker 的探測結果去推論兩個都安全。
 
 探測命令走與真實 worker 完全相同的路徑（`schedule:run` → `runInBackground()` →
 長壽程序），所以三種失敗模式都會如實重現。

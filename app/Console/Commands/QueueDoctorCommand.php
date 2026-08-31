@@ -57,12 +57,15 @@ class QueueDoctorCommand extends Command
         $this->kv('queue driver', (string) config('queue.default'));
         $this->kv('inline worker', $worker->enabled() ? '啟用' : '停用');
         $this->kv('inline 時間預算', config('analysis.inline_worker.max_seconds').' 秒／次');
+        $this->kv('inline statements 筆數配額', config('analysis.queues.statements.max_jobs').' 筆／次');
+        $this->kv('inline default 筆數配額', config('analysis.queues.default.max_jobs').' 筆／次');
         // 兩種取件模式的參數要並列，才看得出目前實際靠哪一邊在前進。
         $this->kv('cron worker 存活', config('analysis.cron_worker.max_seconds').' 秒／次');
         $this->kv('cron worker 空佇列即退出', config('analysis.cron_worker.stop_when_empty') ? '是' : '否');
         $this->kv('LLM 逾時下限', config('analysis.llm_timeout_floor').' 秒');
-        // 直接把「需要多少」印出來，使用者不必自己拿三個設定去算。
-        $this->kv('最壞情況需要', $worker->requiredSeconds().' 秒');
+        // 直接把「需要多少」印出來，使用者不必自己拿設定去算。是兩段相加
+        // （見 worstCaseSeconds()），不是「剩餘預算給 default」——那個宣稱已撤回。
+        $this->kv('最壞情況需要', $this->worstCaseSeconds($worker).' 秒');
         $this->kv('超時回收門檻', config('analysis.pending_timeout_minutes').' 分鐘');
 
         $this->line('');
@@ -100,6 +103,9 @@ class QueueDoctorCommand extends Command
     }
 
     /**
+     * 逐佇列統計。取件公平性的問題（某一邊餓死）直接對應哪個佇列在堆積，
+     * 混在一起看只會看到「有東西在等」，看不出是 statements 還是 default。
+     *
      * @return array<string, string>
      */
     private function queueStats(): array
@@ -109,20 +115,39 @@ class QueueDoctorCommand extends Command
         }
 
         $table = config('queue.connections.database.table', 'jobs');
-        $pending = DB::table($table)->whereNull('reserved_at')->count();
-        $reserved = DB::table($table)->whereNotNull('reserved_at')->count();
-        $oldest = DB::table($table)->whereNull('reserved_at')->min('created_at');
-        $failed = DB::table('failed_jobs')->count();
+        $stats = [];
 
-        return [
-            '待處理 job' => (string) $pending,
-            '執行中 job' => (string) $reserved,
+        foreach (['statements', 'default'] as $queue) {
+            $pending = DB::table($table)->where('queue', $queue)->whereNull('reserved_at')->count();
+            $oldest = DB::table($table)->where('queue', $queue)->whereNull('reserved_at')->min('created_at');
+
+            $stats["{$queue} 待處理 job"] = (string) $pending;
             // 方向要從「過去 → 現在」算，反過來寫在 Carbon 3 會拿到負數。
-            '最舊 job 已等待' => $oldest === null
+            $stats["{$queue} 最舊已等待"] = $oldest === null
                 ? '—'
-                : Carbon::createFromTimestamp($oldest)->diffInMinutes(Carbon::now()).' 分鐘',
-            '失敗 job 累計' => (string) $failed,
-        ];
+                : Carbon::createFromTimestamp($oldest)->diffInMinutes(Carbon::now()).' 分鐘';
+        }
+
+        $stats['執行中 job'] = (string) DB::table($table)->whereNotNull('reserved_at')->count();
+        $stats['失敗 job 累計'] = (string) DB::table('failed_jobs')->count();
+
+        return $stats;
+    }
+
+    /**
+     * 兩段預算相加：statements 單筆上限（FetchFinancialStatements::$timeout，
+     * 讀自 config('financial_statements.job.timeout')）＋ default 單筆上限
+     * （InlineQueueWorker::requiredSeconds()）。
+     *
+     * 不是「剩餘預算給 default」：ProcessQueuedAnalyses 對兩個佇列各自呼叫一次
+     * drain()，每段各自可能吃滿一整個 job 的執行時間，所以是兩段相加而不是
+     * 取其中一段。
+     */
+    private function worstCaseSeconds(InlineQueueWorker $worker): int
+    {
+        $statementsCap = max(1, (int) config('financial_statements.job.timeout', 60));
+
+        return $statementsCap + $worker->requiredSeconds();
     }
 
     private function oldestPendingMinutes(): ?int
@@ -164,7 +189,7 @@ class QueueDoctorCommand extends Command
         }
 
         // 時間上限低於最壞情況所需，又不准用 set_time_limit 放寬。
-        $required = $worker->requiredSeconds();
+        $required = $this->worstCaseSeconds($worker);
 
         if ($maxExecution > 0 && $maxExecution < $required && ! $canRelax) {
             $problems[] = [
@@ -176,13 +201,17 @@ class QueueDoctorCommand extends Command
             ];
         }
 
-        $waited = (int) filter_var($queueStats['最舊 job 已等待'] ?? '', FILTER_SANITIZE_NUMBER_INT);
+        // 逐佇列檢查：某一邊餓死時，混在一起看只會看到「有東西在等」，看不出
+        // 是哪個佇列。
+        foreach (['statements', 'default'] as $queue) {
+            $waited = (int) filter_var($queueStats["{$queue} 最舊已等待"] ?? '', FILTER_SANITIZE_NUMBER_INT);
 
-        if (($queueStats['待處理 job'] ?? '0') !== '0' && $waited > 5) {
-            $problems[] = [
-                sprintf('有 job 等待 %d 分鐘還沒被取走。', $waited),
-                'inline 模式要有人瀏覽網站才會取件；網站沒有流量時分析不會前進。',
-            ];
+            if (($queueStats["{$queue} 待處理 job"] ?? '0') !== '0' && $waited > 5) {
+                $problems[] = [
+                    sprintf('%s 佇列有 job 等待 %d 分鐘還沒被取走。', $queue, $waited),
+                    'inline 模式要有人瀏覽網站才會取件；網站沒有流量時分析不會前進。',
+                ];
+            }
         }
 
         if ($pendingAnalyses > 0 && $oldestPending !== null
