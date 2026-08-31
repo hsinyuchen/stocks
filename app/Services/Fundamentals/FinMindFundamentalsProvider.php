@@ -80,9 +80,11 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
 
         $fields = (array) config('order_inventory.finmind_fields', []);
         $byDate = [];
+        $cumulative = [];
 
         // 三個 dataset 的列形狀相同（date / type / value），依季末日歸戶。
-        foreach ([$bs, $fs, $cf] as $rows) {
+        // 現金流量表另外歸戶：它的值是累計數，要先差分才能與其餘欄位並列。
+        foreach ([[$bs, false], [$fs, false], [$cf, true]] as [$rows, $isCumulative]) {
             foreach ($rows as $row) {
                 $date = (string) ($row['date'] ?? '');
                 $type = (string) ($row['type'] ?? '');
@@ -94,8 +96,28 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
 
                 $field = array_search($type, $fields, true);
 
-                if ($field !== false) {
+                if ($field === false) {
+                    continue;
+                }
+
+                if ($isCumulative) {
+                    $cumulative[$date][$field] = (float) $value;
+                } else {
                     $byDate[$date][$field] = (float) $value;
+                }
+            }
+        }
+
+        // 差分在裁切視窗之前做：視窗最舊那一季的前一季可能落在視窗外，
+        // 先裁切會讓它平白變成 null。
+        foreach ($this->quarterlyCashFlow($cumulative) as $date => $values) {
+            // 該季即使全部差分不出來也要保留鍵，否則季度序列會少一期，
+            // 而 QoQ／YoY 是依序列位置算的。
+            $byDate[$date] ??= [];
+
+            foreach ($values as $field => $value) {
+                if ($value !== null) {
+                    $byDate[$date][$field] = $value;
                 }
             }
         }
@@ -135,6 +157,74 @@ class FinMindFundamentalsProvider implements CompanyFinancialsProvider, Fundamen
             inventoryCompositionAvailable: false,
             dataAsOf: array_key_last($byDate),
         );
+    }
+
+    /**
+     * 把年初至今的累計現金流差分成單季。
+     *
+     * 台灣 IFRS 季報的現金流量表只揭露「1 月 1 日至本期末」的累計數，不揭露
+     * 單季數，FinMind 原樣回傳。損益表則是單季值（實測台積電 2024 四季營收
+     * 相加等於全年 2.894 兆），所以只有這一組欄位需要差分。
+     *
+     * 不差分的後果不是「少一點精確度」而是量級錯誤：台積電 2024Q4 的營業
+     * 現金流真值約 620.2 bn，累計值是 1,826.2 bn。C8 的 OCF/淨利比率分子
+     * 因此被膨脹，C9 的 CAPEX/營收比率更會隨季別機械性遞增（實測該檔
+     * 0.31 → 0.57 → 0.78 → 1.10），讓「本季高於趨勢平均」變成在測「現在是
+     * 第幾季」。
+     *
+     * 差分不出來時一律回 null。退回累計值會讓上述兩個條件拿到膨脹的分子，
+     * 而條件本身無從察覺——寧可讓它回「未知」。
+     *
+     * @param  array<string, array<string, float>>  $cumulative  季末日 => 欄位 => 累計值
+     * @return array<string, array<string, ?float>>
+     */
+    private function quarterlyCashFlow(array $cumulative): array
+    {
+        $quarterly = [];
+
+        foreach ($cumulative as $date => $values) {
+            $previous = $this->previousQuarterEnd($date);
+            $quarterly[$date] = [];
+
+            foreach ($values as $field => $value) {
+                if ($this->isFirstQuarterEnd($date)) {
+                    $quarterly[$date][$field] = $value;
+
+                    continue;
+                }
+
+                $prior = $previous === null ? null : ($cumulative[$previous][$field] ?? null);
+                $quarterly[$date][$field] = $prior === null ? null : $value - $prior;
+            }
+        }
+
+        return $quarterly;
+    }
+
+    /** 第一季的累計值本身就是單季值，無需差分。 */
+    private function isFirstQuarterEnd(string $date): bool
+    {
+        return substr($date, 5, 5) === '03-31';
+    }
+
+    /**
+     * 同一日曆年度內的前一季末日；無從判定時回 null。
+     *
+     * 刻意用「預期的季末日」而不是「排序後的前一筆」：季報缺席時前一筆會是
+     * 更早的季度，相減等於把兩季的量算成一季。台股財政年度＝日曆年，所以
+     * 跨年不相減（累計數每年 1 月 1 日歸零），非日曆季末日則無從判定累計
+     * 起點，兩者都讓呼叫端得到 null。
+     */
+    private function previousQuarterEnd(string $date): ?string
+    {
+        $year = substr($date, 0, 4);
+
+        return match (substr($date, 5, 5)) {
+            '06-30' => $year.'-03-31',
+            '09-30' => $year.'-06-30',
+            '12-31' => $year.'-09-30',
+            default => null,
+        };
     }
 
     /**
