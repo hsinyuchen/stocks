@@ -9,7 +9,6 @@ use App\Services\Fake\FakeCompanyFinancialsProvider;
 use App\Services\FinancialStatements\CachedFinancialStatementSource;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use Symfony\Component\Process\Process;
 use Tests\Support\SecFixture;
 use Tests\TestCase;
 
@@ -24,23 +23,16 @@ use Tests\TestCase;
  *
  * 與 tests/Unit/FinancialStatements/ConfigIsolationTest.php 分工不同：那邊守
  * 「設定檔本身」的靜態內容；這裡除了靜態掃描，還多了「動態跑過一次新層之後」
- * 舊 binding／舊設定有沒有被悄悄改動，以及「舊檔案的 git diff 是否為空」這種
- * 純內容比對抓不到的東西。
+ * 舊 binding／舊設定有沒有被悄悄改動這種純內容比對抓不到的東西。
+ *
+ * 原本還有一條 `git diff <子專案起點>` 的結構性斷言，守「本子專案一個舊檔案
+ * 都沒改」。它綁定該分支的歷史，分支合併後即失去把關對象，已於「修台股現金流
+ * 累計」那次改動 retire——那次是另一項任務，刻意且必要地修改了舊評級鏈路。
+ * 留下的斷言全部是**方向性**的：舊鏈路不得引用新層、兩份設定不得互讀、新類別
+ * 不得放進舊命名空間。這些在舊鏈路自身被修改時仍然成立，才是長期該守的東西。
  */
 class IsolationSeamTest extends TestCase
 {
-    /** 這個子專案（財報擷取層）的起點 commit。見 task-12 指示與各 task report。 */
-    private const BASE_COMMIT = 'b47d59f';
-
-    /** 舊評級鏈路裡，本子專案不得修改一字的檔案／目錄。 */
-    private const FORBIDDEN_PATHS = [
-        'app/Services/Fundamentals/',
-        'app/Data/OrderInventoryData.php',
-        'app/Data/QuarterlyFinancials.php',
-        'app/Contracts/CompanyFinancialsProvider.php',
-        'config/order_inventory.php',
-    ];
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -189,64 +181,6 @@ class IsolationSeamTest extends TestCase
             '/'.sprintf($configReadPattern, 'financial_statements').'/',
             $orderInventory,
             'config/order_inventory.php 不得用 config() 或 Config facade 讀取 financial_statements 的值。'
-        );
-    }
-
-    /**
-     * 有效期注意（why，不是 what）：BASE_COMMIT 是寫死的短 SHA，只在本子專案
-     * 這條分支的歷史存續期間有意義——它守的是「本子專案沒有動到既有評級鏈路」。
-     * 分支合併回主線之後（尤其 squash merge 會改寫/丟棄這段分支歷史），這顆
-     * SHA 對後續所有新 PR 不再有實質把關作用，此時維護者可視情況 retire 這條
-     * 測試；不要誤以為它會長期擋住所有人往後的改動。
-     *
-     * 刻意不改用 `git merge-base` 換掉寫死的 SHA：合併之後 merge-base(main, HEAD)
-     * 會退化成 HEAD 本身，diff 永遠是空的，這條測試會從「有效期已過的斷言」
-     * 靜默劣化成「恆真的空測試」——比現在誠實地失去意義還更糟（會讓人誤以為
-     * 這條防線仍然生效）。
-     */
-    public function test_old_provider_files_are_untouched_since_the_subprojects_base_commit(): void
-    {
-        // 純內容比對（如上兩條）證明不了「完全沒改」——只能證明「沒改成我想到
-        // 的那幾種壞法」。這裡改用 git diff 直接比對整個子專案至今的變更檔案
-        // 清單，斷言舊評級鏈路的檔案一個都不在裡面。
-        //
-        // 刻意用 `git diff <commit>`（不是 `<commit>..HEAD`）：前者同時涵蓋已
-        // commit 與尚未 commit 的變動（工作目錄＋索引），後者只比對兩個 commit、
-        // 看不到還沒 commit 的壞改動。子專案開發過程中（commit 前）就要能抓到
-        // 違規，不能等到 commit 後才發現。
-        //
-        // 也刻意不用 `git diff -- <pathspec>` 讓 git 自己過濾——先取完整清單，
-        // 在 PHP 端逐一比對，減少對 git pathspec 語法細節的依賴。
-        // base commit 見 self::BASE_COMMIT：這個子專案的起點（fix(ui) 分支點），
-        // 在此分支歷史上必為 HEAD 的祖先，不依賴 origin/main 是否存在或是否最新。
-        $process = new Process(['git', 'diff', '--name-only', self::BASE_COMMIT], base_path());
-        $process->run();
-
-        $this->assertTrue(
-            $process->isSuccessful(),
-            'git diff 指令應該成功。stderr: '.$process->getErrorOutput()."\n\n".
-            "若上面訊息含 'bad object'：通常是 CI 用 shallow clone、沒 fetch 到基準 commit ".
-            self::BASE_COMMIT.'（見本方法 docblock）。請把 CI 設定改成 fetch-depth: 0 或明確 '.
-            'fetch 該 SHA；不要把這條測試標記為 flaky 略過——那等於用另一種方式廢掉這條隔離防線。'
-        );
-
-        $changed = array_filter(preg_split('/\R/', trim($process->getOutput())) ?: []);
-        // 統一分隔符號：Windows 上 git 可能回傳正斜線也可能回傳反斜線，兩種都比對。
-        $changed = array_map(static fn (string $path) => str_replace('\\', '/', $path), $changed);
-
-        $violations = [];
-        foreach ($changed as $path) {
-            foreach (self::FORBIDDEN_PATHS as $forbidden) {
-                if ($path === $forbidden || str_starts_with($path, $forbidden)) {
-                    $violations[] = $path;
-                }
-            }
-        }
-
-        $this->assertSame(
-            [],
-            $violations,
-            '既有評級鏈路的檔案不得被本子專案修改：'.implode(', ', $violations)
         );
     }
 
