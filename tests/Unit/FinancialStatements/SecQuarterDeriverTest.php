@@ -219,6 +219,56 @@ class SecQuarterDeriverTest extends TestCase
         $this->assertNull($this->deriver()->restatedAt($facts, '2024-01-01', '2024-12-31'));
     }
 
+    // --- 以下補測試：審查發現 subtract() 的 count($quarters) !== 3 守衛完全沒有
+    // 變異覆蓋（拿掉它 14 條既有測試全部維持綠燈），單獨釘住這道守衛。
+
+    public function test_quarter_count_guard_rejects_two_quarters(): void
+    {
+        // 兩季相減會把兩季的量誤算成一整季，數字看似「有值」但語意錯誤，
+        // 守衛必須攔在「算不算得出值」之前直接回 null，而非硬算出一個誤導性數字。
+        $result = $this->deriver()->deriveIncome(
+            ['revenue' => 1000.0],
+            [
+                ['revenue' => 200.0],
+                ['revenue' => 300.0],
+            ]
+        );
+
+        $this->assertNull($result['values']['revenue']);
+    }
+
+    public function test_quarter_count_guard_rejects_four_quarters(): void
+    {
+        // 四季相減等於多扣一次，同樣不具數學意義；守衛須同時擋「多於」與「少於」三季兩側。
+        $result = $this->deriver()->deriveIncome(
+            ['revenue' => 1000.0],
+            [
+                ['revenue' => 200.0],
+                ['revenue' => 300.0],
+                ['revenue' => 250.0],
+                ['revenue' => 100.0],
+            ]
+        );
+
+        $this->assertNull($result['values']['revenue']);
+    }
+
+    public function test_quarter_count_guard_allows_exactly_three_quarters(): void
+    {
+        // 對照組：同一組 annual／revenue 資料，唯一變因是季數改回 3，
+        // 藉此證明上面兩條測試的 null 是季數守衛擋下的，不是 annual 缺值之類的其他條件順手擋掉。
+        $result = $this->deriver()->deriveIncome(
+            ['revenue' => 1000.0],
+            [
+                ['revenue' => 200.0],
+                ['revenue' => 300.0],
+                ['revenue' => 250.0],
+            ]
+        );
+
+        $this->assertSame(250.0, $result['values']['revenue']);
+    }
+
     public function test_restatement_of_one_tag_is_not_masked_by_an_unrestated_tag_sharing_the_same_accn(): void
     {
         // 迴歸測試：實作最初把所有 us-gaap 科目的列混進同一個 accn→val map 比對，
