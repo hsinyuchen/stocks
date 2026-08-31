@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\FinancialStatements;
 
+use App\Enums\DatasetStatus;
 use App\Enums\FetchStatus;
 use App\Enums\PeriodType;
 use App\Services\FinancialStatements\FinMindFinancialStatementSource;
@@ -180,6 +181,39 @@ class FinMindFinancialStatementSourceTest extends TestCase
         $this->assertCount(1, Http::recorded(), '第一個 dataset 就失敗時不得繼續打後面兩個');
     }
 
+    public function test_fails_fast_on_the_second_dataset_error_after_the_first_succeeds(): void
+    {
+        // test_fails_fast_on_the_first_dataset_error 只覆蓋迴圈第一輪就失敗的分支。
+        // 這裡驗第一個 dataset 成功、第二個才失敗的逐位置行為：已成功的 income
+        // 不該被回溯標成 failed，還沒打到的 cashflow 也不該被標成任何狀態
+        // ——它根本沒被嘗試過。
+        Http::fake(function ($request) {
+            parse_str((string) parse_url((string) $request->url(), PHP_URL_QUERY), $query);
+
+            if (($query['dataset'] ?? '') === 'TaiwanStockFinancialStatements') {
+                return Http::response([
+                    'status' => 200,
+                    'msg' => 'success',
+                    'data' => [$this->row('2025-03-31', 'Revenue', 1000)],
+                ]);
+            }
+
+            return Http::response('boom', 500);
+        });
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('2330.TW', 12, 5);
+
+        // 與「第一個就失敗」「全部失敗」一致：整批仍是 Failed，不是 Partial。
+        $this->assertSame(FetchStatus::Failed, $result->status);
+        $this->assertSame('http_500', $result->errorCategory);
+        $this->assertCount(2, Http::recorded(), '第二個 dataset 就失敗時不得繼續打第三個');
+
+        $this->assertSame(DatasetStatus::Ok, $result->datasetStatuses['TaiwanStockFinancialStatements'] ?? null, '已成功的第一個 dataset 不該被回溯標成失敗');
+        $this->assertSame(DatasetStatus::Failed, $result->datasetStatuses['TaiwanStockBalanceSheet'] ?? null);
+        $this->assertArrayNotHasKey('TaiwanStockCashFlowsStatement', $result->datasetStatuses, '第三個 dataset 根本沒被嘗試過，不該出現在狀態表裡');
+    }
+
     public function test_empty_but_successful_response_is_unsupported(): void
     {
         $this->fakeFinMind([
@@ -282,12 +316,26 @@ class FinMindFinancialStatementSourceTest extends TestCase
     public function test_gate_tripped_before_call_skips_and_fails(): void
     {
         // 全站冷卻中：不得再對已耗盡的額度加壓，連第一發都不該打。
+        //
+        // 這裡的零呼叫斷言本身就是被測邏輯（FinMindGate::isTripped() 短路），
+        // 不能拿它當測試的網路安全網：一旦短路迴歸失效，沒有 Http::fake() +
+        // preventStrayRequests() 的話，這條測試會直接打真實的
+        // api.finmindtrade.com，而不是乾淨地拋例外失敗。
+        Http::fake([]);
+        Http::preventStrayRequests();
+
         FinMindGate::trip();
 
         $result = $this->source()->fetch('2330.TW', 12, 5);
 
         $this->assertSame(FetchStatus::Failed, $result->status);
         $this->assertCount(0, Http::recorded(), '冷卻中不得發出任何 HTTP 請求');
+
+        // 不能只斷言「Failed + 零請求」：rows() 自己的 catch(Throwable) 會把
+        // Http::preventStrayRequests() 拋出的 StrayRequestException 也吞掉，
+        // 轉譯成 category=unreachable 的 Failed——外觀與短路成功時一模一樣，
+        // 兩者都是零筆 recorded()。只有 errorCategory 能分辨「有沒有真的打出去」。
+        $this->assertSame('gate_tripped', $result->errorCategory, '短路一旦失效，這裡會變成 unreachable 而不是 gate_tripped');
     }
 
     public function test_quota_exceeded_response_trips_the_gate_for_later_callers(): void
