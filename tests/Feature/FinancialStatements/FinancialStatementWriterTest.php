@@ -109,6 +109,62 @@ class FinancialStatementWriterTest extends TestCase
         $this->assertEquals(200.0, FinancialStatement::first()->revenue);
     }
 
+    public function test_rewriting_the_same_slot_is_a_whole_row_replace_not_a_field_level_merge(): void
+    {
+        // 整張表是原子單位，不做欄位級 merge：第二次寫入的 values 只提到
+        // revenue，代表這次的財報來源沒有給 net_income，該科目必須被覆寫成
+        // null，不能停留在第一次寫入的 -50.0。
+        //
+        // 欄位級 merge 與表級 provenance 在數學上互斥——保留舊的 net_income
+        // 卻更新 income_source_accn，那個 accn 至少對其中一個欄位說謊
+        // （見 FinancialStatementWriter::upsert() docblock）。
+        $this->write([$this->quarter(2026, 1, ['revenue' => 100.0, 'net_income' => -50.0])]);
+        $this->write([$this->quarter(2026, 1, ['revenue' => 200.0])]);
+
+        $row = FinancialStatement::first();
+
+        $this->assertEquals(200.0, $row->revenue);
+        // 用 assertNull，不用 assertEquals(null, ...)：後者對 null 與 0 視為相等，
+        // 測不出「欄位級 merge 導致舊值殘留」與「正確覆寫成 null」的差別。
+        $this->assertNull($row->net_income, '本次來源集合沒有 net_income，舊值不可殘留');
+    }
+
+    public function test_period_type_disambiguates_slot_numbers_that_collide_with_quarter(): void
+    {
+        // stub 的 fiscal_quarter 語意是槽位序號 1..n，天然可能撞上 quarter 的
+        // 1..4：這裡刻意讓 (fiscal_year=2021, fiscal_quarter=1) 同時有一個
+        // quarter 列和一個 stub 列。唯一鍵是
+        // (instrument_id, period_type, fiscal_year, fiscal_quarter)，
+        // period_type 是區分兩者的關鍵欄位——updateOrCreate() 的 $attributes
+        // 若漏了 period_type，第二筆會直接覆寫掉第一筆，那個 (year, slot)
+        // 底下的一列資料就整筆消失。
+        //
+        // 兩者在同一次 write() 送進去，更接近真實情境：SecNormalizer 對有
+        // 財政年度變更過渡期的公司，就會同時產出 quarter 與 stub。
+        $quarter = $this->quarter(2021, 1, ['revenue' => 111.0]);
+        $stub = new FinancialPeriod(
+            periodType: PeriodType::Stub,
+            fiscalYear: 2021, fiscalQuarter: 1, periodLabel: '2021S1',
+            periodStart: '2021-01-01', periodEnd: '2021-03-15',
+            fiscalYearComplete: false, currency: 'USD',
+            values: ['revenue' => 222.0],
+        );
+
+        $this->write([$quarter, $stub]);
+
+        $this->assertSame(2, FinancialStatement::count());
+
+        $quarterRow = FinancialStatement::where('period_type', PeriodType::Quarter)->first();
+        $stubRow = FinancialStatement::where('period_type', PeriodType::Stub)->first();
+
+        $this->assertNotNull($quarterRow, 'quarter 列不可被同槽位序號的 stub 覆寫掉');
+        $this->assertNotNull($stubRow, 'stub 列不可被同槽位序號的 quarter 覆寫掉');
+        $this->assertEquals(111.0, $quarterRow->revenue);
+        $this->assertEquals(222.0, $stubRow->revenue);
+        $this->assertSame(2021, $quarterRow->fiscal_year);
+        $this->assertSame(2021, $stubRow->fiscal_year);
+    }
+
     public function test_reconciliation_deletes_only_inside_the_produced_slot_range(): void
     {
         // 這是本 task 的核心。第一次寫入 2021Q1–2021Q4。
