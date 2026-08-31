@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\FinancialStatements\StaleFetchReaper;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -77,3 +78,15 @@ if (config('host_probe.enabled')) {
         ->withoutOverlapping()
         ->runInBackground();
 }
+
+/*
+ * 財報擷取的死亡收割。
+ *
+ * 沒有人瀏覽的標的會永遠停在 running 或 queued——reader 是被動的，只有有人打開
+ * 頁面才會看到狀態。頻率用每五分鐘而不是每分鐘：判定門檻本來就是 240 秒，
+ * 掃得再密也只是多打幾次同樣的 UPDATE。
+ */
+Schedule::call(fn () => app(StaleFetchReaper::class)->reap())
+    ->everyFiveMinutes()
+    ->name('financial-statements:reap')
+    ->withoutOverlapping();
