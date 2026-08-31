@@ -146,6 +146,32 @@ class SecCashFlowDifferTest extends TestCase
         $this->assertSame(-200.0, $q4['values']['operating_cash_flow']);
     }
 
+    public function test_ytd_lookup_rejects_end_match_from_a_different_fiscal_year_start(): void
+    {
+        // 迴歸測試：ytd() 除了比對 end，還必須比對 start 是否落在同一財政年度的
+        // fyStart 容忍窗內。同一個 tag 底下常年年都有 YTD 列，若只認 end，
+        // 另一個財政年度、start 差了一整年但 end 恰好落在 ±3 天容忍窗內的列
+        // 會被誤配進來——這裡刻意放一組 2024 財年（start=2024-01-01）的干擾列，
+        // 其 end（2025-06-29）只比目標 Q2 end（2025-06-30）差 1 天。刻意不用
+        // facts() helper：那裡 filed 綁死等於 end，干擾列的 end 較早、filed 也會
+        // 較早，"filed 較晚者勝出" 的 tie-break 會讓正確列自動贏，測不出誤配。
+        // 這裡改成手動給干擾列一個比正確列更晚的 filed 日期，確保「若 fyStart
+        // 過濾被拿掉」時干擾列會贏過正確列被選中，讓誤配後的數字明顯錯到一眼看出。
+        $tag = 'NetCashProvidedByUsedInOperatingActivities';
+        $facts = ['facts' => ['us-gaap' => [$tag => ['units' => ['USD' => [
+            ['start' => '2025-01-01', 'end' => '2025-03-31', 'val' => -100.0,
+                'form' => '10-Q', 'filed' => '2025-05-01', 'accn' => 'a1'], // 正確：Q1 YTD（fyStart=2025-01-01）
+            ['start' => '2025-01-01', 'end' => '2025-06-30', 'val' => -250.0,
+                'form' => '10-Q', 'filed' => '2025-08-01', 'accn' => 'a2'], // 正確：Q2 YTD（fyStart=2025-01-01）
+            ['start' => '2024-01-01', 'end' => '2025-06-29', 'val' => -999000.0,
+                'form' => '10-Q', 'filed' => '2025-09-01', 'accn' => 'a3'], // 干擾：fyStart=2024-01-01，end 落在容忍窗內、filed 更晚
+        ]]]]]];
+
+        $q2 = $this->differ()->forQuarter($facts, $this->year(), $this->threeQuarters(), 1);
+
+        $this->assertSame(-150.0, $q2['values']['operating_cash_flow']);
+    }
+
     public function test_rgti_2026_first_half_matches_the_measured_shape(): void
     {
         // 實測值：2026-01-01~2026-03-31 = -16,216,000（Q1 單季）
