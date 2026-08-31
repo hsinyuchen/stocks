@@ -4,8 +4,10 @@ namespace Tests\Feature\FinancialStatements;
 
 use App\Models\FinancialStatementFetch;
 use App\Models\Instrument;
+use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class FetchStateMachineTest extends TestCase
@@ -43,6 +45,48 @@ class FetchStateMachineTest extends TestCase
 
         $this->assertTrue($fetch->markRunning(3), '同一 generation 的第二次 attempt 必須被接受');
         $this->assertSame(2, $fetch->fresh()->attempts);
+    }
+
+    public function test_first_attempt_sets_started_at(): void
+    {
+        // queued → running 是這個 generation 第一次開始執行，started_at 必須被設定，
+        // 這是 Task 8 reaper 死亡判定的對照基準。
+        Carbon::setTestNow('2026-08-31 10:00:00');
+        $fetch = $this->fetch('queued', 3);
+
+        $fetch->markRunning(3);
+
+        $this->assertSame(
+            '2026-08-31 10:00:00',
+            $fetch->fresh()->started_at->toDateTimeString(),
+        );
+
+        Carbon::setTestNow();
+    }
+
+    public function test_second_attempt_does_not_refresh_started_at(): void
+    {
+        // started_at 的語意是「這個 generation 第一次開始執行」。死亡判定門檻
+        // 240 秒 = tries × (timeout + backoff) + 60，涵蓋的是整個 generation 的
+        // 生命週期；每次 attempt 都刷新會讓 Task 8 的 reaper 最壞延後到 330 秒
+        // 才判死，與那個算式不符。
+        $fetch = $this->fetch('queued', 3);
+
+        Carbon::setTestNow('2026-08-31 10:00:00');
+        $fetch->markRunning(3);
+        $first = $fetch->fresh()->started_at;
+
+        Carbon::setTestNow('2026-08-31 10:01:30');
+        $fetch->markRunning(3);
+
+        $this->assertSame(
+            $first->toDateTimeString(),
+            $fetch->fresh()->started_at->toDateTimeString(),
+            '第二次 attempt 不得刷新 started_at'
+        );
+        $this->assertSame(2, $fetch->fresh()->attempts, 'attempts 仍要遞增');
+
+        Carbon::setTestNow();
     }
 
     public function test_stale_generation_cannot_take_the_row(): void
@@ -97,5 +141,26 @@ class FetchStateMachineTest extends TestCase
             'instrument_id' => $instrument->id, 'generation' => 1,
             'status' => 'queued', 'attempts' => 0, 'queued_at' => now(),
         ]);
+    }
+
+    #[DataProvider('inFlightStatusProvider')]
+    public function test_is_in_flight_reflects_status(string $status, bool $expected): void
+    {
+        // isInFlight() 服務 reader 的「fetching / refreshing」衍生顯示態：
+        // queued、running 都算「仍在擷取」，其餘終態都不算。
+        $fetch = $this->fetch($status);
+
+        $this->assertSame($expected, $fetch->isInFlight(), "status={$status}");
+    }
+
+    public static function inFlightStatusProvider(): array
+    {
+        return [
+            'queued' => ['queued', true],
+            'running' => ['running', true],
+            'succeeded' => ['succeeded', false],
+            'failed' => ['failed', false],
+            'unsupported' => ['unsupported', false],
+        ];
     }
 }
