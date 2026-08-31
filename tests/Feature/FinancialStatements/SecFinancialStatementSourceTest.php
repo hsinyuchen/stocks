@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\FinancialStatements;
 
+use App\Enums\DatasetStatus;
 use App\Enums\FetchStatus;
 use App\Services\FinancialStatements\SecFinancialStatementSource;
 use Illuminate\Http\Client\ConnectionException;
@@ -211,6 +212,41 @@ class SecFinancialStatementSourceTest extends TestCase
 
         Http::assertSent(fn ($request) => $request->url() === 'https://data.sec.gov/api/xbrl/companyfacts/CIK0001838359.json'
         );
+    }
+
+    public function test_only_10q_filings_yields_complete_with_empty_dataset(): void
+    {
+        // 只申報過 10-Q、還沒申報第一份 10-K 的公司（剛上市或剛完成 SPAC 合併）：
+        // hasTargetFields() 只看「目標科目在任一 form 下有沒有資料」，10-Q 的
+        // Revenues 列足以讓它判真；但 SecFiscalCalendar::boundaries() 只認
+        // annual_forms（10-K 系列），全部列都是 10-Q 時拼不出任何年度邊界，
+        // inProgress() 也因為沒有 Annual 起點而回 null——正規化結果必然是空集合。
+        //
+        // 這不是「抓取失敗」（HTTP 全部成功、payload 結構合法），也不是「永久
+        // 不支援」（等這家公司申報第一份 10-K，年曆就能推出邊界、資料就會出現）。
+        // 所以維持 Complete + DatasetStatus::Empty 是對的，不該改成 Failed
+        // （會讓下游無限重試白打 SEC）或 Unsupported（會把明明會恢復的標的
+        // 錯誤地永久卡住）。
+        //
+        // 已知限制：這類公司已經申報的 10-Q 季度資料，目前完全無法呈現——
+        // 年曆需要年報當起點，光有零散的 10-Q 拼不出任何期間邊界。
+        $this->fakeTickerMap();
+        Http::fake(['data.sec.gov/*' => Http::response([
+            'cik' => 1838359, 'entityName' => 'Freshly SPAC-Merged Co',
+            'facts' => ['us-gaap' => ['Revenues' => ['units' => ['USD' => [
+                ['start' => '2025-01-01', 'end' => '2025-03-31', 'val' => 100, 'form' => '10-Q', 'filed' => '2025-05-01', 'fy' => 2025, 'accn' => 'a1'],
+                ['start' => '2025-04-01', 'end' => '2025-06-30', 'val' => 120, 'form' => '10-Q', 'filed' => '2025-08-01', 'fy' => 2025, 'accn' => 'a2'],
+                ['start' => '2025-07-01', 'end' => '2025-09-30', 'val' => 130, 'form' => '10-Q', 'filed' => '2025-11-01', 'fy' => 2025, 'accn' => 'a3'],
+            ]]]]],
+        ])]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Complete, $result->status);
+        $this->assertSame(DatasetStatus::Empty, $result->datasetStatuses['companyfacts']);
+        $this->assertTrue($result->periods->isEmpty());
+        $this->assertTrue($result->isCacheable());
     }
 
     public function test_request_includes_configured_user_agent(): void
