@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Contracts\BrokerBranchDataProvider;
 use App\Contracts\ChipDataProvider;
 use App\Contracts\CompanyFinancialsProvider;
+use App\Contracts\FinancialStatementSource;
 use App\Contracts\FundamentalsProvider;
 use App\Contracts\FuturesDataProvider;
 use App\Contracts\MarginDataProvider;
@@ -28,6 +29,10 @@ use App\Services\Fake\FakeMarketInstitutionalProvider;
 use App\Services\Fake\FakeNewsProvider;
 use App\Services\Fake\FakeSymbolNewsProvider;
 use App\Services\Fake\FakeYieldCurveProvider;
+use App\Services\FinancialStatements\CachedFinancialStatementSource;
+use App\Services\FinancialStatements\FinMindFinancialStatementSource;
+use App\Services\FinancialStatements\RoutingFinancialStatementSource;
+use App\Services\FinancialStatements\SecFinancialStatementSource;
 use App\Services\Fundamentals\FinMindFundamentalsProvider;
 use App\Services\Fundamentals\IndustryMomentumSampler;
 use App\Services\Fundamentals\OrderInventoryPeerSampler;
@@ -227,6 +232,17 @@ class AppServiceProvider extends ServiceProvider
             return new ProcessYoutubeWorkerRunner(
                 (string) config('youtube.python'),
                 (string) config('youtube.worker'),
+            );
+        });
+
+        // 財報三表擷取層。與既有的 CompanyFinancialsProvider 完全分離——
+        // 那條鏈路餵評級引擎且刻意維持 frame-only 的舊行為，評級遷移是另一個專案。
+        $this->app->bind(FinancialStatementSource::class, function ($app): FinancialStatementSource {
+            return new CachedFinancialStatementSource(
+                new RoutingFinancialStatementSource(
+                    taiwan: $app->make(FinMindFinancialStatementSource::class),
+                    unitedStates: $app->make(SecFinancialStatementSource::class),
+                ),
             );
         });
     }
