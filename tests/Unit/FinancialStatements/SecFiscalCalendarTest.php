@@ -362,4 +362,51 @@ class SecFiscalCalendarTest extends TestCase
             'COST 全部 Annual 邊界的長度中位數是 363 天（18 筆中 15 筆 363 天、3 筆 370 天），不是 365');
         $this->assertSame('2026-08-30', $inProgress->end);
     }
+
+    /**
+     * medianAnnualLength() 偶數筆時該跟既有 medianLength() 的慣例一致——取中間
+     * 兩值平均後四捨五入，而不是直接取較小（或較大）值。COST fixture 測不出這個
+     * 選擇：18 筆年度長度排序後中間兩值剛好都是 363，三種算法算出來一樣。
+     * 這裡用合成資料把中間兩值刻意造成不同（363 與 370），逼出唯一能通過的答案。
+     */
+    public function test_in_progress_year_length_rounds_the_average_of_the_middle_two_lengths_on_even_boundary_count(): void
+    {
+        $facts = $this->facts(['Revenues' => $this->evenAnnualLengthRows()]);
+
+        $inProgress = $this->calendar()->inProgress($facts);
+
+        $this->assertNotNull($inProgress);
+        $this->assertSame(367, $inProgress->lengthDays(),
+            '中間兩值 363 與 370 平均 366.5，四捨五入取 367——取較小或較大值都不會是這個數');
+        $this->assertNotSame(363, $inProgress->lengthDays(), '不可直接取中間兩值裡較小的一個');
+        $this->assertNotSame(370, $inProgress->lengthDays(), '不可直接取中間兩值裡較大的一個');
+    }
+
+    /**
+     * 四個年度，長度分別 360、363、370、375 天：
+     * - 皆落在年度窗（330–400）內，才進得了 annualCandidates()。
+     * - 皆不偏離群組中位數（367）超過 stub_deviation_days（15），確保全數判為
+     *   Annual、不會有任何一筆被濾成 Stub（濾掉就湊不齊偶數筆）。
+     * - 排序後中間兩筆（363、370）不同，才能與「兩者相同」的 COST fixture區分開。
+     * 最後補一筆落在季度窗（70–125）內的列，滿足 inProgress() 步驟 5
+     * 「必須有新資料佐證」的條件，否則會回 null 而非邊界。
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function evenAnnualLengthRows(): array
+    {
+        return [
+            ['start' => '2019-01-01', 'end' => '2019-12-27', 'val' => 1, 'fy' => 2019, 'fp' => 'FY',
+                'form' => '10-K', 'filed' => '2020-02-01', 'accn' => 'e1'],
+            ['start' => '2019-12-28', 'end' => '2020-12-25', 'val' => 1, 'fy' => 2020, 'fp' => 'FY',
+                'form' => '10-K', 'filed' => '2021-02-01', 'accn' => 'e2'],
+            ['start' => '2020-12-26', 'end' => '2021-12-31', 'val' => 1, 'fy' => 2021, 'fp' => 'FY',
+                'form' => '10-K', 'filed' => '2022-02-01', 'accn' => 'e3'],
+            ['start' => '2022-01-01', 'end' => '2023-01-11', 'val' => 1, 'fy' => 2022, 'fp' => 'FY',
+                'form' => '10-K', 'filed' => '2023-02-01', 'accn' => 'e4'],
+            // 2023 年已申報的一季 10-Q，滿足 inProgress() 的「必須有新資料」條件。
+            ['start' => '2023-01-12', 'end' => '2023-04-12', 'val' => 1, 'fy' => 2023, 'fp' => 'Q1',
+                'form' => '10-Q', 'filed' => '2023-05-01', 'accn' => 'e5'],
+        ];
+    }
 }
