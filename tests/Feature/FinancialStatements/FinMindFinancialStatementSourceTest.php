@@ -216,6 +216,7 @@ class FinMindFinancialStatementSourceTest extends TestCase
 
     public function test_empty_but_successful_response_is_unsupported(): void
     {
+        // 三個 dataset 全部真的一列都沒有：ETF、下市標的、代號不存在，永久不支援。
         $this->fakeFinMind([
             'TaiwanStockFinancialStatements' => [],
             'TaiwanStockBalanceSheet' => [],
@@ -223,6 +224,29 @@ class FinMindFinancialStatementSourceTest extends TestCase
         ]);
 
         $this->assertSame(FetchStatus::Unsupported, $this->source()->fetch('0050.TW', 12, 5)->status);
+    }
+
+    public function test_rows_present_but_no_periods_normalized_is_complete_not_unsupported(): void
+    {
+        // I2：與 SEC 側 hasTargetFields() 通過但 normalize() 產不出期間同一語意
+        // （Complete + DatasetStatus::Empty，可重試），不是「三個 dataset 全部
+        // 真的空」那種永久不支援。這裡讓 income dataset 回一筆型別完全對不上
+        // 任何欄位對照的列（模擬上游新增了尚未設定的科目型別），normalize()
+        // 因此產不出任何期間，但 dataset 本身是成功且非空的。
+        //
+        // 若不修，這裡會被誤判成 Unsupported、永久不重試——剛上市、財報尚未
+        // 揭露的台股會被永久判為不支援，而美股的對應情境正常重試，語意不對稱。
+        $this->fakeFinMind([
+            'TaiwanStockFinancialStatements' => [$this->row('2025-03-31', 'SomeFutureUnmappedType', 1000)],
+            'TaiwanStockBalanceSheet' => [],
+            'TaiwanStockCashFlowsStatement' => [],
+        ]);
+
+        $result = $this->source()->fetch('2330.TW', 12, 5);
+
+        $this->assertSame(FetchStatus::Complete, $result->status);
+        $this->assertTrue($result->periods->isEmpty());
+        $this->assertSame(DatasetStatus::Ok, $result->datasetStatuses['TaiwanStockFinancialStatements'] ?? null, '有回列的 dataset 本身狀態仍是 Ok，只是正規化不出期間');
     }
 
     public function test_taiwan_research_development_is_always_null(): void

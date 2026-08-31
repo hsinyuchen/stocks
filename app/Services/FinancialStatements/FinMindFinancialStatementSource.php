@@ -65,11 +65,17 @@ class FinMindFinancialStatementSource implements FinancialStatementSource
             $years,
         );
 
-        if ($periods->isEmpty()) {
-            // 三個 dataset 都呼叫成功卻沒有任何財報：ETF、下市標的等，永久不支援。
+        if ($periods->isEmpty() && $this->allDatasetsEmpty($statuses)) {
+            // 三個 dataset 全部真的一列都沒有：ETF、下市標的、代號不存在，永久不支援。
             return FetchResult::unsupported('no_statements', $statuses);
         }
 
+        // periods 為空但並非三個 dataset 全空時，同樣落到這裡回 Complete：
+        // 有 dataset 回了列，只是正規化不出期間（例如財報尚未揭露、上游新增
+        // 尚未設定的科目型別）。與 SEC 側 hasTargetFields() 通過但 normalize()
+        // 產不出期間同一語意（見 SecFinancialStatementSource::fetch()）：
+        // Complete + Empty，可重試，不永久判定不支援——否則會把剛上市、財報
+        // 尚未揭露的台股永久判為不支援，與美股的對應情境不對稱。
         return new FetchResult(FetchStatus::Complete, $periods, $statuses);
     }
 
@@ -127,5 +133,25 @@ class FinMindFinancialStatementSource implements FinancialStatementSource
         }
 
         return ['ok' => true, 'category' => null, 'rows' => is_array($body['data'] ?? null) ? $body['data'] : []];
+    }
+
+    /**
+     * 是否三個 dataset 全部真的一列都沒有。
+     *
+     * 用來區分「這檔真的沒有任何財報」（永久不支援）與「有 dataset 回了列，
+     * 只是正規化不出期間」（可重試）——後者常見於財報尚未揭露、或上游新增
+     * 尚未設定的科目型別。
+     *
+     * @param  array<string, DatasetStatus>  $statuses
+     */
+    private function allDatasetsEmpty(array $statuses): bool
+    {
+        foreach ($statuses as $status) {
+            if ($status !== DatasetStatus::Empty) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
