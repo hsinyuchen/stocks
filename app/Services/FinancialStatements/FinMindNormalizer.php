@@ -4,14 +4,23 @@ namespace App\Services\FinancialStatements;
 
 use App\Data\FinancialPeriod;
 use App\Data\PeriodFactSet;
+use App\Enums\DerivationKind;
 use App\Enums\PeriodType;
 
 /**
  * 台股 FinMind 的正規化。
  *
- * 遠比 SEC 側簡單，因為台股財報是**單季值**而不是 YTD 累計，期別也直接來自
- * date（季末日）——沒有鏈接、沒有 Q4 推導、沒有差分。這個不對稱是資料源的
- * 性質，不是實作偷懶。
+ * 損益表與資產負債表比 SEC 側簡單：台股這兩張表是**單季值**，期別也直接來自
+ * date（季末日）——沒有鏈接、沒有 Q4 推導。
+ *
+ * **現金流量表是例外**：台灣 IFRS 季報的現金流量表只揭露「1 月 1 日至本期末」
+ * 的累計數（YTD），FinMind 原樣回傳，性質與損益表相反。實測 2330 台積電
+ * CashFlowsFromOperatingActivities：2024Q2=813.98bn、2024Q3=1205.97bn、
+ * 2024Q4=1826.18bn（皆為全年累計，Q4 那筆其實是全年數字）；若直接當單季值
+ * 存，2024Q4 真值約 620.2bn，誤差約 3 倍。所以現金流欄位需要在同一財政年度
+ * 內逐季差分（見 diffCashflow()），與美股 SecCashFlowDiffer 的規則對齊：
+ * Q1 的 YTD 就是單季值，Q2~Q4 用「本期 YTD − 前一季 YTD」，前期缺就留 null，
+ * 且不可跨財政年度相減。
  *
  * 純函式，不打 HTTP、不讀資料庫。
  */
@@ -27,7 +36,8 @@ class FinMindNormalizer
         $fields = $this->allFields();
         $byDate = [];
 
-        foreach ([['income', $income], ['balance', $balance], ['cashflow', $cashflow]] as [$group, $rows]) {
+        // 損益表、資產負債表本來就是單季值／時點值，逐列直接寫入即可。
+        foreach ([['income', $income], ['balance', $balance]] as [$group, $rows]) {
             $map = (array) config("financial_statements.finmind_types.{$group}", []);
 
             foreach ($rows as $row) {
@@ -62,6 +72,19 @@ class FinMindNormalizer
             }
         }
 
+        // 現金流量表是 YTD 累計，必須先差分成單季值才能寫入——理由見類別 docblock。
+        $cashflowDiff = $this->diffCashflow($cashflow, $fields);
+
+        foreach ($cashflowDiff['values'] as $date => $values) {
+            $byDate[$date] ??= array_fill_keys($fields, null);
+
+            foreach ($values as $field => $value) {
+                // signed() 必須在差分之後套用：先簽名再差分會把差值的符號再翻一次
+                // （見 FinMindNormalizerTest::test_capex_sign_normalization_applies_after_differencing_not_before）。
+                $byDate[$date][$field] = $value === null ? null : $this->signed((string) $field, $value);
+            }
+        }
+
         ksort($byDate);
 
         $periods = [];
@@ -79,10 +102,107 @@ class FinMindNormalizer
                 fiscalYearComplete: true,
                 currency: 'TWD',
                 values: $values,
+                cashflowDerivation: $cashflowDiff['kind'][$date] ?? DerivationKind::Direct,
             );
         }
 
         return new PeriodFactSet(array_slice($periods, -max(0, $quarters)), 'tw');
+    }
+
+    /**
+     * 把現金流量表的 YTD 累計差分成單季值。
+     *
+     * 依「財政年度→季度序號」而非「處理順序」建索引：若只記錄「上一筆處理過
+     * 的列」，遇到中間缺一季（例如只有 Q1、Q3，沒有 Q2）時會誤把 Q3 減 Q1，
+     * 得到半年的量卻標成單季——這正是 SecCashFlowDiffer 明確警告過的錯誤。
+     * 用季度序號索引可以精確判斷「前一季」是否真的存在。
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @param  list<string>  $fields  正規化後的完整欄位集合，只取其中屬於現金流的部分
+     * @return array{values: array<string, array<string, ?float>>, kind: array<string, DerivationKind>}
+     */
+    private function diffCashflow(array $rows, array $fields): array
+    {
+        $map = (array) config('financial_statements.finmind_types.cashflow', []);
+        $cashflowFields = array_values(array_intersect($fields, array_keys($map)));
+
+        // 先按「財政年度 → 季度序號」收原始未簽名 YTD，才能精確找到「前一季」。
+        $byYearQuarter = [];
+
+        foreach ($rows as $row) {
+            $date = (string) ($row['date'] ?? '');
+            $type = (string) ($row['type'] ?? '');
+            $value = $row['value'] ?? null;
+
+            if ($date === '' || $type === '' || ! is_numeric($value) || str_ends_with($type, '_per')) {
+                continue;
+            }
+
+            $field = array_search($type, $map, true);
+
+            if ($field === false || ! in_array($field, $cashflowFields, true)) {
+                continue;
+            }
+
+            $year = (int) substr($date, 0, 4);
+            $quarter = $this->quarterOf($date);
+
+            $byYearQuarter[$year][$quarter]['date'] = $date;
+            $byYearQuarter[$year][$quarter]['ytd'][$field] = (float) $value;
+        }
+
+        $values = [];
+        $kind = [];
+
+        foreach ($byYearQuarter as $quarters) {
+            ksort($quarters);
+
+            foreach ($quarters as $quarter => $entry) {
+                $date = $entry['date'];
+                $ytd = $entry['ytd'];
+                // 只認同一年度、序號正好小 1 的那一季，不往更早的季度回溯尋找。
+                $previous = $quarter > 1 ? ($quarters[$quarter - 1]['ytd'] ?? null) : null;
+
+                $rowValues = array_fill_keys($cashflowFields, null);
+                $direct = false;
+                $derived = false;
+
+                foreach ($cashflowFields as $field) {
+                    $current = $ytd[$field] ?? null;
+
+                    if ($current === null) {
+                        continue;
+                    }
+
+                    if ($quarter === 1) {
+                        // Q1 的 YTD 本身就是單季值，直接採用。
+                        $rowValues[$field] = $current;
+                        $direct = true;
+
+                        continue;
+                    }
+
+                    $prevValue = $previous[$field] ?? null;
+
+                    if ($prevValue === null) {
+                        // 前一季缺這個科目：留 null，不可跨期硬湊出一個誤導性數字。
+                        continue;
+                    }
+
+                    $rowValues[$field] = $current - $prevValue;
+                    $derived = true;
+                }
+
+                $values[$date] = $rowValues;
+                $kind[$date] = match (true) {
+                    $direct && $derived => DerivationKind::Mixed,
+                    $derived => DerivationKind::Derived,
+                    default => DerivationKind::Direct,
+                };
+            }
+        }
+
+        return ['values' => $values, 'kind' => $kind];
     }
 
     /**
