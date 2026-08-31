@@ -244,4 +244,32 @@ return [
 
     /* 台股制度性不揭露的科目。UI 標「此市場不單獨揭露」，與「公司不適用」的「—」分開。 */
     'tw_not_disclosed' => ['research_development', 'selling_general_admin', 'share_based_compensation', 'net_change_in_cash'],
+
+    /*
+     * 擷取工作的參數。
+     *
+     * timeout 必須小於 config('queue.connections.database.retry_after')（預設 90）：
+     * 大於它時 Laravel 會在 job 還在跑的時候把同一筆重新發給另一個 worker。
+     *
+     * 死亡判定門檻 = tries × (timeout + backoff) + 60 = 2 × (60 + 30) + 60 = 240。
+     * 必須涵蓋 retry 間隙，否則會在 backoff 期間誤判死亡。
+     */
+    'job' => [
+        'queue' => 'statements',
+        'tries' => 2,
+        'backoff' => 30,
+        'timeout' => 60,
+        'stale_after_seconds' => 240,
+    ],
+
+    /*
+     * 終態的退避。沒有它，unsupported 的標的每次瀏覽都會立刻重派。
+     *
+     * unsupported 給 7 天而不是永久：指數與 ETF 不會變，但「剛上市、還沒申報第一份
+     * 10-K」的公司會變，永久封鎖等於讓它們永遠看不到財報。
+     */
+    'retry_after' => [
+        'failed_minutes' => 15,
+        'unsupported_days' => 7,
+    ],
 ];
