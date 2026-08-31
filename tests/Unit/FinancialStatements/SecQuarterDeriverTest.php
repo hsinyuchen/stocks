@@ -296,4 +296,41 @@ class SecQuarterDeriverTest extends TestCase
             '不相干科目共用 accn 不得掩蓋另一科目真正的重編'
         );
     }
+
+    // --- I4：重編偵測掃全部 tag，與三表無關的科目被重編也會誤標 ---
+
+    public function test_restatement_of_an_unrelated_tag_does_not_mark_the_period_as_restated(): void
+    {
+        // 審查用真實未裁切的 AAPL companyfacts 對照跑過同一支 normalizer：
+        // 裁切後的 fixture（只留 sec_tags∪sec_eps_tags∪anchor_tags，46 個）
+        // 算出 restatement_mixed=5／90 期，真實完整檔案（503 個 tag）算出
+        // 31／90 期——任何一個與三表無關的 tag 被重編都會讓它誤報。
+        //
+        // 這裡合成一個「與三表無關的 tag（AccruedLiabilitiesCurrent 未列在
+        // sec_tags／sec_eps_tags 裡）被重編、三表用到的 Revenues 完全沒被
+        // 重編」的 companyfacts，斷言 restatedAt() 必須忽略前者、回 null。
+        $facts = ['facts' => ['us-gaap' => [
+            'Revenues' => ['units' => ['USD' => [
+                ['start' => '2024-01-01', 'end' => '2024-12-31', 'val' => 100,
+                    'filed' => '2025-02-01', 'accn' => 'a1', 'form' => '10-K'],
+            ]]],
+            'SomeUnrelatedTagNotInAnyStatement' => ['units' => ['USD' => [
+                ['start' => '2024-01-01', 'end' => '2024-12-31', 'val' => 10,
+                    'filed' => '2025-02-01', 'accn' => 'a1', 'form' => '10-K'],
+                ['start' => '2024-01-01', 'end' => '2024-12-31', 'val' => 20,
+                    'filed' => '2026-02-01', 'accn' => 'a2', 'form' => '10-K'],
+            ]]],
+        ]]];
+
+        $this->assertNull(
+            $this->deriver()->restatedAt($facts, '2024-01-01', '2024-12-31'),
+            '與三表無關的科目被重編不該讓這個期間被標成重編'
+        );
+
+        $periods = [['start' => '2024-01-01', 'end' => '2024-12-31']];
+        $this->assertFalse(
+            $this->deriver()->isMixed($facts, $periods),
+            '同一個原因：isMixed() 也不該被無關科目的重編誤觸發'
+        );
+    }
 }

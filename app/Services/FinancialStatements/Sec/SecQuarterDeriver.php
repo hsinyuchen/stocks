@@ -100,7 +100,13 @@ class SecQuarterDeriver
     {
         $latestRestatementFiled = null;
 
-        foreach (($facts['facts']['us-gaap'] ?? []) as $def) {
+        foreach ($this->relevantTags() as $tag) {
+            $def = $facts['facts']['us-gaap'][$tag] ?? null;
+
+            if (! is_array($def)) {
+                continue;
+            }
+
             $byAccn = [];
 
             foreach (($def['units'] ?? []) as $unit => $rows) {
@@ -190,7 +196,13 @@ class SecQuarterDeriver
     {
         $latest = null;
 
-        foreach (($facts['facts']['us-gaap'] ?? []) as $def) {
+        foreach ($this->relevantTags() as $tag) {
+            $def = $facts['facts']['us-gaap'][$tag] ?? null;
+
+            if (! is_array($def)) {
+                continue;
+            }
+
             foreach (($def['units'] ?? []) as $unit => $rows) {
                 if ($unit !== 'USD') {
                     continue;
@@ -211,5 +223,36 @@ class SecQuarterDeriver
         }
 
         return $latest;
+    }
+
+    /**
+     * 重編偵測要掃描的 tag 集合：只限三表實際用到的科目
+     * （sec_tags ∪ sec_eps_tags），不掃 companyfacts 底下的全部 us-gaap tag。
+     *
+     * 實測用真實未裁切的 AAPL companyfacts（503 個 tag）對照跑過同一支
+     * normalizer：裁切後的 fixture（只留這裡限縮的集合 ∪ anchor_tags，46 個）
+     * 算出 restatement_mixed=5／90 期，真實完整檔案算出 31／90 期——任何一個
+     * 與三表無關的 tag 被重編（例如某個揭露性附註科目）都會讓「這期跨重編」
+     * 誤報，而 fixture 因為根本不含那些無關 tag，變異測試也測不出這個問題。
+     * 「本層顯示的數字跨越了重編」的旗標語意，只該由三表實際用到的科目決定。
+     *
+     * docblock 舉的 AAPL FY2008 SalesRevenueNet 例子在 sec_tags 集合內，
+     * 限縮後這個既有案例的行為不變（見 test_aapl_fy2008_is_detected_as_restated）。
+     *
+     * @return list<string>
+     */
+    private function relevantTags(): array
+    {
+        $tags = [];
+
+        foreach ((array) config('financial_statements.sec_tags') as $group) {
+            $tags = array_merge($tags, (array) $group);
+        }
+
+        foreach ((array) config('financial_statements.sec_eps_tags') as $group) {
+            $tags = array_merge($tags, (array) $group);
+        }
+
+        return array_values(array_unique($tags));
     }
 }
