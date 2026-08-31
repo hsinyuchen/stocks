@@ -176,15 +176,38 @@ class SecFinancialStatementSourceTest extends TestCase
 
     public function test_unknown_ticker_is_unsupported_no_cik(): void
     {
-        Http::fake([
-            'www.sec.gov/files/company_tickers.json' => Http::response([]),
-        ]);
+        // 對照表本身可用（非空），只是查的這個代號不在裡面——真的永久不支援
+        // （指數、非美股、多數 ETF）。
+        //
+        // 註（I3）：原本這裡用 Http::response([]) 讓對照表端點成功但回空陣列，
+        // 這個輸入形狀在 I3 修復後會被 cikMapAvailable() 判定為「對照表不可用」
+        // （空陣列與抓取失敗在 resolver 的快取裡無法區分），導致這裡改回
+        // Failed 而不是 Unsupported。改用 fakeTickerMap()（非空、但不含 NOPE）
+        // 讓這條測試維持「對照表可用、查無此代號」的原意，斷言不變。
+        $this->fakeTickerMap();
         Http::preventStrayRequests();
 
         $result = $this->source()->fetch('NOPE', 12, 5);
 
         $this->assertSame(FetchStatus::Unsupported, $result->status);
         $this->assertSame('no_cik', $result->errorCategory);
+    }
+
+    public function test_ticker_map_unavailable_is_failed_not_unsupported(): void
+    {
+        // I3：SecTickerCikResolver::map()（禁區、唯讀）在 HTTP 失敗時寫入空 map
+        // 並快取，resolve() 因此回 null，與「這檔真的沒有 CIK」在 resolver 這層
+        // 完全無法區分。這裡驗證 Source 層有把兩者分開——SEC 對照表端點短暫
+        // 故障的 10 分鐘內，不該讓每一檔美股都被永久判定不支援。
+        Http::fake([
+            'www.sec.gov/files/company_tickers.json' => Http::response('server error', 500),
+        ]);
+        Http::preventStrayRequests();
+
+        $result = $this->source()->fetch('RGTI', 12, 5);
+
+        $this->assertSame(FetchStatus::Failed, $result->status);
+        $this->assertSame('cik_map_unavailable', $result->errorCategory);
     }
 
     public function test_entity_name_is_not_compared(): void

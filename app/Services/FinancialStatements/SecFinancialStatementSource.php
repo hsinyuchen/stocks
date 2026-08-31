@@ -8,6 +8,7 @@ use App\Enums\DatasetStatus;
 use App\Enums\FetchStatus;
 use App\Services\FinancialStatements\Sec\SecNormalizer;
 use App\Services\Fundamentals\SecTickerCikResolver;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -27,6 +28,20 @@ use Throwable;
  */
 class SecFinancialStatementSource implements FinancialStatementSource
 {
+    /**
+     * 與 SecTickerCikResolver::CACHE_KEY（該檔的 private const）**必須是同一個
+     * 字串**。之所以在這裡重複寫死而不是改 resolver 開放存取：resolver 在
+     * app/Services/Fundamentals/ 下，是本子專案的隔離禁區（只讀，不得修改），
+     * 讀取它私有的快取鍵是本層唯一能做到「區分暫時性故障與永久不支援」的
+     * 方法——見下面 cikMapAvailable() 的說明。
+     *
+     * 脆弱點：resolver 若哪天改了這個快取鍵，這裡會悄悄退化成「永遠判定對照表
+     * 可用」（Cache::get() 拿到 null，is_array() 為 false，cikMapAvailable()
+     * 回 false，行為等同修復前）——不會出現例外或明顯錯誤，只會讓這個修復
+     * 靜默失效。改動 resolver 的快取鍵時務必同步檢查這裡。
+     */
+    private const CIK_MAP_CACHE_KEY = 'sec:ticker_cik_map';
+
     public function __construct(
         private readonly SecTickerCikResolver $resolver,
         private readonly SecNormalizer $normalizer,
@@ -37,7 +52,16 @@ class SecFinancialStatementSource implements FinancialStatementSource
         $cik = $this->resolver->resolve($symbol);
 
         if ($cik === null) {
-            // 沒有 CIK 就不會有 SEC 財報。指數與多數 ETF 都落在這裡，永久不支援。
+            if (! $this->cikMapAvailable()) {
+                // 對照表本身抓不到（SEC 或網路短暫故障）：resolve() 回 null 與
+                // 「這檔真的沒有 CIK」在 resolver 這層完全無法區分（resolver
+                // 抓不到時仍會寫入空 map 並快取 10 分鐘）。判成 unsupported 會
+                // 讓這 10 分鐘內每一檔美股都被永久判定不支援——這是一次全市場
+                // 誤封，而不是這檔標的真的不支援，值得重試。
+                return FetchResult::failed('cik_map_unavailable', ['companyfacts' => DatasetStatus::Failed]);
+            }
+
+            // 對照表可用（非空）但查無此代號：指數與多數 ETF 都落在這裡，永久不支援。
             return FetchResult::unsupported('no_cik', ['companyfacts' => DatasetStatus::Unsupported]);
         }
 
@@ -89,6 +113,21 @@ class SecFinancialStatementSource implements FinancialStatementSource
             periods: $periods,
             datasetStatuses: ['companyfacts' => $periods->isEmpty() ? DatasetStatus::Empty : DatasetStatus::Ok],
         );
+    }
+
+    /**
+     * ticker→CIK 對照表本身是否可用（非空）。
+     *
+     * SecTickerCikResolver 的快取只存一個扁平陣列，抓取失敗與「上游真的回傳
+     * 空表」在快取裡是同一個值（空陣列），無法從快取本身分辨成因。實務上
+     * SEC 的官方對照表恆有上萬筆，永遠不會是空的，所以「快取是空陣列」在
+     * 生產環境等同於「這次沒抓到」，可以放心當成「不可用」處理。
+     */
+    private function cikMapAvailable(): bool
+    {
+        $map = Cache::get(self::CIK_MAP_CACHE_KEY);
+
+        return is_array($map) && $map !== [];
     }
 
     /**
