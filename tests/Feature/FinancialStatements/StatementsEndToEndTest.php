@@ -184,6 +184,14 @@ class StatementsEndToEndTest extends TestCase
     {
         $instrument = Instrument::factory()->create(['symbol' => '2330.TW', 'asset_type' => AssetType::Stock]);
 
+        // I-2 之後 succeeded 的 dispatchFor() 會被新鮮度擋下（見
+        // FinancialStatementDispatcher::isFresh()）：不推進時間的話，第二次
+        // dispatchFor() 會因為第一輪剛寫入的資料仍在新鮮期內而回 false，
+        // 這條測試想驗的「重跑」根本不會發生。這裡固定起始時間、第二輪推進
+        // 超過 freshness_days（測試環境預設 30 天），與
+        // test_is_stale_survives_a_window_slide_across_two_real_fetch_rounds()
+        // 用的是同一種手法。
+        Carbon::setTestNow('2026-01-01 00:00:00');
         $this->fakeFinMindQuarters([
             '2024-03-31' => 100.0,
             '2024-06-30' => 200.0,
@@ -202,6 +210,7 @@ class StatementsEndToEndTest extends TestCase
         // 呼叫的三個參數都沒變，不 flush 的話會直接命中第一次的快取結果，寫入的
         // 還是同一組四季，測不出真正的重抓。
         Cache::flush();
+        Carbon::setTestNow('2026-02-01 00:00:00'); // +31 天，超過 freshness_days=30
         $this->fakeFinMindQuarters([
             '2024-12-31' => 400.0,
             '2025-03-31' => 500.0,

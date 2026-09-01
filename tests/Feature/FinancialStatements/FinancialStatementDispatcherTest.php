@@ -3,6 +3,7 @@
 namespace Tests\Feature\FinancialStatements;
 
 use App\Jobs\FetchFinancialStatements;
+use App\Models\FinancialStatement;
 use App\Models\FinancialStatementFetch;
 use App\Models\Instrument;
 use App\Services\FinancialStatements\FinancialStatementDispatcher;
@@ -94,9 +95,62 @@ class FinancialStatementDispatcherTest extends TestCase
 
     public function test_null_retry_after_does_not_block(): void
     {
+        // 這也是 I-2「succeeded 但完全沒有表列」的情境：抓成功但上游零期間
+        // （剛上市、財報尚未揭露），isFresh() 不能把「沒有資料」誤判成「新鮮」，
+        // 否則這種標的會永久卡死、再也沒有機會重試。
         $this->existing('succeeded', null);
 
         $this->assertTrue($this->dispatcher()->dispatchFor($this->instrument));
+    }
+
+    /**
+     * 建一列真正落地的財報資料，供新鮮度測試使用。
+     */
+    private function period(?string $fetchedAt = null): FinancialStatement
+    {
+        $at = $fetchedAt ?? now()->toDateTimeString();
+
+        return FinancialStatement::create([
+            'instrument_id' => $this->instrument->id,
+            'period_type' => 'quarter',
+            'fiscal_year' => 2026, 'fiscal_quarter' => 1, 'period_label' => '2026Q1',
+            'period_start' => '2026-01-01', 'period_end' => '2026-03-31',
+            'fiscal_year_complete' => false, 'currency' => 'USD', 'source' => 'sec',
+            'revenue' => 100,
+            'income_fetched_at' => $at, 'balance_fetched_at' => $at, 'cashflow_fetched_at' => $at,
+        ]);
+    }
+
+    /**
+     * I-2 的核心：spec 明文「succeeded 不用 retry_after，由表列的 fetched_at
+     * 與 30 天新鮮度決定」。retry_after 為 null 加上 terminal，claim() 原本的
+     * 判準恆為真，任何 dispatchFor() 呼叫（包括單純的頁面渲染）都會對新鮮
+     * 資料重派一次工——這裡驗證新鮮時確實被擋下。
+     */
+    public function test_succeeded_and_fresh_does_not_redispatch(): void
+    {
+        $this->period();
+        $this->existing('succeeded', null);
+
+        $this->assertFalse($this->dispatcher()->dispatchFor($this->instrument));
+
+        Queue::assertNothingPushed();
+        $this->assertSame(1, FinancialStatementFetch::first()->generation, '新鮮時不該遞增 generation');
+    }
+
+    /**
+     * 新鮮度規則與 FinancialStatementsReader::isStale() 同一套（跨列取最新、
+     * 跨欄取最舊）：任一張表（損益／資產負債／現金流）超過
+     * freshness_days（測試環境預設 30 天）就算過期，過期時仍要能重派工。
+     */
+    public function test_succeeded_but_stale_redispatches(): void
+    {
+        $this->period(now()->subDays(31)->toDateTimeString());
+        $this->existing('succeeded', null);
+
+        $this->assertTrue($this->dispatcher()->dispatchFor($this->instrument));
+
+        Queue::assertPushed(FetchFinancialStatements::class, fn ($job) => $job->generation === 2);
     }
 
     public function test_re_dispatch_clears_the_previous_error(): void

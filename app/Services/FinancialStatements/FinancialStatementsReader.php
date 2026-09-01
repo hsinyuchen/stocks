@@ -2,6 +2,7 @@
 
 namespace App\Services\FinancialStatements;
 
+use App\Console\Commands\WarmFinancialStatements;
 use App\Enums\PeriodType;
 use App\Models\FinancialStatement;
 use App\Models\FinancialStatementFetch;
@@ -44,7 +45,7 @@ class FinancialStatementsReader
         return [
             'periods' => $periods,
             'state' => $this->state($periods, $fetch),
-            'isStale' => $this->isStale($periods),
+            'isStale' => self::isStale($periods),
             'errorCategory' => $fetch?->error_category,
         ];
     }
@@ -66,6 +67,15 @@ class FinancialStatementsReader
             // 有舊列時使用者手上有可看的資料，一次抓取失敗不該把畫面整個換成
             // 錯誤頁；errorCategory 仍在 for() 回傳，讓 UI 標一行「最近一次更新失敗」。
             'failed' => $periods === [] ? 'failed' : 'ready',
+            // 刻意不對稱：unsupported 無條件回 'unsupported'，不像 failed 那樣看
+            // 有沒有舊列。可達路徑：某檔美股先成功落地過去 20 季，之後 SEC
+            // ticker map 查不到、或有人把 asset_type 從 stock 更正成 etf，
+            // 判定轉成 unsupported——這時資料庫裡其實還有真實、能看的財報，
+            // 但畫面上會被判成「不支援」，UI 依 state 直接分支的話這批舊資料
+            // 對使用者變成不可見，且至少要等 unsupported 的 7 天退避到期、
+            // 下一次成功重抓才會恢復。這不是錯誤，是刻意選擇「asset_type 這類
+            // 判定變更應該立刻反映在畫面上」優先於「盡量沿用舊資料」，只是
+            // 沒有測試會抓到這個取捨，記在這裡讓下一個改 state() 的人知道。
             'unsupported' => 'unsupported',
             default => $periods === [] ? 'absent' : 'ready',
         };
@@ -86,10 +96,23 @@ class FinancialStatementsReader
      * 某一欄在所有列都是 null，視同該欄的 max 是 null——這張表從沒抓成功過，比
      * 「30 天前抓的」更舊，一律算過期。
      *
-     * @param  list<FinancialStatement>  $periods
+     * 空陣列回傳 false（「不算過期」），這是本方法對「無資料」的中性表態，不是
+     * 「新鮮」的意思——呼叫端若要用這個結果推斷「要不要重抓」，必須自己先判斷
+     * 有沒有資料。{@see FinancialStatementDispatcher::isFresh()} 就是因為這個
+     * 陷阱才沒有直接把 `! isStale($periods)` 當作新鮮度用。
+     *
+     * public static：{@see FinancialStatementDispatcher::claim()} 判斷
+     * succeeded 是否需要因為新鮮度過期而重派工時，用的是同一套規則
+     * （spec 明文「succeeded 由表列的 fetched_at 與 30 天新鮮度決定」），
+     * {@see WarmFinancialStatements::skipReason()} 也是
+     * ——三處各自維護一份判準才是真正的風險。
+     *
+     * @param  iterable<FinancialStatement>  $periods
      */
-    private function isStale(array $periods): bool
+    public static function isStale(iterable $periods): bool
     {
+        $periods = is_array($periods) ? $periods : iterator_to_array($periods);
+
         if ($periods === []) {
             return false;
         }

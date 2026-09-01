@@ -4,6 +4,7 @@ namespace App\Services\FinancialStatements;
 
 use App\Console\Commands\WarmFinancialStatements;
 use App\Jobs\FetchFinancialStatements;
+use App\Models\FinancialStatement;
 use App\Models\FinancialStatementFetch;
 use App\Models\Instrument;
 use Carbon\Carbon;
@@ -47,8 +48,10 @@ class FinancialStatementDispatcher
      * @see WarmFinancialStatements 這段 INSERT IGNORE ＋
      *      條件 UPDATE 的 CAS 邏輯在該指令的 claim() 有一份刻意的複製（此方法
      *      是 private，且預熱不能走 dispatchFor() 的 dispatch() 進佇列）。改
-     *      這裡的 claim 語意（新增欄位重置、generation 遞增規則）時，記得
-     *      同步檢查那邊有沒有跟著改。
+     *      這裡的 claim 語意（新增欄位重置、generation 遞增規則、succeeded 的
+     *      新鮮度判斷）時，記得同步檢查那邊有沒有跟著改——目前 Warm 那邊已經
+     *      用 skipReason() 在呼叫 claim() 之前擋掉新鮮的 succeeded，但它的
+     *      claim() 複製本身沒有這道防線，純粹依賴呼叫順序，不是獨立防呆。
      */
     private function claim(Instrument $instrument): ?int
     {
@@ -81,6 +84,15 @@ class FinancialStatementDispatcher
                 return null;
             }
 
+            // succeeded 的 retry_after 恆為 null（見 FetchFinancialStatements::finish()，
+            // 只有 failed／unsupported 才會設退避），上面的 retryDue 判準對它永遠成立。
+            // 新鮮度因此不能靠 retry_after，spec 明文交給表列的 fetched_at＋30 天
+            // 新鮮度窗口決定——沒有這一步，任何 dispatchFor() 呼叫（包括單純的
+            // 頁面渲染）都會對新鮮資料再重派一次工。
+            if ($row->status === 'succeeded' && $this->isFresh($instrument)) {
+                return null;
+            }
+
             $newGeneration = $row->generation + 1;
 
             DB::table($table)
@@ -99,6 +111,31 @@ class FinancialStatementDispatcher
 
             return $newGeneration;
         });
+    }
+
+    /**
+     * succeeded 是否還在新鮮期內，不需要重派工。
+     *
+     * 規則與 {@see FinancialStatementsReader::isStale()} 同一套（跨列取最新、
+     * 跨欄取最舊），不重新定義一份——那正是這批財報實際顯示給使用者看時用的
+     * 新鮮度判準，dispatch 決策與畫面顯示不同調只會讓「畫面說過期了」與
+     * 「這次瀏覽卻不重抓」互相矛盾。
+     *
+     * 完全沒有表列（抓成功但上游零期間，見 FetchFinancialStatements 對空
+     * PeriodFactSet 記的 error_category='no_data'）時**不能**直接呼叫
+     * isStale()：空陣列時 isStale() 回傳 false（見該方法 docblock，這是
+     * 「無法判斷」的中性表態，不是「新鮮」），若在這裡當作新鮮處理，這種
+     * 「成功但永遠沒有資料」的標的會永久卡死、再也沒有機會重試。
+     */
+    private function isFresh(Instrument $instrument): bool
+    {
+        $periods = FinancialStatement::query()->where('instrument_id', $instrument->id)->get();
+
+        if ($periods->isEmpty()) {
+            return false;
+        }
+
+        return ! FinancialStatementsReader::isStale($periods);
     }
 
     /**

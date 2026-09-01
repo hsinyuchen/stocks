@@ -4,10 +4,12 @@ namespace App\Console\Commands;
 
 use App\Contracts\FinancialStatementSource;
 use App\Jobs\FetchFinancialStatements;
+use App\Models\FinancialStatement;
 use App\Models\FinancialStatementFetch;
 use App\Models\Instrument;
 use App\Models\WatchlistItem;
 use App\Services\FinancialStatements\FinancialStatementDispatcher;
+use App\Services\FinancialStatements\FinancialStatementsReader;
 use App\Services\FinancialStatements\FinancialStatementWriter;
 use App\Services\FinancialStatements\TaiwanAnnualDeriver;
 use Carbon\Carbon;
@@ -51,7 +53,6 @@ class WarmFinancialStatements extends Command
         // 0 是合法值（測試用，避免每個案例真的等待整秒）；用 max(0, …) 而不是
         // max(1, …)，否則 --sleep=0 會被悄悄拉回 1 秒，測試套件會被拖慢。
         $sleepSeconds = max(0, (int) $this->option('sleep'));
-        $freshnessDays = (int) config('financial_statements.freshness_days');
 
         $instrumentIds = $this->candidateInstrumentIds($limit);
 
@@ -77,7 +78,7 @@ class WarmFinancialStatements extends Command
                 continue;
             }
 
-            $outcome = $this->warmOne($instrument, $source, $writer, $deriver, $freshnessDays, $sleepSeconds);
+            $outcome = $this->warmOne($instrument, $source, $writer, $deriver, $sleepSeconds);
 
             match ($outcome) {
                 'succeeded' => $succeeded++,
@@ -115,7 +116,6 @@ class WarmFinancialStatements extends Command
         FinancialStatementSource $source,
         FinancialStatementWriter $writer,
         TaiwanAnnualDeriver $deriver,
-        int $freshnessDays,
         int $sleepSeconds,
     ): string {
         try {
@@ -123,7 +123,7 @@ class WarmFinancialStatements extends Command
                 ->where('instrument_id', $instrument->id)
                 ->first();
 
-            $skipReason = $this->skipReason($existing, $freshnessDays);
+            $skipReason = $this->skipReason($existing, $instrument);
 
             if ($skipReason !== null) {
                 $this->line("  {$instrument->symbol} 跳過（{$skipReason}）");
@@ -257,8 +257,18 @@ class WarmFinancialStatements extends Command
      * 白白耗用額度。unsupported／failed 的退避門檻則與 claim() 是同一把尺，
      * 這裡提前判斷純粹是為了印出對得上原因的訊息，不影響最終是否會打上游
      * （claim() 本身仍會對這兩態做同樣的把關）。
+     *
+     * succeeded 的新鮮度判準改用 FinancialStatementsReader::isStale()（跨列取
+     * 最新、跨欄取最舊，比對表列的 *_fetched_at），不是這一列自己的
+     * finished_at：後者只代表「job 什麼時候結束」，跟 spec 定義的「表列多久
+     * 沒被成功刷新」是兩件事，兩把尺對同一筆資料可能給出不同答案
+     * （FinancialStatementDispatcher::claim() 判斷 succeeded 該不該重派工時
+     * 用的正是前者，這裡若繼續用 finished_at 會讓「預熱該不該跳過」與
+     * 「瀏覽觸發該不該重派」互相矛盾）。完全沒有表列（抓成功但零期間，見
+     * FetchFinancialStatements 對空 PeriodFactSet 記的 error_category='no_data'）
+     * 時不能跳過，否則這種標的永遠沒有機會被重新預熱。
      */
-    private function skipReason(?object $row, int $freshnessDays): ?string
+    private function skipReason(?object $row, Instrument $instrument): ?string
     {
         if ($row === null) {
             return null;
@@ -269,10 +279,9 @@ class WarmFinancialStatements extends Command
         }
 
         if ($row->status === 'succeeded') {
-            $finishedAt = $row->finished_at !== null ? Carbon::parse($row->finished_at) : null;
-            $cutoff = now()->subDays($freshnessDays);
+            $periods = FinancialStatement::query()->where('instrument_id', $instrument->id)->get();
 
-            if ($finishedAt !== null && $finishedAt->greaterThanOrEqualTo($cutoff)) {
+            if ($periods->isNotEmpty() && ! FinancialStatementsReader::isStale($periods)) {
                 return '近期已成功，仍在新鮮期內';
             }
 
@@ -299,9 +308,14 @@ class WarmFinancialStatements extends Command
      * ／`insertIgnore()`：那兩個方法是 `private`，且不得修改 Task 7 的檔案，
      * 這裡是唯一能拿到同等 CAS 保證的方式。第一步用 INSERT IGNORE 而非 MySQL 的
      * ON DUPLICATE KEY UPDATE，理由同源：ODKU 不支援 WHERE，列已存在且為
-     * running 時會被無條件覆寫成 queued，直接打穿 CAS。
+     * running 時會被無條件覆寫成 queued，直接打穿 CAS。succeeded 的新鮮度檢查
+     * 也照抄——目前唯一呼叫端 warmOne() 已經先被 skipReason() 擋掉新鮮的
+     * succeeded，這裡按理不會被觸發，但這個方法本身沒有理由比 Dispatcher 的
+     * 版本更寬鬆：CAS 邏輯本來就該是「複製」而非「複製其中一部分」，否則兩份
+     * 拷貝各自維護、各自可能漏改的風險又回來了。
      *
-     * @return int|null null = 不該處理（in-flight，或終態但退避未到期）
+     * @return int|null null = 不該處理（in-flight、終態但退避未到期，或
+     *                  succeeded 仍在新鮮期內）
      */
     private function claim(Instrument $instrument): ?int
     {
@@ -328,6 +342,14 @@ class WarmFinancialStatements extends Command
 
             if (! $isTerminal || ! $retryDue) {
                 return null;
+            }
+
+            if ($row->status === 'succeeded') {
+                $periods = FinancialStatement::query()->where('instrument_id', $instrument->id)->get();
+
+                if ($periods->isNotEmpty() && ! FinancialStatementsReader::isStale($periods)) {
+                    return null;
+                }
             }
 
             $newGeneration = $row->generation + 1;

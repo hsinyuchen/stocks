@@ -10,6 +10,7 @@ use App\Data\PeriodFactSet;
 use App\Enums\AssetType;
 use App\Enums\FetchStatus;
 use App\Enums\PeriodType;
+use App\Models\FinancialStatement;
 use App\Models\FinancialStatementFetch;
 use App\Models\Instrument;
 use App\Models\Watchlist;
@@ -53,6 +54,37 @@ class WarmFinancialStatementsTest extends TestCase
                 'sort_order' => $index,
             ]);
         }
+    }
+
+    /**
+     * 建一列真正的財報資料，供「succeeded 且新鮮」的測試情境使用。
+     *
+     * I-2 之後 skipReason() 的新鮮度判準改成跟 FinancialStatementsReader::isStale()
+     * 同一套：只憑 financial_statement_fetches.finished_at 判斷已經不夠，沒有任何
+     * financial_statements 列時一律視為「不新鮮」（見該方法 docblock，這是刻意的
+     * 防呆，避免「成功但零期間」的標的被新鮮度卡死、永遠不再重試）。這裡補上
+     * 一列真正的資料，才是「這檔標的過去真的抓成功過」的正確測試設定。
+     */
+    private function freshRow(Instrument $instrument, ?string $fetchedAt = null): FinancialStatement
+    {
+        $at = $fetchedAt ?? now()->toDateTimeString();
+
+        return FinancialStatement::create([
+            'instrument_id' => $instrument->id,
+            'period_type' => 'quarter',
+            'fiscal_year' => 2026,
+            'fiscal_quarter' => 1,
+            'period_label' => '2026Q1',
+            'period_start' => '2026-01-01',
+            'period_end' => '2026-03-31',
+            'fiscal_year_complete' => false,
+            'currency' => 'USD',
+            'source' => 'sec',
+            'revenue' => 100,
+            'income_fetched_at' => $at,
+            'balance_fetched_at' => $at,
+            'cashflow_fetched_at' => $at,
+        ]);
     }
 
     /** 一律成功的假來源，並記錄被呼叫過幾次、被問過哪些 symbol。 */
@@ -113,6 +145,7 @@ class WarmFinancialStatementsTest extends TestCase
     {
         $instrument = Instrument::factory()->create();
         $this->watch($instrument);
+        $this->freshRow($instrument);
         FinancialStatementFetch::create([
             'instrument_id' => $instrument->id, 'generation' => 1,
             'status' => 'succeeded', 'attempts' => 1,
@@ -132,6 +165,7 @@ class WarmFinancialStatementsTest extends TestCase
         $spy = $this->fakeSourceAlwaysSucceeds();
         $instrument = Instrument::factory()->create();
         $this->watch($instrument);
+        $this->freshRow($instrument, now()->subDays(5)->toDateTimeString());
         FinancialStatementFetch::create([
             'instrument_id' => $instrument->id, 'generation' => 3,
             'status' => 'succeeded', 'attempts' => 1,
@@ -144,6 +178,27 @@ class WarmFinancialStatementsTest extends TestCase
         $fetch = FinancialStatementFetch::first();
         $this->assertSame(3, $fetch->generation, 'generation 不該被跳過的一筆動到');
         $this->assertSame('succeeded', $fetch->status);
+    }
+
+    /**
+     * I-3 的情境：抓成功但上游零期間（剛上市、財報尚未揭露），
+     * financial_statements 完全沒有列。這種標的不能被新鮮度卡死——沒有資料
+     * 可看，理應每次預熱都重試，直到真的抓到東西為止。
+     */
+    public function test_succeeded_with_no_periods_is_not_skipped_as_fresh(): void
+    {
+        $spy = $this->fakeSourceAlwaysSucceeds();
+        $instrument = Instrument::factory()->create();
+        $this->watch($instrument);
+        FinancialStatementFetch::create([
+            'instrument_id' => $instrument->id, 'generation' => 1,
+            'status' => 'succeeded', 'attempts' => 1,
+            'queued_at' => now(), 'finished_at' => now(),
+        ]);
+
+        $this->artisan('financials:warm', ['--sleep' => 0])->assertSuccessful();
+
+        $this->assertSame(1, $spy->calls, '沒有任何表列時不該被判定新鮮而跳過');
     }
 
     public function test_unsupported_before_retry_after_is_skipped_without_calling_the_source(): void
