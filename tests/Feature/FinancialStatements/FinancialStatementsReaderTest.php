@@ -137,6 +137,25 @@ class FinancialStatementsReaderTest extends TestCase
         $this->assertSame('timeout', $result['errorCategory']);
     }
 
+    /**
+     * I-3：succeeded 但零期間（剛上市、財報尚未揭露）與「這檔從沒被抓過」的
+     * state 字串同樣是 'absent'，唯一的分辨方式是 errorCategory 非 null——
+     * 子專案 3 要靠這個欄位區分「可重試」與「什麼都沒發生過」。
+     */
+    public function test_succeeded_with_no_periods_carries_the_no_data_error_category(): void
+    {
+        FinancialStatementFetch::create([
+            'instrument_id' => $this->instrument->id,
+            'generation' => 1, 'status' => 'succeeded', 'attempts' => 1,
+            'queued_at' => now(), 'finished_at' => now(), 'error_category' => 'no_data',
+        ]);
+
+        $result = $this->read();
+
+        $this->assertSame('absent', $result['state']);
+        $this->assertSame('no_data', $result['errorCategory']);
+    }
+
     public function test_unsupported_is_its_own_state(): void
     {
         FinancialStatementFetch::create([

@@ -96,6 +96,29 @@ class FetchFinancialStatementsJobTest extends TestCase
         $this->assertEquals(5138000.0, FinancialStatement::first()->revenue);
     }
 
+    /**
+     * I-3：Complete 但零期間（剛上市、財報尚未揭露）與「這檔從沒被抓過」在
+     * 狀態列上原本無法區分——兩者都是「succeeded/absent 沒有列」。
+     * error_category='no_data' 讓 Reader／Dispatcher 能分辨這個特例，
+     * 不需要新增第七種終態（見 FetchFinancialStatements::handle() 的說明）。
+     */
+    public function test_complete_result_with_no_periods_is_marked_succeeded_with_no_data_category(): void
+    {
+        $this->state();
+        $this->fakeSource(new FetchResult(
+            FetchStatus::Complete,
+            new PeriodFactSet([], 'us'),
+            ['companyfacts' => DatasetStatus::Ok],
+        ));
+
+        $this->runJob();
+
+        $fetch = FinancialStatementFetch::first();
+        $this->assertSame('succeeded', $fetch->status);
+        $this->assertSame('no_data', $fetch->error_category);
+        $this->assertSame(0, FinancialStatement::count());
+    }
+
     public function test_non_stock_asset_type_is_unsupported_without_touching_the_source(): void
     {
         // 原計畫版本讓 bind() 的 resolver 本身拋例外，但 Laravel 對

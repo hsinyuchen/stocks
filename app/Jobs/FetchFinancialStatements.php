@@ -133,7 +133,15 @@ class FetchFinancialStatements implements ShouldQueue
 
             $writer->write($instrument, $periods, $sourceName);
 
-            $locked->markTerminal($this->generation, 'succeeded');
+            // Complete 但零期間（剛上市、財報尚未揭露）與「從沒抓過」在狀態列
+            // 上原本無法區分：兩者都是「表裡沒有列」。error_category 借來標記
+            // 這個特例，讓 Reader／Dispatcher 能分辨「成功但沒資料，值得下次
+            // 重試」與「什麼都沒發生過」，不需要新增第七種終態。
+            $locked->markTerminal(
+                $this->generation,
+                'succeeded',
+                $periods->isEmpty() ? 'no_data' : null,
+            );
         });
     }
 
