@@ -72,7 +72,7 @@ export default function StatementTable({
 function mobileLabel(t, period, { derivationKey, restatementKey, typicalLength }) {
     const labels = periodBadgeLabels(t, { period, derivationKey, restatementKey, typicalLength });
 
-    return labels.length === 0 ? period.label : `${period.label} · ${labels.join(' ・ ')}`;
+    return labels.length === 0 ? period.label : `${period.label} · ${labels.join(' · ')}`;
 }
 
 /**

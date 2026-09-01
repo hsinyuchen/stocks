@@ -4733,18 +4733,25 @@ select:focus-visible {
     }
 
     .financials-table tbody td {
+        /* 桌面 nowrap 是刻意的（數字欄換行難讀），但手機版 flex item 預設
+           min-width: auto 不會縮小，nowrap 沿用下來會讓 data-label 疊多個
+           徽章文字時把整張卡片撐到橫向溢出，違背「一期一卡直向堆疊」的設計
+           意圖。手機斷點內必須覆寫回 normal。 */
         border-bottom: none;
         display: flex;
         justify-content: space-between;
         gap: 12px;
         padding: 4px 0;
         text-align: right;
+        white-space: normal;
     }
 
     .financials-table tbody td::before {
         color: var(--muted);
         content: attr(data-label);
         font-size: 0.78rem;
+        overflow-wrap: anywhere;
         text-align: left;
+        white-space: normal;
     }
 }
