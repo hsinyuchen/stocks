@@ -18,6 +18,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ScreenerController;
 use App\Http\Controllers\StockChartController;
 use App\Http\Controllers\StockChatController;
+use App\Http\Controllers\StockFinancialsController;
 use App\Http\Controllers\StockSearchController;
 use App\Http\Controllers\TopicController;
 use App\Http\Controllers\WatchlistAnalysisController;
@@ -54,6 +55,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/stocks/lookup', [StockSearchController::class, 'lookup'])->name('stocks.lookup');
     Route::get('/stocks/chart', [StockChartController::class, 'bySymbol'])->name('stocks.chart.symbol');
     Route::get('/stocks/{instrument}/chart', StockChartController::class)->name('stocks.chart');
+    Route::get('/stocks/{instrument}/financials', StockFinancialsController::class)->name('stocks.financials');
     Route::post('/stocks/{instrument}/analyses', [StockSearchController::class, 'analyze'])->name('stocks.analyses.store');
     Route::delete('/stocks/analyses/{stockAnalysis}', [StockSearchController::class, 'destroyAnalysis'])->name('stocks.analyses.destroy');
     // throttle 是濫用後盾而非主要控制：controller 已限制同一檔同時只能有一題
