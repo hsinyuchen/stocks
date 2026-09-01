@@ -128,4 +128,75 @@ class StatementsQueueTest extends TestCase
         $this->assertSame(1, $processed, 'statements 配額是 1，一次 drain 只能處理 1 筆');
         $this->assertSame(1, DB::table('jobs')->where('queue', 'statements')->count(), '另一筆應該還留在佇列裡');
     }
+
+    /**
+     * 迴歸測試：drain() 查配額時必須用「解析後的佇列名」（$resolvedQueue），
+     * 不能用呼叫端傳入的原始 $queue。呼叫端傳 null（例如 ProcessQueuedAnalyses
+     * 對 default 佇列的呼叫）時，若誤用原始 $queue 去查
+     * config("analysis.queues.{$queue}.max_jobs")，等於查
+     * "analysis.queues..max_jobs"（永遠查不到鍵），會無條件退回
+     * analysis.inline_worker.max_jobs，讓 analysis.queues.default.max_jobs
+     * 這個設定形同虛設。
+     *
+     * 兩個配額刻意設成不同值（3 與 99）：config/analysis.php 的預設值剛好都是 2，
+     * 若沿用預設值測，退化成查 inline_worker.max_jobs 也會巧合地算出同樣的
+     * 處理筆數，完全看不出兩條路徑的差異——這正是這條規則先前沒有被任何測試
+     * 抓到的原因（審查實測：把 drain() 裡的 $resolvedQueue 改回 $queue，
+     * 原本 44 個相關測試全部維持綠燈）。
+     */
+    public function test_drain_with_no_argument_reads_the_resolved_default_queue_budget(): void
+    {
+        config([
+            'queue.default' => 'database',
+            // 借用既有的 no-op 財報 job（instrumentId 不存在時 handle() 直接
+            // return）當快速 job，只是把它改派到 default 佇列，藉此驗證
+            // default 佇列自己的配額，而不是 statements 的。
+            'financial_statements.job.queue' => 'default',
+            'analysis.queues.default.max_jobs' => 3,
+            'analysis.inline_worker.max_jobs' => 99,
+            // 秒數預算要夠寬，確保迴圈是被筆數配額擋下、不是被秒數預算擋下，
+            // 否則斷言驗到的就不是這條規則。
+            'analysis.inline_worker.max_seconds' => 60,
+        ]);
+
+        for ($i = 0; $i < 5; $i++) {
+            FetchFinancialStatements::dispatch(999999, 1);
+        }
+        $this->assertSame(5, DB::table('jobs')->where('queue', 'default')->count());
+
+        $processed = app(InlineQueueWorker::class)->drain();
+
+        $this->assertSame(
+            3,
+            $processed,
+            '應讀到 analysis.queues.default.max_jobs=3；讀到 99 代表退化成查 inline_worker.max_jobs，讀到 5 代表兩個配額都沒生效'
+        );
+        $this->assertSame(2, DB::table('jobs')->where('queue', 'default')->count(), '5 筆排隊、配額 3，應剩 2 筆');
+    }
+
+    /**
+     * Minor：analysis.queues.{佇列名}.max_jobs 鍵完全不存在時的 fallback 路徑。
+     * 用一個 config/analysis.php 沒定義的佇列名，確認會退回
+     * analysis.inline_worker.max_jobs，而不是拋錯或退成 0。
+     */
+    public function test_drain_falls_back_to_inline_worker_max_jobs_for_an_unconfigured_queue(): void
+    {
+        config([
+            'queue.default' => 'database',
+            'financial_statements.job.queue' => 'unconfigured-queue',
+            'analysis.inline_worker.max_jobs' => 2,
+            'analysis.inline_worker.max_seconds' => 60,
+        ]);
+        // 確保這個佇列名在 analysis.queues 底下真的沒有設定過，落到 fallback 分支。
+        $this->assertArrayNotHasKey('unconfigured-queue', (array) config('analysis.queues'));
+
+        for ($i = 0; $i < 3; $i++) {
+            FetchFinancialStatements::dispatch(999999, 1);
+        }
+        $this->assertSame(3, DB::table('jobs')->where('queue', 'unconfigured-queue')->count());
+
+        $processed = app(InlineQueueWorker::class)->drain('unconfigured-queue');
+
+        $this->assertSame(2, $processed, '沒有專屬設定時應退回 inline_worker.max_jobs=2');
+    }
 }
