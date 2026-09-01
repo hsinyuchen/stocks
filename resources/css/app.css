@@ -2904,6 +2904,14 @@ select:focus-visible {
     margin: 12px 0 0;
 }
 
+/* 財報子頁面入口＋估值資料日期，兩者都靠右堆疊在 panel-heading 右側。 */
+.fundamentals-heading-actions {
+    align-items: flex-end;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 .valuation-percentiles {
     border-top: 1px solid var(--border);
     display: grid;

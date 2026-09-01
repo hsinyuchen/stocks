@@ -615,16 +615,22 @@ function changeClass(value) {
     return Number(value) > 0 ? 'is-up' : 'is-down';
 }
 
-function FundamentalsPanel({ fundamentals }) {
+function FundamentalsPanel({ fundamentals, instrumentId }) {
     const { t } = useI18n();
 
-    if (!fundamentals) {
+    // 沒有 fundamentals 且沒有 instrument 時（例如首頁尚未查詢任何股票），
+    // 沒有標的可連到財報頁，整塊面板連同入口連結一起不渲染。
+    // 有 instrument 但 fundamentals 為 null（例如美股、無台股基本面資料）時，
+    // 面板仍要渲染——一檔股票沒有估值資料不代表沒有財報。
+    if (!fundamentals && !instrumentId) {
         return null;
     }
 
     const f = fundamentals;
-    const allNull = ['per', 'pbr', 'dividend_yield', 'eps', 'roe', 'revenue', 'revenue_yoy']
-        .every((key) => f[key] === null || f[key] === undefined);
+    const allNull = f
+        ? ['per', 'pbr', 'dividend_yield', 'eps', 'roe', 'revenue', 'revenue_yoy']
+            .every((key) => f[key] === null || f[key] === undefined)
+        : true;
 
     return (
         <section className="stock-panel fundamentals-panel">
@@ -633,7 +639,14 @@ function FundamentalsPanel({ fundamentals }) {
                     <p className="section-kicker">{t('stocks.fundamentals')}</p>
                     <h2>{t('stocks.financialsValuation')}</h2>
                 </div>
-                {f.data_as_of ? <span className="field-hint">{t('stocks.valuationDataDate', { date: f.data_as_of })}</span> : null}
+                <div className="fundamentals-heading-actions">
+                    {f?.data_as_of ? <span className="field-hint">{t('stocks.valuationDataDate', { date: f.data_as_of })}</span> : null}
+                    {instrumentId ? (
+                        <Link href={`/stocks/${instrumentId}/financials`} className="panel-link">
+                            {t('financials.entry')}
+                        </Link>
+                    ) : null}
+                </div>
             </div>
 
             {allNull ? (
@@ -671,7 +684,7 @@ function FundamentalsPanel({ fundamentals }) {
                 </div>
             )}
 
-            <ValuationPercentiles percentiles={f.percentiles} />
+            <ValuationPercentiles percentiles={f?.percentiles} />
 
             <p className="fundamentals-disclaimer">
                 {t('stocks.fundamentalsDisclaimer')}
@@ -1841,7 +1854,7 @@ export default function StockSearch({
                         <QuotePanel instrument={instrument} quote={quote} />
                         {instrument ? <ChartSection instrument={instrument} /> : null}
                         <HealthPanel health={health} />
-                        <FundamentalsPanel fundamentals={fundamentals} />
+                        <FundamentalsPanel fundamentals={fundamentals} instrumentId={instrument?.id} />
                         <ChipPanel chipFlows={chipFlows} />
                         <BrokerBranchPanel brokerBranch={brokerBranch} market={instrument?.market} />
                         <MarginPanel marginFlows={marginFlows} />
