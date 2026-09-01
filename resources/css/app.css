@@ -4618,3 +4618,133 @@ select:focus-visible {
     line-height: 1.6;
     margin: 8px 0 0;
 }
+
+/* ---------------------------------------------------------------
+   財報表格（子專案 3 Task 5）
+   --------------------------------------------------------------- */
+
+.financials-unit {
+    color: var(--muted);
+    font-size: 0.82rem;
+    margin: 0 0 8px;
+}
+
+/* 桌面：正常表格橫向捲動；容器自己捲，body 不出現水平捲軸。 */
+.financials-table-wrap {
+    overflow-x: auto;
+}
+
+.financials-table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.financials-table th,
+.financials-table td {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 10px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* 科目欄（每列第一格）維持左對齊，並在橫向捲動時固定在左側，
+   讓使用者捲到最右邊的期間時仍看得到自己在讀哪個科目。 */
+.financials-table th:first-child,
+.financials-table td:first-child {
+    background: var(--surface);
+    left: 0;
+    position: sticky;
+    text-align: left;
+    white-space: normal;
+}
+
+.financials-table thead th {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 500;
+    vertical-align: bottom;
+}
+
+.financials-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.financials-period-label {
+    display: block;
+}
+
+.financials-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
+.financials-badge {
+    background: var(--accent-soft);
+    border-radius: 999px;
+    color: var(--accent-strong);
+    font-size: 0.68rem;
+    font-weight: 500;
+    padding: 1px 8px;
+    white-space: nowrap;
+}
+
+.financials-value {
+    font-variant-numeric: tabular-nums;
+}
+
+.financials-not-disclosed,
+.financials-no-value {
+    color: var(--muted);
+}
+
+/* 手機：thead 隱藏，每個 tr 變一張卡，td 靠 data-label 顯示期間名稱
+   （已併入 PeriodBadges 的標記文字，見 StatementTable.jsx 的 mobileLabel()）。
+   沿用專案既有的 900px 斷點（見側欄與 .stock-panel 那組規則）。 */
+@media (max-width: 900px) {
+    .financials-table thead {
+        display: none;
+    }
+
+    .financials-table,
+    .financials-table tbody,
+    .financials-table tr,
+    .financials-table th,
+    .financials-table td {
+        display: block;
+        width: auto;
+    }
+
+    .financials-table tbody tr {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        margin-bottom: 10px;
+        padding: 8px 12px;
+    }
+
+    .financials-table tbody th {
+        border-bottom: 1px solid var(--border);
+        left: auto;
+        padding: 4px 0 6px;
+        position: static;
+    }
+
+    .financials-table tbody td {
+        border-bottom: none;
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 4px 0;
+        text-align: right;
+    }
+
+    .financials-table tbody td::before {
+        color: var(--muted);
+        content: attr(data-label);
+        font-size: 0.78rem;
+        text-align: left;
+    }
+}
