@@ -34,6 +34,18 @@
     --neg: #c0392b;
     --neg-soft: color-mix(in srgb, #c0392b 12%, var(--surface));
     --neutral-soft: color-mix(in srgb, var(--text) 8%, var(--surface));
+    /* 財報長條圖的分類色（子專案 3 Task 6）。刻意不沿用 --positive/--neg：
+       那兩色在別處代表「數值正負」，長條圖的顏色代表「數列身分」（例如營收
+       vs. 淨利），淨利本身仍可能是負值，兩種語意混在一起會誤導。
+       三色沿用 dataviz skill 驗證過的 categorical 色盤前三格（藍／橘／青綠），
+       在本專案的淺色底（--surface）跑過 CVD 與對比驗證（node
+       scripts/validate_palette.js "#2a78d6,#eb6834,#1baf7a" --mode light
+       --surface "#fffaf2"）全部通過（青綠對比 2.71:1 略低於 3:1，
+       屬於色盤本身允許的 relief 情況——長條圖旁邊一定有文字圖例＋下方
+       表格，不會只靠顏色辨識數列）。 */
+    --chart-series-1: #2a78d6;
+    --chart-series-2: #eb6834;
+    --chart-series-3: #1baf7a;
 }
 
 :root[data-theme='dark'] {
@@ -58,6 +70,12 @@
     --neg: #e8897e;
     --neg-soft: color-mix(in srgb, #e8897e 20%, var(--surface));
     --neutral-soft: color-mix(in srgb, var(--text) 12%, var(--surface));
+    /* 深色底的階，同一個色盤族系（藍／橘／青綠），驗證過對深色 --surface
+       全部達到 3:1 以上對比（node scripts/validate_palette.js
+       "#3987e5,#d95926,#199e70" --mode dark --surface "#1f1e1c"）。 */
+    --chart-series-1: #3987e5;
+    --chart-series-2: #d95926;
+    --chart-series-3: #199e70;
 }
 
 * {
@@ -4754,4 +4772,57 @@ select:focus-visible {
         text-align: left;
         white-space: normal;
     }
+}
+
+/* ---------------------------------------------------------------
+   財報長條圖（子專案 3 Task 6）
+   --------------------------------------------------------------- */
+
+.financials-chart {
+    /* 重設 <figure> 的瀏覽器預設邊界（1em 40px），否則會比下方表格多縮排。 */
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 0 0 16px;
+    padding: 12px 12px 8px;
+}
+
+.financials-chart svg {
+    display: block;
+    height: auto;
+    width: 100%;
+}
+
+.financials-chart-zero {
+    stroke: var(--border);
+    stroke-width: 1;
+}
+
+.financials-chart-label {
+    fill: var(--muted);
+    font-size: 11px;
+}
+
+.financials-chart-legend {
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.78rem;
+    gap: 6px 14px;
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+}
+
+.financials-chart-legend li {
+    align-items: center;
+    display: inline-flex;
+    gap: 6px;
+}
+
+.financials-legend-swatch {
+    border-radius: 2px;
+    display: inline-block;
+    height: 10px;
+    width: 10px;
 }

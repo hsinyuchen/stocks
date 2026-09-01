@@ -1146,7 +1146,8 @@ export default {
             "equity": "Equity",
             "operating": "Operating",
             "investing": "Investing",
-            "financing": "Financing"
+            "financing": "Financing",
+            "ariaLabel": "Grouped bar chart of :series"
         },
         "field": {
             "revenue": "Revenue",

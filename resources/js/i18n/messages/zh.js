@@ -1147,7 +1147,8 @@ export default {
             "equity": "權益",
             "operating": "營業活動",
             "investing": "投資活動",
-            "financing": "融資活動"
+            "financing": "融資活動",
+            "ariaLabel": ":series 分組長條圖"
         },
         "field": {
             "revenue": "營收",
