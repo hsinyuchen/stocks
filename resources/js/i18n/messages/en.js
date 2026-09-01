@@ -1098,5 +1098,89 @@ export default {
         "noteUnavailableIsNotNegative": "“Cannot be evaluated” does not mean “does not hold”; every block states why it could not be computed — some will resolve shortly, others never will.",
         "notePricesUnadjusted": "Prices are not adjusted for dividends or splits, so ex-dividend dates and splits leave real gaps in the technical indicators; the confidence of any technical conclusion is limited by this.",
         "disclaimer": "These reads come from technical indicators, institutional net flows and financial series under fixed thresholds. The four blocks are deliberately never combined into a score or a ranking. For reference only, not investment advice."
+    },
+    "financials": {
+        "title": "Financial Statements",
+        "entry": "View financial statements",
+        "tab": {
+            "income": "Income Statement",
+            "balance": "Balance Sheet",
+            "cashflow": "Cash Flow"
+        },
+        "periodType": {
+            "quarter": "Quarterly",
+            "annual": "Annual"
+        },
+        "unit": {
+            "hundredMillionTwd": "Unit: TWD 100M",
+            "millionUsd": "Unit: USD millions",
+            "billionUsd": "Unit: USD billions"
+        },
+        "showAll": "Show all",
+        "showLess": "Show less",
+        "periodCount": ":total periods",
+        "state": {
+            "fetching": "Fetching financial statements…",
+            "refreshing": "Updating; showing the last fetched data",
+            "absent": "No financial statements yet",
+            "unsupported": "No financial statements are available for this instrument",
+            "failed": "The last update failed",
+            "stale": "This data may be out of date",
+            "stalled": "Timed out waiting; please try again later"
+        },
+        "badge": {
+            "derived": "Derived",
+            "mixed": "Contains derived values",
+            "restated": "Spans restated filings",
+            "incompleteYear": "Incomplete fiscal year",
+            "oddLength": ":days-day period"
+        },
+        "notDisclosed": "Not separately disclosed in this market",
+        "noValue": "—",
+        "chart": {
+            "revenue": "Revenue",
+            "netIncome": "Net income",
+            "totalAssets": "Total assets",
+            "totalLiabilities": "Total liabilities",
+            "equity": "Equity",
+            "operating": "Operating",
+            "investing": "Investing",
+            "financing": "Financing"
+        },
+        "field": {
+            "revenue": "Revenue",
+            "cost_of_revenue": "Cost of revenue",
+            "gross_profit": "Gross profit",
+            "research_development": "Research & development",
+            "selling_general_admin": "Selling, general & administrative",
+            "operating_expenses": "Operating expenses",
+            "operating_income": "Operating income",
+            "non_operating_income": "Non-operating income",
+            "pretax_income": "Pretax income",
+            "income_tax": "Income tax expense",
+            "net_income": "Net income",
+            "eps_basic": "Basic EPS",
+            "eps_diluted": "Diluted EPS",
+            "cash_and_equivalents": "Cash and equivalents",
+            "accounts_receivable": "Accounts receivable",
+            "inventories": "Inventories",
+            "current_assets": "Current assets",
+            "property_plant_equipment": "Property, plant & equipment",
+            "intangible_assets": "Intangible assets",
+            "total_assets": "Total assets",
+            "accounts_payable": "Accounts payable",
+            "current_liabilities": "Current liabilities",
+            "long_term_debt": "Long-term debt",
+            "total_liabilities": "Total liabilities",
+            "equity": "Total equity",
+            "retained_earnings": "Retained earnings",
+            "operating_cash_flow": "Operating cash flow",
+            "investing_cash_flow": "Investing cash flow",
+            "financing_cash_flow": "Financing cash flow",
+            "capex": "Capital expenditures",
+            "depreciation_amortization": "Depreciation & amortization",
+            "share_based_compensation": "Share-based compensation",
+            "net_change_in_cash": "Net change in cash"
+        }
     }
 };

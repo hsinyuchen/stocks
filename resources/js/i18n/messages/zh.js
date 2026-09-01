@@ -1099,5 +1099,89 @@ export default {
         "noteUnavailableIsNotNegative": "「不可評估」不等於「不成立」，每一塊都會說出為什麼算不出來——有些等一下就有，有些永遠不會有。",
         "notePricesUnadjusted": "價格未做除權息還原，除權息與拆股會在技術指標上留下真實缺口，技術面結論的可信度受此限制。",
         "disclaimer": "體質判讀由技術指標、三大法人買賣超與財報序列以固定門檻產生，四塊刻意不合成總分也不排名。僅供參考，非投資建議。"
+    },
+    "financials": {
+        "title": "財務報表",
+        "entry": "查看財務報表",
+        "tab": {
+            "income": "損益表",
+            "balance": "資產負債表",
+            "cashflow": "現金流量表"
+        },
+        "periodType": {
+            "quarter": "季度",
+            "annual": "年度"
+        },
+        "unit": {
+            "hundredMillionTwd": "單位：億元",
+            "millionUsd": "單位：百萬美元",
+            "billionUsd": "單位：十億美元"
+        },
+        "showAll": "顯示全部",
+        "showLess": "收合",
+        "periodCount": "共 :total 期",
+        "state": {
+            "fetching": "正在取得財報…",
+            "refreshing": "資料更新中，以下為上次取得的內容",
+            "absent": "尚無財報資料",
+            "unsupported": "此標的沒有可取得的財報",
+            "failed": "最近一次更新失敗",
+            "stale": "資料可能已過期",
+            "stalled": "等候過久，請稍後重試"
+        },
+        "badge": {
+            "derived": "推導值",
+            "mixed": "本期含推導值",
+            "restated": "跨重編來源",
+            "incompleteYear": "年度未完整",
+            "oddLength": "期間長度 :days 天"
+        },
+        "notDisclosed": "此市場不單獨揭露",
+        "noValue": "—",
+        "chart": {
+            "revenue": "營收",
+            "netIncome": "淨利",
+            "totalAssets": "總資產",
+            "totalLiabilities": "總負債",
+            "equity": "權益",
+            "operating": "營業活動",
+            "investing": "投資活動",
+            "financing": "融資活動"
+        },
+        "field": {
+            "revenue": "營收",
+            "cost_of_revenue": "營業成本",
+            "gross_profit": "毛利",
+            "research_development": "研究發展費用",
+            "selling_general_admin": "推銷及管理費用",
+            "operating_expenses": "營業費用",
+            "operating_income": "營業利益",
+            "non_operating_income": "營業外收支",
+            "pretax_income": "稅前淨利",
+            "income_tax": "所得稅費用",
+            "net_income": "淨利",
+            "eps_basic": "基本每股盈餘",
+            "eps_diluted": "稀釋每股盈餘",
+            "cash_and_equivalents": "現金及約當現金",
+            "accounts_receivable": "應收帳款",
+            "inventories": "存貨",
+            "current_assets": "流動資產",
+            "property_plant_equipment": "不動產、廠房及設備",
+            "intangible_assets": "無形資產",
+            "total_assets": "總資產",
+            "accounts_payable": "應付帳款",
+            "current_liabilities": "流動負債",
+            "long_term_debt": "長期借款",
+            "total_liabilities": "總負債",
+            "equity": "權益總額",
+            "retained_earnings": "保留盈餘",
+            "operating_cash_flow": "營業活動現金流量",
+            "investing_cash_flow": "投資活動現金流量",
+            "financing_cash_flow": "融資活動現金流量",
+            "capex": "資本支出",
+            "depreciation_amortization": "折舊及攤銷",
+            "share_based_compensation": "股份基礎給付費用",
+            "net_change_in_cash": "現金及約當現金淨增減"
+        }
     }
 };
