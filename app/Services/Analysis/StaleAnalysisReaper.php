@@ -225,7 +225,10 @@ class StaleAnalysisReaper
         }
 
         $table = config('queue.connections.database.table', 'jobs');
-        $analysisQueue = config('queue.connections.database.queue', 'default');
+        // 佇列名的唯一算式在 InlineQueueWorker::resolveDefaultQueueName()；
+        // 上面的 guard 已確保 queue.default === 'database'，這裡直接呼叫它
+        // 等價於原本寫死的 config('queue.connections.database.queue', 'default')。
+        $analysisQueue = InlineQueueWorker::resolveDefaultQueueName();
 
         // reserved_at 不為 null 代表某個 worker 正在跑它，不能中途抽掉。
         return DB::table($table)

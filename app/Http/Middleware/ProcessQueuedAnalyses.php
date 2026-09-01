@@ -58,12 +58,16 @@ class ProcessQueuedAnalyses
             }
 
             // default 佇列的真正名字不在這裡決定：不傳參數，讓 InlineQueueWorker
-            // 自己用 config('queue.connections.{connection}.queue', 'default') 解析
-            // ——這是 StaleAnalysisReaper::discardStaleJobs() 早就在用的同一條算式。
-            // 「什麼是 default 佇列」這個知識只能有一份；這裡若寫死字面量 'default'，
-            // 一旦 DB_QUEUE 被設成別的值（例如共享 DB 上做佇列命名空間隔離），
-            // reaper 仍抓得到真正的分析佇列，這裡卻會排錯佇列名，inline 模式下
-            // 分析 job 就永遠取不到件（除非另外還有 cron worker 兜底）。
+            // 自己解析。所有「執行期」需要知道 default 佇列真正叫什麼的地方
+            // （這裡、StaleAnalysisReaper::discardStaleJobs()、routes/console.php
+            // 的 cron worker、queue:doctor 的逐佇列統計）都呼叫同一個算式：
+            // InlineQueueWorker::resolveDefaultQueueName()。這裡若寫死字面量
+            // 'default'，一旦 DB_QUEUE 被設成別的值（例如共享 DB 上做佇列命名空間
+            // 隔離），reaper 仍抓得到真正的分析佇列，這裡卻會排錯佇列名，inline
+            // 模式下分析 job 就永遠取不到件（除非另外還有 cron worker 兜底）。
+            // 兩個已知例外（composer.json 的 dev 腳本、config/analysis.php 的
+            // queues.default 鍵）仍是字面量，理由見 resolveDefaultQueueName() 的
+            // docblock。
             if ($this->worker->pendingCount() > 0) {
                 $this->worker->drain();
             }

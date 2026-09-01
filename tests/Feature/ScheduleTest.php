@@ -134,6 +134,33 @@ class ScheduleTest extends TestCase
         );
     }
 
+    /**
+     * M-1：第二個 queue:work 的佇列名必須讀
+     * InlineQueueWorker::resolveDefaultQueueName()，不能寫死字面量 'default'。
+     * DB_QUEUE 被改名時（例如共享 DB 上做佇列命名空間隔離），若這裡還是字面量，
+     * cron worker 會顧一個空佇列，分析 job 永遠沒有人取件。
+     *
+     * 用 queue.connections.database.queue 而非 DB_QUEUE 環境變數來覆蓋：
+     * routes/console.php 在測試裡用 require 重新載入，config() 的值已經是
+     * 合併後的陣列，改它比改 env 更直接、不受「env 是否已被快取」影響。
+     */
+    public function test_the_default_worker_queue_name_follows_the_configured_queue(): void
+    {
+        $commands = $this->queueWorkerCommands([
+            'queue.default' => 'database',
+            'queue.connections.database.queue' => 'analysis-jobs',
+        ]);
+
+        $this->assertTrue(
+            collect($commands)->contains(fn ($c) => str_contains($c, '--queue=analysis-jobs')),
+            'DB_QUEUE 被改名後，cron worker 必須跟著顧新的佇列名'
+        );
+        $this->assertFalse(
+            collect($commands)->contains(fn ($c) => str_contains($c, '--queue=default')),
+            '不該再有任何一個 worker 顧著已經不存在的舊佇列名'
+        );
+    }
+
     /** 時間讀 config，不得寫死；一個時刻排一次，與 news／youtube 同一形狀。 */
     public function test_the_warm_schedule_comes_from_config(): void
     {

@@ -13,7 +13,13 @@ use Illuminate\Support\Facades\Schema;
  * 約束地堆積重複。annual 填 0，stub 填槽位序號 1..n（同一年度可能同時有前身期間
  * 與過渡期，全填 0 會直接撞唯一鍵）。
  *
- * 金額用 decimal 不用 double：台積電年營收約 2.9 兆新台幣，double 會失精度。
+ * 金額用 decimal 不用 double：欄位型別本身不丟精度。但寫入路徑上的實際保護
+ * 有限——數值目前一路以 PHP float 傳到 FinancialStatementWriter，PDO 綁定
+ * float 會先轉成字串，這一步走的是 PHP 的 precision ini（預設 14 位有效數字），
+ * 本層數字量級（台積電年營收約 2.9 兆、≤ 1.3×10^13）還在 14 位以內、不會失真，
+ * 但這不是資料庫欄位型別給的保證，是目前量級恰好安全。真正需要任意精度時
+ * （量級逼近或超過 10^14），寫入路徑要改成字串或 bcmath，不能只靠欄位是
+ * decimal。
  *
  * 不做幣別換算，存原始值＋currency。外國發行公司中途變更申報幣別時，currency
  * 不同的列不可畫在同一條序列——這件事只有存了 currency 才有機會發現。

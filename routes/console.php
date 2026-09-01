@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Analysis\InlineQueueWorker;
 use App\Services\FinancialStatements\StaleFetchReaper;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -69,13 +70,17 @@ foreach ((array) config('screener.schedule.times') as $time) {
  */
 $workerMaxSeconds = max(5, (int) config('analysis.cron_worker.max_seconds'));
 $workerStopWhenEmpty = config('analysis.cron_worker.stop_when_empty') ? ' --stop-when-empty' : '';
+// 佇列名讀 InlineQueueWorker::resolveDefaultQueueName()（唯一算式），不寫死
+// 'default'：DB_QUEUE 被改名時，這裡若還是字面量，cron worker 會顧一個空
+// 佇列，分析 job 永遠沒有人取件、永遠前進不了。
+$defaultQueueName = InlineQueueWorker::resolveDefaultQueueName();
 
 Schedule::command("queue:work --queue=statements --max-time={$workerMaxSeconds} --tries=1 --sleep=3{$workerStopWhenEmpty}")
     ->everyMinute()
     ->withoutOverlapping()
     ->runInBackground();
 
-Schedule::command("queue:work --queue=default --max-time={$workerMaxSeconds} --tries=1 --sleep=3{$workerStopWhenEmpty}")
+Schedule::command("queue:work --queue={$defaultQueueName} --max-time={$workerMaxSeconds} --tries=1 --sleep=3{$workerStopWhenEmpty}")
     ->everyMinute()
     ->withoutOverlapping()
     ->runInBackground();
@@ -104,7 +109,13 @@ if (config('host_probe.enabled')) {
  */
 // withoutOverlapping() 的互斥鍵是 name() 給的字串，框架不查重：日後若複製這段
 // 加第二條 Schedule::call，務必換一個 name 字串，否則兩者會共用同一把鎖互相排斥。
+//
+// expiresAt 給 5 分鐘而不是預設的 1440 分鐘：這裡只是一句毫秒級的 UPDATE，
+// 完全不需要 24 小時的鎖。預設值是為長壽背景程序設計的，套用在這種瞬間任務上
+// 只有壞處——共享主機砍掉長壽 process 時（例如部署重啟）鎖沒機會被釋放，
+// 會殘留到 expiresAt 才過期；而「收割排程本身卡住」的症狀，正好長得像
+// StaleFetchReaper 該解決的問題（某個狀態列卡在更新中），排查時容易互相誤導。
 Schedule::call(fn () => app(StaleFetchReaper::class)->reap())
     ->everyFiveMinutes()
     ->name('financial-statements:reap')
-    ->withoutOverlapping();
+    ->withoutOverlapping(5);

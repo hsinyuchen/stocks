@@ -33,6 +33,14 @@ return [
      *
      * statements 只給 1：使用者逐檔瀏覽觸發，量本來就有界；給多了會讓一次 request
      * 連續打好幾次外部 API。
+     *
+     * 'default' 這個陣列鍵是字面量，不是從 InlineQueueWorker::resolveDefaultQueueName()
+     * 動態算出來的——這裡是設定檔本身的 schema，而且 config 檔案在 bootstrap 階段
+     * 依檔名排序載入，這支可能早於 config/queue.php 被讀進來，此時呼叫
+     * config('queue.default') 會拿到尚未就緒的值，不安全。DB_QUEUE 被改成非
+     * 'default' 的值時，InlineQueueWorker::drain() 解析出的真實佇列名不會命中
+     * 這裡的鍵，會退回較籠統的 analysis.inline_worker.max_jobs（有測試覆蓋的
+     * 已知降級，不是錯誤，只是配額變粗）。
      */
     'queues' => [
         'statements' => ['max_jobs' => (int) env('QUEUE_STATEMENTS_MAX_JOBS', 1)],
