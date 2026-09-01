@@ -57,7 +57,7 @@ class InlineQueueWorker
         $this->relaxTimeLimit($maxSeconds);
 
         $connection = config('queue.default');
-        $resolvedQueue = $queue ?? config("queue.connections.{$connection}.queue", 'default');
+        $resolvedQueue = $queue ?? self::resolveDefaultQueueName();
 
         // 配額一律照「解析後的真實佇列名」查，不是照呼叫端傳的 $queue（可能是
         // null）。這樣呼叫端傳 null 時，也能查到 default 佇列自己的
@@ -109,6 +109,17 @@ class InlineQueueWorker
      * 只放寬、不縮短：CLI 的 max_execution_time 是 0（無限），無條件呼叫
      * set_time_limit 會反過來替它加上限制——實測就是這樣把一個跑到 90 秒的
      * 分析砍掉的。共享主機可能停用 set_time_limit，失敗就算了，這只是盡力而為。
+     *
+     * 每次呼叫都要無條件重啟倒數（$current > 0 時）,不能只在「目前值不夠大」時
+     * 才動：set_time_limit() 是從呼叫當下重新計時，不是把上限記成某個數字。
+     * ProcessQueuedAnalyses 對 statements、default 兩個佇列各呼叫一次 drain()，
+     * 若只在需要放寬時才呼叫，第一段 drain 設定的那份計時器會被第二段 drain
+     * 沿用——第二段實際能跑的時間等於「原本的上限－第一段已經耗掉的秒數」，
+     * 而不是它自己該有的完整預算。實測踩到：statements job 跑 55 秒後，
+     * default 段最壞只剩 155 秒可用，卻要應付最壞 210 秒的 LLM 分析，
+     * 進程會在完成前被 PHP 直接砍斷（fatal，RunStockAnalysis::failed() 不會
+     * 被呼叫，分析卡在 pending 直到 8 分鐘後才被 reaper 標失敗）。
+     * 用 max($current, required) 而非直接覆寫，維持「只放寬不縮短」。
      */
     private function relaxTimeLimit(int $maxSeconds): void
     {
@@ -117,14 +128,41 @@ class InlineQueueWorker
         }
 
         $current = (int) ini_get('max_execution_time');
+        $target = $this->nextTimeLimit($current, $this->requiredSeconds($maxSeconds));
 
+        if ($target !== null) {
+            @set_time_limit($target);
+        }
+    }
+
+    /**
+     * 決定這次呼叫要不要重啟倒數、目標秒數是多少。抽成獨立的純函式純粹是為了
+     * 可測試性：set_time_limit() 被呼叫這件事的效果是「重啟倒數」，PHP 沒有
+     * 任何事後能觀察的手段去確認倒數是否被重啟過（ini_get() 讀到的只是設定值，
+     * 不是剩餘秒數，呼叫前後可能是同一個數字），只能靠斷言這個方法的回傳值
+     * 來驗證「該重啟的時候真的會回傳非 null」。
+     *
+     * $current === 0（無限制）回傳 null：不能被無條件重啟蓋成有限制的
+     * max_execution_time，那是退步，不是放寬。
+     *
+     * 其餘情況一律回傳 max($current, $required)，不是只在「目前值不夠大」時
+     * 才回傳非 null——那正是 I-1 的 bug：ProcessQueuedAnalyses 對 statements、
+     * default 兩個佇列各呼叫一次 drain()，若只在需要放寬時才觸發
+     * set_time_limit()，第二段 drain 會沿用第一段已經跑掉一部分的舊倒數視窗，
+     * 而不是拿到它自己該有的完整預算。實測踩到的失效路徑：statements job 跑
+     * 55 秒後，default 段最壞只剩 155 秒可用，卻要應付最壞 210 秒的 LLM
+     * 分析，進程會在完成前被 PHP 直接砍斷（fatal，RunStockAnalysis::failed()
+     * 不會被呼叫，分析卡在 pending 直到 8 分鐘後才被 reaper 標失敗）。用
+     * max() 而非直接覆寫，是為了在「無條件重啟」與「只放寬不縮短」之間兩者
+     * 兼顧。
+     */
+    private function nextTimeLimit(int $current, int $required): ?int
+    {
         if ($current === 0) {
-            return;
+            return null;
         }
 
-        if ($current < $this->requiredSeconds($maxSeconds)) {
-            @set_time_limit($this->requiredSeconds($maxSeconds));
-        }
+        return max($current, $required);
     }
 
     /**
@@ -146,6 +184,45 @@ class InlineQueueWorker
     }
 
     /**
+     * 「default 佇列真正叫什麼」的唯一算式。
+     *
+     * DB_QUEUE 被改名時，凡是沒有呼叫這個方法、自己另外寫一份判斷式的地方，
+     * 都會排錯佇列名讓分析 job 永遠取不到件（inline 模式尤其致命，見
+     * relaxTimeLimit() 的說明）。已知呼叫這裡的地方：本類別的 drain()／
+     * pendingCount()、StaleAnalysisReaper::discardStaleJobs()、
+     * routes/console.php 的第二個 queue:work、QueueDoctorCommand 的逐佇列統計。
+     *
+     * 兩處已知例外、刻意不呼叫這裡：composer.json 的 `composer dev` 腳本是純
+     * JSON 字串，無法在其中內嵌 PHP 運算；config/analysis.php 的
+     * `queues.default` 是設定檔的陣列鍵名，而非執行期資料，且該檔案在
+     * bootstrap 階段可能早於 config/queue.php 被載入，此時呼叫這裡會讀到
+     * 尚未就緒的設定。DB_QUEUE 被改名時這兩處仍會用字面量 'default'——前者
+     * 只影響本機開發體驗，後者的後果是 `analysis.queues.{解析後佇列名}.max_jobs`
+     * 查不到鍵而退回較籠統的 `analysis.inline_worker.max_jobs`（有測試覆蓋，
+     * 是已知、可接受的降級，不是錯誤）。
+     */
+    public static function resolveDefaultQueueName(): string
+    {
+        return (string) config('queue.connections.'.config('queue.default').'.queue', 'default');
+    }
+
+    /**
+     * 兩段 drain（statements、default）合計的最壞情況秒數，供 queue:doctor
+     * 判斷「主機的 max_execution_time 夠不夠、set_time_limit 又被停用時會不會
+     * 被砍」。
+     *
+     * 曾經在 QueueDoctorCommand 私有方法與這裡（當時的 requiredSeconds()）各算
+     * 一次，兩份算式的參數不同步（一個沒算進 statements 上限）正是 I-1 那個
+     * bug 的溫床——這裡是唯一算式，QueueDoctorCommand 呼叫它。
+     */
+    public function worstCaseSeconds(): int
+    {
+        $statementsCap = max(1, (int) config('financial_statements.job.timeout', 60));
+
+        return $statementsCap + $this->requiredSeconds();
+    }
+
+    /**
      * 只在確定有待處理 job 時才進入 worker，避免每個 request 都付出建立連線的成本。
      *
      * @param  string|null  $queue  指定佇列名；null 時維持既有預設佇列行為。
@@ -153,7 +230,7 @@ class InlineQueueWorker
     public function pendingCount(?string $queue = null): int
     {
         try {
-            $resolvedQueue = $queue ?? config('queue.connections.'.config('queue.default').'.queue', 'default');
+            $resolvedQueue = $queue ?? self::resolveDefaultQueueName();
 
             return app('queue')->connection()->size($resolvedQueue);
         } catch (Throwable) {

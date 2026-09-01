@@ -64,8 +64,9 @@ class QueueDoctorCommand extends Command
         $this->kv('cron worker 空佇列即退出', config('analysis.cron_worker.stop_when_empty') ? '是' : '否');
         $this->kv('LLM 逾時下限', config('analysis.llm_timeout_floor').' 秒');
         // 直接把「需要多少」印出來，使用者不必自己拿設定去算。是兩段相加
-        // （見 worstCaseSeconds()），不是「剩餘預算給 default」——那個宣稱已撤回。
-        $this->kv('最壞情況需要', $this->worstCaseSeconds($worker).' 秒');
+        // （見 InlineQueueWorker::worstCaseSeconds()），不是「剩餘預算給
+        // default」——那個宣稱已撤回。
+        $this->kv('最壞情況需要', $worker->worstCaseSeconds().' 秒');
         $this->kv('超時回收門檻', config('analysis.pending_timeout_minutes').' 分鐘');
 
         $this->line('');
@@ -117,7 +118,7 @@ class QueueDoctorCommand extends Command
         $table = config('queue.connections.database.table', 'jobs');
         $stats = [];
 
-        foreach (['statements', 'default'] as $queue) {
+        foreach (['statements', InlineQueueWorker::resolveDefaultQueueName()] as $queue) {
             $pending = DB::table($table)->where('queue', $queue)->whereNull('reserved_at')->count();
             $oldest = DB::table($table)->where('queue', $queue)->whereNull('reserved_at')->min('created_at');
 
@@ -132,22 +133,6 @@ class QueueDoctorCommand extends Command
         $stats['失敗 job 累計'] = (string) DB::table('failed_jobs')->count();
 
         return $stats;
-    }
-
-    /**
-     * 兩段預算相加：statements 單筆上限（FetchFinancialStatements::$timeout，
-     * 讀自 config('financial_statements.job.timeout')）＋ default 單筆上限
-     * （InlineQueueWorker::requiredSeconds()）。
-     *
-     * 不是「剩餘預算給 default」：ProcessQueuedAnalyses 對兩個佇列各自呼叫一次
-     * drain()，每段各自可能吃滿一整個 job 的執行時間，所以是兩段相加而不是
-     * 取其中一段。
-     */
-    private function worstCaseSeconds(InlineQueueWorker $worker): int
-    {
-        $statementsCap = max(1, (int) config('financial_statements.job.timeout', 60));
-
-        return $statementsCap + $worker->requiredSeconds();
     }
 
     private function oldestPendingMinutes(): ?int
@@ -189,7 +174,7 @@ class QueueDoctorCommand extends Command
         }
 
         // 時間上限低於最壞情況所需，又不准用 set_time_limit 放寬。
-        $required = $this->worstCaseSeconds($worker);
+        $required = $worker->worstCaseSeconds();
 
         if ($maxExecution > 0 && $maxExecution < $required && ! $canRelax) {
             $problems[] = [
@@ -203,7 +188,7 @@ class QueueDoctorCommand extends Command
 
         // 逐佇列檢查：某一邊餓死時，混在一起看只會看到「有東西在等」，看不出
         // 是哪個佇列。
-        foreach (['statements', 'default'] as $queue) {
+        foreach (['statements', InlineQueueWorker::resolveDefaultQueueName()] as $queue) {
             $waited = (int) filter_var($queueStats["{$queue} 最舊已等待"] ?? '', FILTER_SANITIZE_NUMBER_INT);
 
             if (($queueStats["{$queue} 待處理 job"] ?? '0') !== '0' && $waited > 5) {

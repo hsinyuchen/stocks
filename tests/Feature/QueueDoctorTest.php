@@ -128,6 +128,27 @@ class QueueDoctorTest extends TestCase
         $this->assertSame(210, app(InlineQueueWorker::class)->requiredSeconds());
     }
 
+    /**
+     * I-1：InlineQueueWorker::worstCaseSeconds() 曾經在 QueueDoctorCommand 有
+     * 一份私有複製，兩份算式的參數不同步（一個沒算進 statements 上限）正是
+     * 那個 bug 的溫床。現在只有一份算式，這裡直接釘住它的公式：
+     * statements 單筆上限 ＋ requiredSeconds()。
+     */
+    public function test_worst_case_seconds_is_the_statements_cap_plus_required_seconds(): void
+    {
+        config([
+            'financial_statements.job.timeout' => 45,
+            'analysis.inline_worker.max_seconds' => 20,
+            'analysis.llm_timeout_floor' => 60,
+        ]);
+
+        $worker = app(InlineQueueWorker::class);
+
+        // 45（statements）＋ 20 + 60 + 30（requiredSeconds）＝ 155。
+        $this->assertSame(155, $worker->worstCaseSeconds());
+        $this->assertSame($worker->requiredSeconds() + 45, $worker->worstCaseSeconds());
+    }
+
     public function test_a_tight_host_passes_once_the_budgets_are_lowered(): void
     {
         Cache::flush();
