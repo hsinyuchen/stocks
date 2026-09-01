@@ -34,18 +34,20 @@
     --neg: #c0392b;
     --neg-soft: color-mix(in srgb, #c0392b 12%, var(--surface));
     --neutral-soft: color-mix(in srgb, var(--text) 8%, var(--surface));
-    /* 財報長條圖的分類色（子專案 3 Task 6）。刻意不沿用 --positive/--neg：
-       那兩色在別處代表「數值正負」，長條圖的顏色代表「數列身分」（例如營收
-       vs. 淨利），淨利本身仍可能是負值，兩種語意混在一起會誤導。
-       三色沿用 dataviz skill 驗證過的 categorical 色盤前三格（藍／橘／青綠），
-       在本專案的淺色底（--surface）跑過 CVD 與對比驗證（node
-       scripts/validate_palette.js "#2a78d6,#eb6834,#1baf7a" --mode light
-       --surface "#fffaf2"）全部通過（青綠對比 2.71:1 略低於 3:1，
-       屬於色盤本身允許的 relief 情況——長條圖旁邊一定有文字圖例＋下方
-       表格，不會只靠顏色辨識數列）。 */
+    /* 財報長條圖的分類色（子專案 3 Task 6，Task 7 修過 series-3）。刻意不沿用
+       --positive/--neg：那兩色在別處代表「數值正負」，長條圖的顏色代表
+       「數列身分」（例如營收 vs. 淨利），淨利本身仍可能是負值，兩種語意
+       混在一起會誤導。三色沿用 dataviz skill 驗證過的 categorical 色盤前
+       三格（藍／橘／青綠），對本專案淺色底（--surface "#fffaf2"）的非文字
+       對比實測：藍 4.249:1、橘 3.080:1 都達標，但青綠只有 2.709:1，低於
+       WCAG 1.4.11 的 3:1 門檻——不是可接受的 relief 情況，因為長條本身
+       （非文字）就是門檻要保護的對象，圖例文字達標不能替它背書。
+       Task 7 把青綠壓暗（同一 hue/saturation，只降 lightness）到
+       #179769，對淺色底達 3.566:1，三色彼此仍可用明度區分（色盤本身
+       也保留文字圖例＋下方表格作為色相以外的辨識線索）。 */
     --chart-series-1: #2a78d6;
     --chart-series-2: #eb6834;
-    --chart-series-3: #1baf7a;
+    --chart-series-3: #179769;
 }
 
 :root[data-theme='dark'] {
@@ -70,9 +72,10 @@
     --neg: #e8897e;
     --neg-soft: color-mix(in srgb, #e8897e 20%, var(--surface));
     --neutral-soft: color-mix(in srgb, var(--text) 12%, var(--surface));
-    /* 深色底的階，同一個色盤族系（藍／橘／青綠），驗證過對深色 --surface
-       全部達到 3:1 以上對比（node scripts/validate_palette.js
-       "#3987e5,#d95926,#199e70" --mode dark --surface "#1f1e1c"）。 */
+    /* 深色底的階，同一個色盤族系（藍／橘／青綠）。實測對深色
+       --surface "#1f1e1c" 的非文字對比：藍 4.577:1、橘 4.289:1、
+       青綠 4.891:1，三色深色主題下本來就都達 3:1 以上，Task 7
+       只調了淺色主題的青綠（見上面 :root 區塊），這裡不用動。 */
     --chart-series-1: #3987e5;
     --chart-series-2: #d95926;
     --chart-series-3: #199e70;
