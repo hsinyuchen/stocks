@@ -4918,8 +4918,9 @@ select:focus-visible {
     padding: 10px 14px;
 }
 
-/* stalled（輪詢逾時）與 lastUpdateFailed/failed 都算需要提醒的狀態，
-   沿用既有 .queue-stalled-hint 的警示配色語意（--warning-soft/--warning）。 */
+/* 只有 stalled（輪詢逾時）套這個修飾子，見 Financials.jsx 的 banner 分支；
+   lastUpdateFailed／failed 在畫面上仍是中性灰。要不要讓失敗也走警示色是
+   行為決定，不在樣式這層順手改。配色沿用既有 .queue-stalled-hint。 */
 .financials-banner.is-warning {
     background: var(--warning-soft);
     color: var(--warning);
