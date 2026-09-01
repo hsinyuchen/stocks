@@ -49,7 +49,9 @@ export default function StatementBarChart({ periods, series, unitKey }) {
     const zeroY = PADDING.top + (max / span) * plotHeight;
     const rotateLabels = periods.length > ROTATE_LABEL_THRESHOLD;
 
-    const seriesNames = series.map((s) => t(s.labelKey)).join('、');
+    // 分隔符用半形中點，與 StatementTable 的手機版 data-label 同一個
+    // （全形頓號不隨語系切換，英文介面會唸成 `Revenue、Net income`）。
+    const seriesNames = series.map((s) => t(s.labelKey)).join(' · ');
 
     return (
         <figure className="financials-chart">
