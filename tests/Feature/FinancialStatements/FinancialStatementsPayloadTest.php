@@ -111,6 +111,20 @@ class FinancialStatementsPayloadTest extends TestCase
         $this->assertEqualsWithDelta(0.001868, $values[1], 0.0000001);
     }
 
+    public function test_billion_threshold_is_inclusive_at_exactly_one_billion(): void
+    {
+        // unitFor() 用 `>= 1_000_000_000`。既有測試只餵過 2e9，從沒測過
+        // 恰好等於門檻的值——把 `>=` 改成 `>` 也會全綠。這裡用剛好
+        // 1_000_000_000 釘住邊界：等於門檻也要算進 billions，不能只有大於。
+        $instrument = $this->instrument();
+        $this->row($instrument, 2026, 1, ['revenue' => 1_000_000_000]);
+
+        $payload = $this->build($instrument);
+
+        $this->assertSame(1_000_000_000, $payload['unit']['scale']);
+        $this->assertSame('financials.unit.billionUsd', $payload['unit']['key']);
+    }
+
     public function test_taiwan_uses_hundred_million_regardless_of_magnitude(): void
     {
         // 新台幣的億元是台灣財經媒體的通用單位，再往上分級不符合閱讀習慣。
@@ -146,6 +160,19 @@ class FinancialStatementsPayloadTest extends TestCase
         $value = $this->build($instrument)['periods'][0]['values']['revenue'];
 
         $this->assertIsFloat($value);
+
+        // 上面 5138000 / 1000000 = 5.138，除不盡，PHP 的 `/` 運算子本來就會
+        // 回傳 float——就算拿掉實作裡的 (float) 顯式轉型，這個斷言仍然會過，
+        // 對「有沒有做轉型」沒有偵測力。這裡另外挑一個整除的值
+        // （5000000 / 1000000 = 5，整數結果），只有顯式 (float) 轉型才會讓
+        // 它保持 float 而不是被 PHP 隱式退回 int——這才是這條測試名稱真正要驗的東西。
+        $instrument2 = $this->instrument('AAPL', 'us');
+        $this->row($instrument2, 2026, 1, ['revenue' => 5000000]);
+
+        $exactValue = $this->build($instrument2)['periods'][0]['values']['revenue'];
+
+        $this->assertIsFloat($exactValue);
+        $this->assertSame(5.0, $exactValue);
     }
 
     public function test_periods_are_newest_first(): void
@@ -247,6 +274,11 @@ class FinancialStatementsPayloadTest extends TestCase
         $this->assertSame(0, $payload['totalCount']);
         $this->assertSame('absent', $payload['state']);
         $this->assertArrayHasKey('scale', $payload['unit']);
+        // 空清單時 largestAmount() 回 0.0，unitFor() 沒有任何一筆金額可比較，
+        // 只能落在預設的百萬美元那一階——把這個值釘死，否則翻轉
+        // unitFor() 的 millions/billions 分支這條測試也不會發現。
+        $this->assertSame(1_000_000, $payload['unit']['scale']);
+        $this->assertSame('financials.unit.millionUsd', $payload['unit']['key']);
     }
 
     public function test_taiwan_market_value_is_matched_case_insensitively(): void
