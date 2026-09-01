@@ -69,7 +69,12 @@ export default function Financials({ instrumentId, symbol, instrumentName, finan
     const [tab, setTab] = useState('income');
 
     const inFlight = financials.state === 'fetching' || financials.state === 'refreshing';
-    const stalled = useAnalysisPolling(inFlight, ['financials']);
+    /*
+     * warnOnLeave: false——這裡的抓取是造訪頁面時自動派工的，結果永久落進
+     * financial_statements 表，下次進來就在，離開不會損失任何東西。用預設值會讓
+     * 每一次首訪（state 必為 fetching／refreshing）都武裝一次離開警告。
+     */
+    const stalled = useAnalysisPolling(inFlight, ['financials'], { warnOnLeave: false });
 
     /*
      * 季／年切換與展開改變的是伺服器端的取數範圍，必須重抓；分頁切換不必。

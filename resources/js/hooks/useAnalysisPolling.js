@@ -27,9 +27,10 @@ const MAX_WAIT_MS = 10 * 60 * 1000;
  *
  * @param {boolean} hasPending 目前畫面上是否還有未完成的分析
  * @param {string[]} only 要重新抓取的 Inertia props（局部重載，不動其他區塊）
+ * @param {{warnOnLeave?: boolean}} [options] warnOnLeave=false 時只輪詢，不攔截離開
  * @returns {boolean} 是否已等過久而停止輪詢
  */
-export default function useAnalysisPolling(hasPending, only) {
+export default function useAnalysisPolling(hasPending, only, { warnOnLeave = true } = {}) {
     const [stalled, setStalled] = useState(false);
     // only 每次 render 都是新陣列，直接放進依賴會讓 effect 每次重跑並重置計時。
     const onlyKey = only.join(',');
@@ -37,9 +38,16 @@ export default function useAnalysisPolling(hasPending, only) {
     /*
      * 排隊中的分析不鎖畫面——job 在後端跑，切換頁面不會中斷它。但關閉分頁就看不到
      * 結果了（結果只寫回資料庫，沒有通知管道），所以這裡提醒一次。
+     *
+     * warnOnLeave 預設 true，因為這個提醒的前提是「使用者主動按了分析，結果只存在
+     * 這一次工作階段」。前提不成立的頁面要傳 false：造訪時自動派工、結果永久落進
+     * 資料表、下次進來就在的抓取（財報頁即是——首訪任何標的必定是 fetching／
+     * refreshing，等於每次首訪都武裝一次），使用者根本沒要求什麼，卻在離開時被問
+     * 「確定要離開？」，而且離開也不會損失任何東西。這不是可有可無的開關：預設值
+     * 錯了會讓那類頁面變成騷擾。
      */
     useEffect(() => {
-        if (!hasPending) {
+        if (!hasPending || !warnOnLeave) {
             return undefined;
         }
 
@@ -51,7 +59,7 @@ export default function useAnalysisPolling(hasPending, only) {
         window.addEventListener('beforeunload', warn);
 
         return () => window.removeEventListener('beforeunload', warn);
-    }, [hasPending]);
+    }, [hasPending, warnOnLeave]);
 
     useEffect(() => {
         if (!hasPending) {
