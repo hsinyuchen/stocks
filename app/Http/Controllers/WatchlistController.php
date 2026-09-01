@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Instrument;
 use App\Models\Watchlist;
 use App\Models\WatchlistItem;
+use App\Support\MarketResolver;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -117,18 +118,20 @@ class WatchlistController extends Controller
             'note' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $market = $data['market'] ?? (
-            str_ends_with($data['symbol'], '.TW') || str_ends_with($data['symbol'], '.TWO')
-                ? 'TW'
-                : 'US'
-        );
+        // market 由請求帶入時以請求為準（使用者可能加的是同代號的另一市場掛牌），
+        // 沒帶才推導；currency 一律跟著最終的 market 走，不另外推。
+        $market = $data['market'] ?? MarketResolver::region($data['symbol'])->value;
 
         $instrument = Instrument::query()->firstOrCreate(
             ['symbol' => $data['symbol']],
             [
                 'name' => $data['name'] ?? $data['symbol'],
                 'market' => $market,
-                'asset_type' => 'stock',
+                // 原本硬寫 'stock'。台股 ETF（`00` 開頭）規則判得出來，標成個股會讓
+                // LongTermHealthReader 照個股走完四塊判定，roe 為 null 落到「資料還沒
+                // 累積到可判定的量，再跑幾次就會有」——ETF 永遠不會有 ROE，那句話是假的。
+                // 美股仍受限於 MarketResolver::isEtf() 那份不完整的清單，見其 docblock。
+                'asset_type' => MarketResolver::assetType($data['symbol']),
                 'currency' => $market === 'TW' ? 'TWD' : 'USD',
                 'exchange' => null,
             ],

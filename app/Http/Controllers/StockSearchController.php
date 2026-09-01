@@ -10,8 +10,6 @@ use App\Data\IndustryMomentum;
 use App\Data\MarginFlowData;
 use App\Data\SocialArbitrage;
 use App\Enums\AnalysisStatus;
-use App\Enums\AssetType;
-use App\Enums\MarketRegion;
 use App\Jobs\RunStockAnalysis;
 use App\Models\Instrument;
 use App\Models\LlmProviderSetting;
@@ -31,6 +29,7 @@ use App\Services\Margin\MarginDataService;
 use App\Services\News\SymbolNewsService;
 use App\Services\Search\StockSearchService;
 use App\Services\Social\SocialArbitrageAssessor;
+use App\Support\MarketResolver;
 use App\Support\SocialArbitrageVerdicts;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -330,20 +329,29 @@ class StockSearchController extends Controller
         ]);
     }
 
+    /**
+     * market / currency / asset_type 一律由 {@see MarketResolver} 推導，與
+     * {@see PortfolioController::findOrCreateInstrument()}、{@see StockChartController}
+     * 等其餘建列點同一套規則。
+     *
+     * 這裡原本硬寫 `asset_type = stock` 並自己用 `.TW`／`.TWO` 後綴推 market。
+     * 兩者都有實害：台股 ETF（`00` 開頭，規則判得出來）被標成個股後，
+     * LongTermHealthReader 會照個股走完四塊判定，`roe` 為 null 落到「資料還沒
+     * 累積到可判定的量，再跑幾次就會有」——ETF 永遠不會有 ROE，那句話是假的；
+     * 而 `^` 開頭的指數會被後綴規則判成美股（`^TWII` 亦然），正是
+     * FixIndexInstrumentMetadataCommand 存在的原因。
+     */
     private function findOrCreateInstrumentFromQuote(object $quote, ?string $name = null): Instrument
     {
         $symbol = strtoupper(trim((string) $quote->symbol));
-        $market = str_ends_with($symbol, '.TW') || str_ends_with($symbol, '.TWO')
-            ? MarketRegion::Taiwan
-            : MarketRegion::UnitedStates;
 
         return Instrument::query()->createOrFirst(
             ['symbol' => $symbol],
             [
                 'name' => $name ?? $symbol,
-                'market' => $market,
-                'asset_type' => AssetType::Stock,
-                'currency' => $market === MarketRegion::Taiwan ? 'TWD' : 'USD',
+                'market' => MarketResolver::region($symbol),
+                'asset_type' => MarketResolver::assetType($symbol),
+                'currency' => MarketResolver::currency($symbol),
                 'exchange' => null,
             ],
         );

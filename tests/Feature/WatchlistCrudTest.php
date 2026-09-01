@@ -237,6 +237,59 @@ class WatchlistCrudTest extends TestCase
         $this->assertSame('TW', $instrument->market->value);
     }
 
+    public function test_adding_a_taiwan_etf_records_it_as_an_etf_not_a_stock(): void
+    {
+        /*
+         * 這個建列點原本硬寫 asset_type = 'stock'。台股 ETF 的代號規則判得出來
+         * （`00` 開頭，個股從 1101 起跳，兩者不衝突），標錯的代價不只在資料層：
+         * LongTermHealthReader 會照個股走完四塊判定，roe 為 null 落到
+         * 「資料還沒累積到可判定的量，再跑幾次就會有」——ETF 永遠不會有 ROE。
+         * 沒有這條測試，改回硬寫不會有任何訊號。
+         */
+        $user = User::factory()->create();
+        $watchlist = Watchlist::factory()->for($user)->create(['name' => 'Core']);
+
+        $this->actingAs($user)
+            ->from('/watchlists')
+            ->post("/watchlists/{$watchlist->id}/items", [
+                'symbol' => '0050.tw',
+                'name' => '元大台灣50',
+            ])
+            ->assertRedirect('/watchlists')
+            ->assertValid();
+
+        $this->assertDatabaseHas('instruments', [
+            'symbol' => '0050.TW',
+            'market' => 'TW',
+            'asset_type' => 'etf',
+            'currency' => 'TWD',
+        ]);
+    }
+
+    public function test_adding_a_known_us_etf_records_it_as_an_etf(): void
+    {
+        // 美股沒有代號規則可判，靠 MarketResolver 的清單（刻意不完整，見其 docblock）。
+        // 清單命中時至少要標對——這條同時釘住「建列點有走 resolver」。
+        $user = User::factory()->create();
+        $watchlist = Watchlist::factory()->for($user)->create(['name' => 'Core']);
+
+        $this->actingAs($user)
+            ->from('/watchlists')
+            ->post("/watchlists/{$watchlist->id}/items", [
+                'symbol' => 'qqq',
+                'name' => 'Invesco QQQ Trust',
+            ])
+            ->assertRedirect('/watchlists')
+            ->assertValid();
+
+        $this->assertDatabaseHas('instruments', [
+            'symbol' => 'QQQ',
+            'market' => 'US',
+            'asset_type' => 'etf',
+            'currency' => 'USD',
+        ]);
+    }
+
     public function test_adding_a_new_symbol_without_a_name_falls_back_to_the_symbol(): void
     {
         $user = User::factory()->create();

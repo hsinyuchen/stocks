@@ -90,6 +90,28 @@ class StockSearchTest extends TestCase
         ]);
     }
 
+    public function test_searching_a_taiwan_etf_creates_it_as_an_etf_not_a_stock(): void
+    {
+        /*
+         * 這個建列點原本硬寫 asset_type = 'stock'，於是 0050 這種規則判得出來的
+         * 台股 ETF 也被當個股。除了 LongTermHealthReader 會對 ETF 說「再跑幾次就
+         * 會有 ROE」這句假話之外，FetchFinancialStatements 的第一道 gate 也因此
+         * 放行，要打完一次上游才落到 unsupported。
+         */
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/stocks/search?symbol=0050.TW')
+            ->assertOk();
+
+        $this->assertDatabaseHas('instruments', [
+            'symbol' => '0050.TW',
+            'market' => 'TW',
+            'asset_type' => 'etf',
+            'currency' => 'TWD',
+        ]);
+    }
+
     public function test_query_name_param_is_stored_as_the_created_instrument_name(): void
     {
         $user = User::factory()->create();
