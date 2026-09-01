@@ -278,8 +278,9 @@ class StatementsEndToEndTest extends TestCase
             FinancialStatement::where('instrument_id', $instrument->id)->count(),
             '交易內重新確認 generation／status 沒過，一個字都不能寫入'
         );
-        $this->assertSame('succeeded', FinancialStatementFetch::first()->status, '不可覆蓋新 generation 已經寫定的終態');
-        $this->assertSame(2, FinancialStatementFetch::first()->generation);
+        $fetchAfter = FinancialStatementFetch::where('instrument_id', $instrument->id)->first();
+        $this->assertSame('succeeded', $fetchAfter->status, '不可覆蓋新 generation 已經寫定的終態');
+        $this->assertSame(2, $fetchAfter->generation);
     }
 
     // ------------------------------------------------------------------
