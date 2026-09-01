@@ -44,6 +44,9 @@ class StockFinancialsController extends Controller
         $financials = $this->payload->build($instrument, $type, $request->boolean('expanded'));
 
         return Inertia::render('Stocks/Financials', [
+            // route-model binding 綁的是 id（Instrument 沒有自訂 getRouteKeyName()），
+            // 前端換頁／輪詢要重建網址時無法從 symbol 反推，所以額外帶一份 id。
+            'instrumentId' => $instrument->id,
             'symbol' => $instrument->symbol,
             'instrumentName' => $instrument->name,
             'financials' => $financials,

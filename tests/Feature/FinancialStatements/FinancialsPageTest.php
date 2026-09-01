@@ -59,13 +59,12 @@ class FinancialsPageTest extends TestCase
             ->get(route('stocks.financials', $instrument))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                // shouldExist: false——React 元件本身是子專案 3 的範圍，這裡只驗
-                // controller 傳給 Inertia 的 component 名稱與 props 是否正確。
-                // AssertableInertia::component() 預設會用 inertia.view-finder 找實體
-                // 檔案（config('inertia.testing.ensure_pages_exist') 預設 true），
-                // 檔案不存在時預設行為是讓斷言直接 fail，不是像 brief 假設的「只檢查
-                // props、不檢查檔案」。
-                ->component('Stocks/Financials', false)
+                // Task 4 已建立 resources/js/Pages/Stocks/Financials.jsx，
+                // 拿掉 shouldExist: false 讓 component() 的預設檔案存在性檢查生效
+                // （component() 預設用 inertia.view-finder 找實體檔案，
+                // config('inertia.testing.ensure_pages_exist') 預設 true）。
+                ->component('Stocks/Financials')
+                ->where('instrumentId', $instrument->id)
                 ->where('symbol', 'RGTI')
                 ->where('financials.periodType', 'quarter')
                 // 不是 'ready'。controller 對每一次已登入的完整頁面載入都會先
