@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\FinancialStatements;
 
+use App\Console\Commands\WarmFinancialStatements;
 use App\Contracts\FinancialStatementSource;
 use App\Data\FetchResult;
 use App\Data\FinancialPeriod;
@@ -220,6 +221,44 @@ class WarmFinancialStatementsTest extends TestCase
         // 只驗 assertSuccessful() 測不出「有沒有真的只處理 2 檔」——10 檔全部
         // 成功一樣會回傳成功。直接數狀態列，這才是 limit 真正該守住的事。
         $this->assertSame(2, FinancialStatementFetch::count(), '--limit=2 應該只認領/處理 2 檔');
+    }
+
+    public function test_default_limit_bounds_the_work_to_fifty(): void
+    {
+        // 這條守的是「省略 --limit 時，預設值本身是 50」這件事，不是
+        // --limit 選項會不會生效（後者已有 test_limit_bounds_the_work 覆蓋）。
+        // 審查實測過：把 signature 的 --limit=50 改成 --limit=5000，其餘
+        // 13 條既有測試全數維持綠燈——沒有一條曾經在省略 --limit、候選範圍
+        // 超過 50 檔的情況下斷言「究竟處理了幾檔」。60 檔（大於 50）＋直接
+        // 斷言處理數等於 50，才會在預設值被改壞時真的變紅。
+        $spy = $this->fakeSourceAlwaysSucceeds();
+        $instruments = Instrument::factory()->count(60)->create();
+        $this->watch(...$instruments);
+
+        // --sleep=0 是必要的，否則 50 次同步擷取會乘上預設節流的 1 秒，
+        // 拖慢整個測試套件；這裡驗證的是 limit 預設值，不是 sleep 預設值
+        // （sleep 預設值見 test_sleep_option_defaults_to_one_second）。
+        $this->artisan('financials:warm', ['--sleep' => 0])->assertSuccessful();
+
+        $this->assertSame(50, $spy->calls, '省略 --limit 時預設值應該是 50');
+        $this->assertSame(50, FinancialStatementFetch::count());
+    }
+
+    public function test_sleep_option_defaults_to_one_second(): void
+    {
+        // 節流力道不對不會造成資料錯誤（風險遠低於 --limit 的預設值），
+        // 這裡不用「真的省略 --sleep 跑一次、量測耗時」來驗證：那需要真的
+        // 睡 1 秒，讓測試套件變慢，且量到的是「節流機制生不生效」而非
+        // 「省略時的預設值是多少」——生不生效已有
+        // test_sleep_option_actually_throttles_between_fetches 覆蓋。直接讀
+        // signature 定義本身最直接也最不脆弱。
+        $command = new WarmFinancialStatements;
+
+        $this->assertSame(
+            '1',
+            $command->getDefinition()->getOption('sleep')->getDefault(),
+            '省略 --sleep 時預設值應該是 1 秒',
+        );
     }
 
     public function test_candidate_selection_is_deterministic_across_runs(): void

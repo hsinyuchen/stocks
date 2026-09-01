@@ -2,6 +2,7 @@
 
 namespace App\Services\FinancialStatements;
 
+use App\Console\Commands\WarmFinancialStatements;
 use App\Jobs\FetchFinancialStatements;
 use App\Models\FinancialStatementFetch;
 use App\Models\Instrument;
@@ -40,7 +41,15 @@ class FinancialStatementDispatcher
         return true;
     }
 
-    /** @return int|null 取得的 generation；null = 不該派工 */
+    /**
+     * @return int|null 取得的 generation；null = 不該派工
+     *
+     * @see WarmFinancialStatements 這段 INSERT IGNORE ＋
+     *      條件 UPDATE 的 CAS 邏輯在該指令的 claim() 有一份刻意的複製（此方法
+     *      是 private，且預熱不能走 dispatchFor() 的 dispatch() 進佇列）。改
+     *      這裡的 claim 語意（新增欄位重置、generation 遞增規則）時，記得
+     *      同步檢查那邊有沒有跟著改。
+     */
     private function claim(Instrument $instrument): ?int
     {
         $table = (new FinancialStatementFetch)->getTable();
