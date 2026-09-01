@@ -4,6 +4,7 @@ namespace Tests\Feature\FinancialStatements;
 
 use App\Enums\PeriodType;
 use App\Models\FinancialStatement;
+use App\Models\FinancialStatementFetch;
 use App\Models\Instrument;
 use App\Services\FinancialStatements\FinancialStatementsPayload;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -324,5 +325,27 @@ class FinancialStatementsPayloadTest extends TestCase
 
         $this->assertCount(10, $payload['periods']);
         $this->assertTrue($payload['expanded']);
+    }
+
+    public function test_a_failed_fetch_with_existing_rows_still_reports_ready_and_the_error_category(): void
+    {
+        // 驗的是 payload 契約，不是 Reader 本身（Reader 的同一條規則已由
+        // FinancialStatementsReaderTest::test_failed_status_with_existing_rows_falls_back_to_ready
+        // 釘住）。這裡要確認 Payload::build() 沒有在組裝過程中把 errorCategory
+        // 弄丟——前端 StatusBanner 就是靠這個欄位在 state==='ready' 時額外標一行
+        // 「最近一次更新失敗」，欄位一旦在這一層消失，UI 永遠等不到它。
+        $instrument = $this->instrument();
+        $this->row($instrument, 2026, 1, ['revenue' => 1]);
+
+        FinancialStatementFetch::create([
+            'instrument_id' => $instrument->id,
+            'generation' => 1, 'status' => 'failed', 'attempts' => 2,
+            'queued_at' => now(), 'error_category' => 'timeout',
+        ]);
+
+        $payload = $this->build($instrument);
+
+        $this->assertSame('ready', $payload['state']);
+        $this->assertSame('timeout', $payload['errorCategory']);
     }
 }

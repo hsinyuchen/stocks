@@ -1126,6 +1126,7 @@ export default {
             "absent": "尚無財報資料",
             "unsupported": "此標的沒有可取得的財報",
             "failed": "最近一次更新失敗",
+            "lastUpdateFailed": "最近一次更新失敗，以下為上次成功取得的內容",
             "stale": "資料可能已過期",
             "stalled": "等候過久，請稍後重試"
         },

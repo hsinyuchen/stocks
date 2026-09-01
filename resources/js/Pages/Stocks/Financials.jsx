@@ -94,14 +94,19 @@ export default function Financials({ instrumentId, symbol, instrumentName, finan
     const active = TABS[tab];
 
     return (
-        <AppShell title={`${symbol} ${t('financials.title')}`}>
+        <AppShell title={t('financials.title')}>
             <section className="financials-page">
                 <header className="financials-header">
                     <p className="section-kicker">{instrumentName ?? symbol}</p>
                     <h2>{t('financials.title')}</h2>
                 </header>
 
-                <StatusBanner state={financials.state} isStale={financials.isStale} stalled={stalled} />
+                <StatusBanner
+                    state={financials.state}
+                    isStale={financials.isStale}
+                    errorCategory={financials.errorCategory}
+                    stalled={stalled}
+                />
 
                 <div className="financials-controls">
                     <div className="financials-tabs" role="tablist">
@@ -157,14 +162,25 @@ export default function Financials({ instrumentId, symbol, instrumentName, finan
     );
 }
 
-function StatusBanner({ state, isStale, stalled }) {
+function StatusBanner({ state, isStale, errorCategory, stalled }) {
     const { t } = useI18n();
 
     if (stalled) {
         return <p className="financials-banner is-warning">{t('financials.state.stalled')}</p>;
     }
 
-    // ready 是唯一沒有橫幅的狀態；isStale 仍要提醒一句。
+    /*
+     * Reader::state() 對「failed ＋ 有舊列」刻意回 'ready'（不整頁換成錯誤頁），
+     * errorCategory 是這個決策唯一留下的痕跡——這裡接住它，優先於下面的
+     * isStale 提示。與其他非 ready 狀態的既有規則一致（狀態別的橫幅蓋過單純
+     * 的過期提示，兩者不同時顯示）：lastUpdateFailed 的文案已經涵蓋「這是
+     * 上次成功取得的內容」，再疊一句「資料可能已過期」是重複資訊。
+     */
+    if (state === 'ready' && errorCategory) {
+        return <p className="financials-banner">{t('financials.state.lastUpdateFailed')}</p>;
+    }
+
+    // ready（且沒有最近失敗）是唯一沒有橫幅的狀態；isStale 仍要提醒一句。
     const key = {
         fetching: 'financials.state.fetching',
         refreshing: 'financials.state.refreshing',

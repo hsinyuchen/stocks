@@ -1125,6 +1125,7 @@ export default {
             "absent": "No financial statements yet",
             "unsupported": "No financial statements are available for this instrument",
             "failed": "The last update failed",
+            "lastUpdateFailed": "The last update failed; showing the last successful fetch",
             "stale": "This data may be out of date",
             "stalled": "Timed out waiting; please try again later"
         },
