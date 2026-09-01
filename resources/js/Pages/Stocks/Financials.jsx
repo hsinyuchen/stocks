@@ -106,6 +106,7 @@ export default function Financials({ instrumentId, symbol, instrumentName, finan
                     isStale={financials.isStale}
                     errorCategory={financials.errorCategory}
                     stalled={stalled}
+                    hasPeriods={financials.periods.length > 0}
                 />
 
                 <div className="financials-controls">
@@ -162,11 +163,30 @@ export default function Financials({ instrumentId, symbol, instrumentName, finan
     );
 }
 
-function StatusBanner({ state, isStale, errorCategory, stalled }) {
+/*
+ * hasPeriods 傳布林而不是期數：這裡要的是「下面到底畫不畫得出表格」這個是非題，
+ * 而那個是非題在上面就是 `financials.periods.length > 0`。傳數量會多出一個
+ * 「0 也是數字」的誤用面（`periodCount ? ...` 與 `periodCount > 0` 一字之差、
+ * 且前者剛好也對），布林則讓呼叫端只有一種寫法。
+ */
+function StatusBanner({ state, isStale, errorCategory, stalled, hasPeriods }) {
     const { t } = useI18n();
 
     if (stalled) {
         return <p className="financials-banner is-warning">{t('financials.state.stalled')}</p>;
+    }
+
+    /*
+     * unsupported 是唯一「狀態說沒有、表格卻畫得出來」的組合：Reader::state() 對
+     * unsupported 刻意不看有沒有舊列（見它的 docblock——asset_type 被更正成 etf、
+     * 或 SEC ticker map 查不到時，判定變更要立刻反映在畫面上），但那批已落地的
+     * 真實財報仍會照常渲染。沿用 financials.state.unsupported 的話，橫幅說「此標的
+     * 沒有可取得的財報」、下面卻是一整頁財報，兩者互相打臉。
+     * 這個組合至少要等 unsupported 的 7 天退避到期、下一次成功重抓才會自愈，
+     * 期間每一次瀏覽都看得到，所以換一句只講「不再更新」的文案。
+     */
+    if (state === 'unsupported' && hasPeriods) {
+        return <p className="financials-banner">{t('financials.state.unsupportedWithHistory')}</p>;
     }
 
     /*

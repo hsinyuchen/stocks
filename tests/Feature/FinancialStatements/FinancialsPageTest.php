@@ -406,6 +406,50 @@ class FinancialsPageTest extends TestCase
      * （否則沒有 succeeded 的列可談新鮮度），而只要有真派工，sync 佇列會當場
      * 執行完畢、狀態一路走到 succeeded，「有沒有派工」就不可觀察了。
      */
+    /**
+     * 第 6 條：unsupported ＋ 有舊列時，props 會同時帶著 'unsupported' 與整批真實財報。
+     *
+     * Reader::state() 對 unsupported 刻意不看有沒有舊列（見它的 docblock：asset_type
+     * 被更正成 etf、或 SEC ticker map 查不到時，判定變更要立刻反映在畫面上），而
+     * payload 照樣把已落地的列送上去。這個組合會一路走到前端，且要等 unsupported 的
+     * 退避到期、下一次成功重抓才會自愈，期間每一次瀏覽都看得到。
+     *
+     * 前端據此把橫幅換成 financials.state.unsupportedWithHistory（「已不再更新財報，
+     * 以下為先前取得的內容」），不再說「此標的沒有可取得的財報」卻同時畫出一整頁財報。
+     * 本專案沒有 JS test runner，這條釘住的是那個分支的前提：這個組合真的到得了前端。
+     * 若日後有人改在 Reader 那層「順手修掉」（有舊列就回 ready），前端的分支會變成
+     * 死碼、而「判定變更立刻反映」的取捨也被無聲推翻——那時這條會先壞。
+     */
+    public function test_unsupported_with_existing_rows_still_ships_the_rows(): void
+    {
+        Queue::fake();
+        Http::preventStrayRequests();
+        $this->instrumentUnderTest = $this->instrument();
+        $this->row($this->instrumentUnderTest, 2026, 1, 5138000);
+
+        FinancialStatementFetch::create([
+            'instrument_id' => $this->instrumentUnderTest->id,
+            'generation' => 1,
+            'status' => 'unsupported',
+            'attempts' => 1,
+            'queued_at' => now(),
+            'finished_at' => now(),
+            'error_category' => 'no_cik',
+            // unsupported 的 7 天退避還沒到期，這次瀏覽不會重新派工，
+            // 狀態因此停在 unsupported——正是使用者實際會看到的那一刻。
+            'retry_after' => now()->addDays(7),
+        ]);
+
+        $this->actingAs(User::factory()->create());
+
+        $financials = $this->props()['financials'];
+
+        Queue::assertNothingPushed();
+        $this->assertSame('unsupported', $financials['state']);
+        $this->assertCount(1, $financials['periods'], 'unsupported 不會讓已落地的列從 payload 消失');
+        $this->assertNotNull($financials['periods'][0]['values']['revenue']);
+    }
+
     public function test_a_second_page_load_does_not_redispatch_fresh_data(): void
     {
         $this->instrumentUnderTest = $this->instrument();
