@@ -24,6 +24,30 @@ return [
     ],
 
     /*
+     * inline 取件時各佇列的筆數配額。
+     *
+     * 只保證筆數，不保證秒數：InlineQueueWorker 的秒數預算是「是否**開始**下一個
+     * job」的判斷，不是執行中的硬上限。FetchFinancialStatements 的 timeout 是 60 秒，
+     * 單一 statements job 就可能吃掉整個 request 的時間，剩給 default 的那段預算
+     * 可能根本不存在——所以這裡寫的是 max_jobs 而不是 max_seconds。
+     *
+     * statements 只給 1：使用者逐檔瀏覽觸發，量本來就有界；給多了會讓一次 request
+     * 連續打好幾次外部 API。
+     *
+     * 'default' 這個陣列鍵是字面量，不是從 InlineQueueWorker::resolveDefaultQueueName()
+     * 動態算出來的——這裡是設定檔本身的 schema，而且 config 檔案在 bootstrap 階段
+     * 依檔名排序載入，這支可能早於 config/queue.php 被讀進來，此時呼叫
+     * config('queue.default') 會拿到尚未就緒的值，不安全。DB_QUEUE 被改成非
+     * 'default' 的值時，InlineQueueWorker::drain() 解析出的真實佇列名不會命中
+     * 這裡的鍵，會退回較籠統的 analysis.inline_worker.max_jobs（有測試覆蓋的
+     * 已知降級，不是錯誤，只是配額變粗）。
+     */
+    'queues' => [
+        'statements' => ['max_jobs' => (int) env('QUEUE_STATEMENTS_MAX_JOBS', 1)],
+        'default' => ['max_jobs' => (int) env('QUEUE_DEFAULT_MAX_JOBS', 2)],
+    ],
+
+    /*
      * 另一種取件方式：排程（routes/console.php）每分鐘啟動一個 queue:work，用 cron
      * 拼出近乎常駐的 worker。與 inline_worker 是同一件事的兩種模式，放在一起才看
      * 得出取捨——inline 佔的是 web entry process，cron worker 佔的是背景程序額度。

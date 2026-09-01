@@ -44,7 +44,31 @@ class ProcessQueuedAnalyses
             $this->recordWebRuntime();
             $this->reaper->reapThrottled();
 
-            if ($this->worker->enabled() && $this->worker->pendingCount() > 0) {
+            if (! $this->worker->enabled()) {
+                return;
+            }
+
+            // 分兩段各自取件，先 statements 再 default——不是「剩餘秒數預算給
+            // default」。秒數預算只是「是否開始下一個 job」的判斷，不是執行中的
+            // 硬上限；FetchFinancialStatements 的 timeout 是 60 秒，單一 statements
+            // job 就可能吃掉整個 request 的時間，讓 default 那段秒數預算根本不存在。
+            // 能保證的只有各自的 max_jobs 筆數（config('analysis.queues')）。
+            if ($this->worker->pendingCount('statements') > 0) {
+                $this->worker->drain('statements');
+            }
+
+            // default 佇列的真正名字不在這裡決定：不傳參數，讓 InlineQueueWorker
+            // 自己解析。所有「執行期」需要知道 default 佇列真正叫什麼的地方
+            // （這裡、StaleAnalysisReaper::discardStaleJobs()、routes/console.php
+            // 的 cron worker、queue:doctor 的逐佇列統計）都呼叫同一個算式：
+            // InlineQueueWorker::resolveDefaultQueueName()。這裡若寫死字面量
+            // 'default'，一旦 DB_QUEUE 被設成別的值（例如共享 DB 上做佇列命名空間
+            // 隔離），reaper 仍抓得到真正的分析佇列，這裡卻會排錯佇列名，inline
+            // 模式下分析 job 就永遠取不到件（除非另外還有 cron worker 兜底）。
+            // 兩個已知例外（composer.json 的 dev 腳本、config/analysis.php 的
+            // queues.default 鍵）仍是字面量，理由見 resolveDefaultQueueName() 的
+            // docblock。
+            if ($this->worker->pendingCount() > 0) {
                 $this->worker->drain();
             }
         });

@@ -36,56 +36,63 @@ class ScheduleTest extends TestCase
         return array_map(fn ($event) => (string) $event->command, $schedule->events());
     }
 
-    private function queueWorkerCommand(array $config = []): string
+    /**
+     * @return list<string>
+     */
+    private function queueWorkerCommands(array $config = []): array
     {
         $commands = array_values(array_filter(
             $this->scheduledCommands($config),
             fn (string $command) => str_contains($command, 'queue:work'),
         ));
 
-        $this->assertCount(1, $commands, '排程必須剛好有一個 queue:work，否則不是沒人取件就是重複取件。');
+        // statements 與 default 各一個獨立 worker：單一 worker 帶多佇列參數是
+        // 嚴格優先序，其中一邊持續非空就會永久餓死另一邊（見 Task 9）。
+        $this->assertCount(2, $commands, '排程必須剛好有兩個 queue:work（statements、default 各一），否則不是沒人取件就是重複取件／餓死另一邊。');
 
-        return $commands[0];
+        return $commands;
     }
 
     public function test_the_queue_is_actually_drained_by_the_schedule(): void
     {
-        $this->assertStringContainsString('queue:work', $this->queueWorkerCommand());
+        $commands = $this->queueWorkerCommands();
+
+        foreach ($commands as $command) {
+            $this->assertStringContainsString('queue:work', $command);
+        }
+
+        $this->assertTrue(collect($commands)->contains(fn ($c) => str_contains($c, '--queue=statements')));
+        $this->assertTrue(collect($commands)->contains(fn ($c) => str_contains($c, '--queue=default')));
     }
 
     public function test_the_worker_lifetime_comes_from_config(): void
     {
-        $this->assertStringContainsString(
-            '--max-time=55',
-            $this->queueWorkerCommand(['analysis.cron_worker.max_seconds' => 55]),
-        );
+        foreach ($this->queueWorkerCommands(['analysis.cron_worker.max_seconds' => 55]) as $command) {
+            $this->assertStringContainsString('--max-time=55', $command);
+        }
 
-        $this->assertStringContainsString(
-            '--max-time=20',
-            $this->queueWorkerCommand(['analysis.cron_worker.max_seconds' => 20]),
-        );
+        foreach ($this->queueWorkerCommands(['analysis.cron_worker.max_seconds' => 20]) as $command) {
+            $this->assertStringContainsString('--max-time=20', $command);
+        }
     }
 
     /** 設 0 會讓 worker 立刻結束，等於沒人取件；下限比照 config 註解擋在 5 秒。 */
     public function test_the_worker_lifetime_has_a_floor(): void
     {
-        $this->assertStringContainsString(
-            '--max-time=5',
-            $this->queueWorkerCommand(['analysis.cron_worker.max_seconds' => 0]),
-        );
+        foreach ($this->queueWorkerCommands(['analysis.cron_worker.max_seconds' => 0]) as $command) {
+            $this->assertStringContainsString('--max-time=5', $command);
+        }
     }
 
     public function test_stop_when_empty_is_opt_in(): void
     {
-        $this->assertStringNotContainsString(
-            '--stop-when-empty',
-            $this->queueWorkerCommand(['analysis.cron_worker.stop_when_empty' => false]),
-        );
+        foreach ($this->queueWorkerCommands(['analysis.cron_worker.stop_when_empty' => false]) as $command) {
+            $this->assertStringNotContainsString('--stop-when-empty', $command);
+        }
 
-        $this->assertStringContainsString(
-            '--stop-when-empty',
-            $this->queueWorkerCommand(['analysis.cron_worker.stop_when_empty' => true]),
-        );
+        foreach ($this->queueWorkerCommands(['analysis.cron_worker.stop_when_empty' => true]) as $command) {
+            $this->assertStringContainsString('--stop-when-empty', $command);
+        }
     }
 
     /**
@@ -124,6 +131,33 @@ class ScheduleTest extends TestCase
         $this->assertNotEmpty(
             array_filter($commands, fn (string $command) => str_contains($command, 'screener:warm')),
             '沒有人刷新價格的話，技術面的新鮮度 gate 會把愈來愈多標的判成不可評估。',
+        );
+    }
+
+    /**
+     * M-1：第二個 queue:work 的佇列名必須讀
+     * InlineQueueWorker::resolveDefaultQueueName()，不能寫死字面量 'default'。
+     * DB_QUEUE 被改名時（例如共享 DB 上做佇列命名空間隔離），若這裡還是字面量，
+     * cron worker 會顧一個空佇列，分析 job 永遠沒有人取件。
+     *
+     * 用 queue.connections.database.queue 而非 DB_QUEUE 環境變數來覆蓋：
+     * routes/console.php 在測試裡用 require 重新載入，config() 的值已經是
+     * 合併後的陣列，改它比改 env 更直接、不受「env 是否已被快取」影響。
+     */
+    public function test_the_default_worker_queue_name_follows_the_configured_queue(): void
+    {
+        $commands = $this->queueWorkerCommands([
+            'queue.default' => 'database',
+            'queue.connections.database.queue' => 'analysis-jobs',
+        ]);
+
+        $this->assertTrue(
+            collect($commands)->contains(fn ($c) => str_contains($c, '--queue=analysis-jobs')),
+            'DB_QUEUE 被改名後，cron worker 必須跟著顧新的佇列名'
+        );
+        $this->assertFalse(
+            collect($commands)->contains(fn ($c) => str_contains($c, '--queue=default')),
+            '不該再有任何一個 worker 顧著已經不存在的舊佇列名'
         );
     }
 

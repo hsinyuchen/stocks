@@ -1,5 +1,7 @@
 <?php
 
+use App\Services\Analysis\InlineQueueWorker;
+use App\Services\FinancialStatements\StaleFetchReaper;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -43,22 +45,42 @@ foreach ((array) config('screener.schedule.times') as $time) {
 }
 
 /*
- * 佇列取件。
+ * 佇列取件——兩個獨立 worker，各自顧一個佇列。
  *
- * 共享主機沒有常駐 daemon，用每分鐘的 cron 拼出一個近乎常駐的 worker：預設存活
+ * 共享主機沒有常駐 daemon，用每分鐘的 cron 拼出近乎常駐的 worker：預設存活
  * 55 秒，下一分鐘接手，空窗只有幾秒。
  *
- * 兩個參數都來自設定（config/analysis.php 的 cron_worker）而不是寫死：主機能容忍
- * 多長的背景程序事前無從得知，量測完（php artisan host:probe:report）改 .env 就好，
- * 不必動程式碼重新部署。
+ * 為什麼不是一個 worker 帶 `--queue=statements,default`：那是嚴格優先序，不是
+ * 公平排程。只要 statements 持續非空，default 就永久排不到；反過來也一樣。
+ * 唯一能同時保證兩邊前進的做法是各給一個獨立 worker。
+ *
+ * 兩條命令字串不同（--queue 參數不同），withoutOverlapping() 的互斥鍵是
+ * sha1(expression . 正規化後的 command)（Illuminate\Console\Scheduling\Event::
+ * mutexName()），因此兩條各鎖各的、不會互相排斥——這是刻意利用的性質，日後若
+ * 把這兩條合併成迴圈產生，務必確認迴圈仍讓每條指令字串不同，否則會共用同一把鎖。
+ *
+ * 兩個 worker 都各自佔一份背景程序額度：上線前務必用 `php artisan
+ * host:probe:report` 確認主機能同時容許兩個常駐背景程序（不只一個）。
+ *
+ * 參數都來自設定（config/analysis.php 的 cron_worker）而不是寫死：主機能容忍
+ * 多長的背景程序事前無從得知，量測完改 .env 就好，不必動程式碼重新部署。
  *
  * 這件事原本完全沒有排程——.env.example 與 queue:doctor 都叫人「每分鐘執行
  * schedule:run」，但排進去的只有新聞與 YouTube 抓取，沒有任何東西會取件。
  */
 $workerMaxSeconds = max(5, (int) config('analysis.cron_worker.max_seconds'));
 $workerStopWhenEmpty = config('analysis.cron_worker.stop_when_empty') ? ' --stop-when-empty' : '';
+// 佇列名讀 InlineQueueWorker::resolveDefaultQueueName()（唯一算式），不寫死
+// 'default'：DB_QUEUE 被改名時，這裡若還是字面量，cron worker 會顧一個空
+// 佇列，分析 job 永遠沒有人取件、永遠前進不了。
+$defaultQueueName = InlineQueueWorker::resolveDefaultQueueName();
 
-Schedule::command("queue:work --max-time={$workerMaxSeconds} --tries=1 --sleep=3{$workerStopWhenEmpty}")
+Schedule::command("queue:work --queue=statements --max-time={$workerMaxSeconds} --tries=1 --sleep=3{$workerStopWhenEmpty}")
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+Schedule::command("queue:work --queue={$defaultQueueName} --max-time={$workerMaxSeconds} --tries=1 --sleep=3{$workerStopWhenEmpty}")
     ->everyMinute()
     ->withoutOverlapping()
     ->runInBackground();
@@ -77,3 +99,23 @@ if (config('host_probe.enabled')) {
         ->withoutOverlapping()
         ->runInBackground();
 }
+
+/*
+ * 財報擷取的死亡收割。
+ *
+ * 沒有人瀏覽的標的會永遠停在 running 或 queued——reader 是被動的，只有有人打開
+ * 頁面才會看到狀態。頻率用每五分鐘而不是每分鐘：判定門檻本來就是 240 秒，
+ * 掃得再密也只是多打幾次同樣的 UPDATE。
+ */
+// withoutOverlapping() 的互斥鍵是 name() 給的字串，框架不查重：日後若複製這段
+// 加第二條 Schedule::call，務必換一個 name 字串，否則兩者會共用同一把鎖互相排斥。
+//
+// expiresAt 給 5 分鐘而不是預設的 1440 分鐘：這裡只是一句毫秒級的 UPDATE，
+// 完全不需要 24 小時的鎖。預設值是為長壽背景程序設計的，套用在這種瞬間任務上
+// 只有壞處——共享主機砍掉長壽 process 時（例如部署重啟）鎖沒機會被釋放，
+// 會殘留到 expiresAt 才過期；而「收割排程本身卡住」的症狀，正好長得像
+// StaleFetchReaper 該解決的問題（某個狀態列卡在更新中），排查時容易互相誤導。
+Schedule::call(fn () => app(StaleFetchReaper::class)->reap())
+    ->everyFiveMinutes()
+    ->name('financial-statements:reap')
+    ->withoutOverlapping(5);

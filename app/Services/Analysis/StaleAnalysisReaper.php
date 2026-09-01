@@ -211,6 +211,12 @@ class StaleAnalysisReaper
      *
      * 以 jobs.created_at 為準而不是比對 analysis id：payload 是序列化字串，逐筆
      * 解析既慢又脆弱，而「入列超過時限」本身就足以判定作廢。
+     *
+     * 只清分析佇列。財報 job 在 statements 佇列、有自己的死亡判定（240 秒），
+     * 被這裡的 8 分鐘門檻掃到會靜默消失——沒有錯誤、沒有 log，狀態列停在
+     * queued 直到 StaleFetchReaper 判死，使用者看到「更新失敗」而根本沒人跑過它。
+     * 只濾 queue 就夠，不必再濾 class：statements 佇列裡只有財報 job，而 default
+     * 佇列裡的東西本來就都適用這個門檻。多加一層 payload 字串比對只會更脆弱。
      */
     private function discardStaleJobs(Carbon $cutoff): int
     {
@@ -219,9 +225,14 @@ class StaleAnalysisReaper
         }
 
         $table = config('queue.connections.database.table', 'jobs');
+        // 佇列名的唯一算式在 InlineQueueWorker::resolveDefaultQueueName()；
+        // 上面的 guard 已確保 queue.default === 'database'，這裡直接呼叫它
+        // 等價於原本寫死的 config('queue.connections.database.queue', 'default')。
+        $analysisQueue = InlineQueueWorker::resolveDefaultQueueName();
 
         // reserved_at 不為 null 代表某個 worker 正在跑它，不能中途抽掉。
         return DB::table($table)
+            ->where('queue', $analysisQueue)
             ->whereNull('reserved_at')
             ->where('created_at', '<', $cutoff->getTimestamp())
             ->delete();
