@@ -3,6 +3,7 @@
 namespace App\Services\FinancialStatements\Sec;
 
 use App\Enums\DerivationKind;
+use App\Services\FinancialStatements\TaiwanAnnualDeriver;
 
 /**
  * 第四季的推導與重編偵測。
@@ -16,6 +17,11 @@ class SecQuarterDeriver
 {
     /**
      * 由「全年 − 前三季」逐科目推導損益表的第四季。
+     *
+     * 只迭代 income_fields，**EPS 不在其中**（它定義在獨立的 sec_eps_tags）：每股金額
+     * 不可加減，期間內股數會變。推導出來的 Q4 因此 eps_basic／eps_diluted 恆為 null，
+     * 畫面顯示「—」。這與 {@see TaiwanAnnualDeriver} 對台股年度列的處置是同一條規則。
+     * 不要為了「補齊欄位」把 EPS 加進 income_fields。
      *
      * @param  array<string, ?float>  $annual  全年各科目
      * @param  list<array<string, ?float>>  $quarters  前三季各科目

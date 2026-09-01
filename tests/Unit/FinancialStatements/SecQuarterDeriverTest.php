@@ -333,4 +333,24 @@ class SecQuarterDeriverTest extends TestCase
             '同一個原因：isMixed() 也不該被無關科目的重編誤觸發'
         );
     }
+
+    public function test_derived_quarters_never_carry_eps(): void
+    {
+        // 每股金額不可加減（期間內股數會變），所以 EPS 刻意不在 income_fields 裡，
+        // 推導出來的 Q4 恆為 null、畫面顯示「—」。台股年度列走同一條規則
+        // （見 TaiwanAnnualDeriver）。沒有這條測試，日後有人為了「補齊欄位」
+        // 把 eps_basic 加進 income_fields 不會有任何訊號。
+        $result = $this->deriver()->deriveIncome(
+            ['revenue' => 1000.0, 'eps_basic' => 4.0, 'eps_diluted' => 3.8],
+            [
+                ['revenue' => 200.0, 'eps_basic' => 1.0, 'eps_diluted' => 0.9],
+                ['revenue' => 300.0, 'eps_basic' => 1.5, 'eps_diluted' => 1.4],
+                ['revenue' => 250.0, 'eps_basic' => 1.0, 'eps_diluted' => 0.9],
+            ]
+        );
+
+        $this->assertSame(250.0, $result['values']['revenue'], '損益科目照常推導');
+        $this->assertArrayNotHasKey('eps_basic', $result['values']);
+        $this->assertArrayNotHasKey('eps_diluted', $result['values']);
+    }
 }

@@ -4,7 +4,7 @@ import PeriodBadges, { periodBadgeLabels } from './PeriodBadges';
 const EPS_FIELDS = ['eps_basic', 'eps_diluted'];
 
 /**
- * 桌面期間當欄、手機一期一卡。
+ * 桌面期間當欄；手機斷點下每個 tr（＝一個科目）變一張卡，卡內每期一行。
  *
  * 兩種版面用同一份 DOM ＋ 兩套 CSS，不在 JS 裡判斷視窗寬度：matchMedia 在首次
  * 渲染時的結果不穩，而且螢幕旋轉還要自己接事件（見 app.css 的
