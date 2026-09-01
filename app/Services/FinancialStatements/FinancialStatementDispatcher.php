@@ -126,6 +126,11 @@ class FinancialStatementDispatcher
      * isStale()：空陣列時 isStale() 回傳 false（見該方法 docblock，這是
      * 「無法判斷」的中性表態，不是「新鮮」），若在這裡當作新鮮處理，這種
      * 「成功但永遠沒有資料」的標的會永久卡死、再也沒有機會重試。
+     *
+     * 這裡刻意查全部列、不篩 period_type、不 limit——因為這裡問的是「這檔
+     * 標的要不要重抓」，是整檔的事，不是單一分頁的事。不要為了「跟
+     * {@see FinancialStatementsReader::for()} 的輸入一致」而改成篩過的列，
+     * 理由見 {@see FinancialStatementsReader::isStale()} docblock。
      */
     private function isFresh(Instrument $instrument): bool
     {

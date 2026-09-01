@@ -107,6 +107,27 @@ class FinancialStatementsReader
      * {@see WarmFinancialStatements::skipReason()} 也是
      * ——三處各自維護一份判準才是真正的風險。
      *
+     * 但共用判準不等於共用輸入，這兩件事不要混為一談。三個呼叫端餵進來的
+     * $periods 範圍刻意不同：{@see for()} 自己餵「單一 period_type、且被
+     * limit 截斷」的列，問的是「這個分頁上的資料過期了嗎」；
+     * {@see FinancialStatementDispatcher::isFresh()} 與
+     * {@see WarmFinancialStatements} 餵的是「不篩 period_type、不 limit」
+     * 的全部列，問的是「這檔標的要不要重抓」。前者是單一分頁的事，後者是
+     * 整檔的事，兩個問題本來就該用不同範圍的輸入回答——把兩邊改成餵同一種
+     * 輸入不會讓語意更一致，只會讓其中一邊答錯自己的問題。下次有人想「統一」
+     * 這個輸入之前，請先讀完這一段。
+     *
+     * 這個不對稱會在特定情境下讓兩邊給出不同結論：擷取視窗滑動導致某年度的
+     * annual 列被排除出本次 reconcileAnnuals() 的產出集合（見該方法
+     * docblock），該列的 *_fetched_at 因此凍結在建立當下。dispatcher／
+     * 預熱指令跨全部列取 max，會被同一次抓取裡新鮮的 quarter 列蓋過去、
+     * 判「新鮮」；`for()` 只看 annual 列，會判「過期」。這不是需要修的分歧
+     * ——兩邊都答對了各自的問題：重抓救不了那個被凍結的 annual 列
+     * （reconciliation 刻意不動視窗外的列，這是防止邊界啃蝕的正確設計），
+     * 而那筆 annual 資料確實是舊的。畫面上這個情境要怎麼呈現（例如年度分頁
+     * 標「資料源已停止更新此期間」而不是「更新中」）留給子專案 3 決定，不是
+     * 這個方法、也不是這一層要修的東西。
+     *
      * @param  iterable<FinancialStatement>  $periods
      */
     public static function isStale(iterable $periods): bool
