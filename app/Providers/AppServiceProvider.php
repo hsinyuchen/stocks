@@ -47,6 +47,7 @@ use App\Services\Market\CachedMarketDataProvider;
 use App\Services\Market\FinMindMarketDataProvider;
 use App\Services\Market\FinMindMarketInstitutionalProvider;
 use App\Services\Market\RoutingMarketDataProvider;
+use App\Services\Market\TwseMisTodayBarProvider;
 use App\Services\Market\YahooChartMarketDataProvider;
 use App\Services\News\DbNewsProvider;
 use App\Services\News\DbTransmissionRuleProvider;
@@ -133,6 +134,10 @@ class AppServiceProvider extends ServiceProvider
                 $routing,
                 (int) config('services.market_data.cache_ttl_minutes', 720),
                 quoteCacheSeconds: (int) config('services.market_data.quote_cache_seconds', 60),
+                // 台股日線上游（FinMind）當日收盤要數小時後才補，上櫃又比上市更慢，
+                // 於是收盤當天 K 線與所有技術指標都少最新一根。MIS 對上市／上櫃一視同仁，
+                // 且成交量與官方值相同——理由見 TwseMisTodayBarProvider。
+                todayBars: new TwseMisTodayBarProvider,
             );
         });
 
