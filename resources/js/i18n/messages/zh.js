@@ -358,6 +358,7 @@ export default {
         "noStockSelected": "尚未選擇股票",
         "noStockSelectedHint": "搜尋股票代號後，會載入報價、近期價格與相關新聞。",
         "realtimeQuote": "即時報價",
+        "quoteAsOf": "報價時間 :time",
         "chartKicker": "技術線圖",
         "chartTitle": "K 線與技術指標",
         "subChartIndicators": "副圖指標",

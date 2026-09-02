@@ -205,6 +205,11 @@ function QuotePanel({ quote, instrument }) {
                 <span className={changeClass}>
                     {formatNumber(quote.change)} ({formatNumber(quote.change_percent)}%)
                 </span>
+                {/* 報價來源可能降級（台股 Yahoo 掛掉會退回 FinMind 的日線，那是前一個
+                    交易日的收盤）。不顯示時間就無從分辨「今天平盤」與「拿到昨天的價」。 */}
+                {quote.as_of ? (
+                    <span className="field-hint">{t('stocks.quoteAsOf', { time: formatDateTime(quote.as_of) })}</span>
+                ) : null}
             </div>
             <div className="stock-meta">
                 <span>{instrument.market}</span>

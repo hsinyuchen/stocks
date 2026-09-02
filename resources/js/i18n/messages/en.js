@@ -357,6 +357,7 @@ export default {
         "noStockSelected": "No stock selected",
         "noStockSelectedHint": "Search for a ticker to load its quote, recent prices, and related news.",
         "realtimeQuote": "Live quote",
+        "quoteAsOf": "Quote as of :time",
         "chartKicker": "Technical chart",
         "chartTitle": "Candlesticks and technical indicators",
         "subChartIndicators": "Sub-chart indicators",
