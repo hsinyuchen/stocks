@@ -233,6 +233,47 @@ class TechnicalIndicatorService
             $obv[$i] = $obv[$i - 1] + ($closes[$i] <=> $closes[$i - 1]) * $volumes[$i];
         }
 
+        // Impulse MACD（LazyBear，2016）：把落在「高低價平滑均線通道」內的動能濾成 0，
+        // 只有 ZLEMA(hlc3) 衝出通道才有值——盤整期自動靜音、不是識別。
+        //   hi = SMMA(high, 34)、lo = SMMA(low, 34)、mi = ZLEMA(hlc3, 34)
+        //   md = mi > hi ? mi − hi : (mi < lo ? mi − lo : 0)
+        //   signal = SMA(md, 9)、histogram = md − signal
+        // 暖身鏈：SMMA 自第 33 根；ZLEMA 是 EMA 的 EMA，自第 66 根；signal 自第 74 根。
+        // 參數 34／9 是作者預設，沒有普適性——這裡先用它做回測基準。
+        $hlc3 = [];
+        for ($i = 0; $i < $count; $i++) {
+            $hlc3[$i] = ($highs[$i] + $lows[$i] + $closes[$i]) / 3;
+        }
+        $impulseHi = $this->smmaSeries($highs, 34);
+        $impulseLo = $this->smmaSeries($lows, 34);
+        $impulseMi = $this->zlemaSeries($hlc3, 34);
+
+        $impulseRaw = [];
+        for ($i = 0; $i < $count; $i++) {
+            if ($impulseHi[$i] === null || $impulseLo[$i] === null || $impulseMi[$i] === null) {
+                $impulseRaw[$i] = null;
+
+                continue;
+            }
+
+            $impulseRaw[$i] = $impulseMi[$i] > $impulseHi[$i]
+                ? $impulseMi[$i] - $impulseHi[$i]
+                : ($impulseMi[$i] < $impulseLo[$i] ? $impulseMi[$i] - $impulseLo[$i] : 0.0);
+        }
+
+        $impulseSignalRaw = $this->smaSeries($impulseRaw, 9);
+
+        $impulseMacd = [];
+        $impulseSignal = [];
+        $impulseHistogram = [];
+        for ($i = 0; $i < $count; $i++) {
+            $impulseMacd[$i] = $impulseRaw[$i] === null ? null : round($impulseRaw[$i], 4);
+            $impulseSignal[$i] = $impulseSignalRaw[$i] === null ? null : round($impulseSignalRaw[$i], 4);
+            $impulseHistogram[$i] = ($impulseRaw[$i] === null || $impulseSignalRaw[$i] === null)
+                ? null
+                : round($impulseRaw[$i] - $impulseSignalRaw[$i], 4);
+        }
+
         $opens = array_map(fn ($row) => $row['open'], $normalized);
 
         return [
@@ -256,6 +297,9 @@ class TechnicalIndicatorService
             'histogram' => $histogram,
             'rsi' => $rsi,
             'obv' => $obv,
+            'impulse_macd' => $impulseMacd,
+            'impulse_signal' => $impulseSignal,
+            'impulse_histogram' => $impulseHistogram,
         ];
     }
 
@@ -336,6 +380,91 @@ class TechnicalIndicatorService
 
             $ema = (($value - $ema) * $multiplier) + $ema;
             $series[$index] = $ema;
+        }
+
+        return $series;
+    }
+
+    /**
+     * SMMA（Wilder 平滑）序列：以前 period 根的 SMA 播種，之後 (prev×(period−1)+v)/period。
+     * 暖身期為 null，與 emaSeries 同一慣例。
+     *
+     * @param  list<float>  $values
+     * @return list<?float>
+     */
+    private function smmaSeries(array $values, int $period): array
+    {
+        $count = count($values);
+        $series = array_fill(0, $count, null);
+
+        if ($count < $period) {
+            return $series;
+        }
+
+        $smma = array_sum(array_slice($values, 0, $period)) / $period;
+        $series[$period - 1] = $smma;
+
+        for ($index = $period; $index < $count; $index++) {
+            $smma = ($smma * ($period - 1) + $values[$index]) / $period;
+            $series[$index] = $smma;
+        }
+
+        return $series;
+    }
+
+    /**
+     * 零滯後 EMA：ema1 + (ema1 − ema2)，ema2 是 ema1 的 EMA。數學上等價於 DEMA。
+     * 「零滯後」是名字不是事實——它把滯後往前推，沒有消掉。
+     *
+     * @param  list<float>  $values
+     * @return list<?float>
+     */
+    private function zlemaSeries(array $values, int $period): array
+    {
+        $ema1 = $this->emaSeries($values, $period);
+        $ema2 = $this->emaSeries($ema1, $period);
+
+        $series = [];
+        foreach ($ema1 as $index => $value) {
+            $series[$index] = ($value === null || $ema2[$index] === null)
+                ? null
+                : $value + ($value - $ema2[$index]);
+        }
+
+        return $series;
+    }
+
+    /**
+     * 允許前導 null 的 SMA 序列：自第一個非 null 起算，滿 period 根才有值。
+     *
+     * @param  list<?float>  $values
+     * @return list<?float>
+     */
+    private function smaSeries(array $values, int $period): array
+    {
+        $count = count($values);
+        $series = array_fill(0, $count, null);
+
+        $first = null;
+        foreach ($values as $index => $value) {
+            if ($value !== null) {
+                $first = $index;
+                break;
+            }
+        }
+
+        if ($first === null) {
+            return $series;
+        }
+
+        for ($index = $first + $period - 1; $index < $count; $index++) {
+            $window = array_slice($values, $index - $period + 1, $period);
+
+            if (in_array(null, $window, true)) {
+                continue;
+            }
+
+            $series[$index] = array_sum($window) / $period;
         }
 
         return $series;

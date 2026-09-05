@@ -261,6 +261,10 @@ class BacktestService
      * edge 是兩者平均報酬的差：規則賺 2%% 但同期基準賺 3%% 是輸，只看絕對報酬
      * 會把多頭行情誤判成規則有效。
      *
+     * t 是 edge 除以訊號組的標準誤（std／√n）：幾百個樣本、個股 20 日報酬標準差
+     * 動輒 10%，一兩個百分點的 edge 很可能是雜訊。|t| < 2 就不要當成證據。
+     * 這是粗估——連續幾天的訊號其前瞻報酬高度重疊，有效樣本比 n 小，t 偏高。
+     *
      * @param  list<array<string, mixed>>  $signals
      * @param  list<array<int, float|null>>  $baseline
      * @param  list<int>  $horizons
@@ -277,15 +281,23 @@ class BacktestService
             $signalMean = $this->mean($signalReturns);
             $baselineMean = $this->mean($baselineReturns);
 
+            $edge = ($signalMean !== null && $baselineMean !== null)
+                ? round($signalMean - $baselineMean, 4)
+                : null;
+            $std = $this->std($signalReturns);
+            $n = count($signalReturns);
+
             $stats[$horizon] = [
-                'samples' => count($signalReturns),
+                'samples' => $n,
                 'win_rate' => $this->winRate($signalReturns),
                 'mean' => $signalMean,
                 'median' => $this->median($signalReturns),
+                'std' => $std,
                 'baseline_mean' => $baselineMean,
                 'baseline_win_rate' => $this->winRate($baselineReturns),
-                'edge' => ($signalMean !== null && $baselineMean !== null)
-                    ? round($signalMean - $baselineMean, 4)
+                'edge' => $edge,
+                't' => ($edge !== null && $std !== null && $std > 0 && $n > 1)
+                    ? round($edge / ($std / sqrt($n)), 2)
                     : null,
             ];
         }
@@ -314,6 +326,21 @@ class BacktestService
     private function mean(array $values): ?float
     {
         return $values === [] ? null : round(array_sum($values) / count($values), 4);
+    }
+
+    /** 樣本標準差（n−1）。 @param list<float> $values */
+    private function std(array $values): ?float
+    {
+        $n = count($values);
+
+        if ($n < 2) {
+            return null;
+        }
+
+        $mean = array_sum($values) / $n;
+        $variance = array_sum(array_map(static fn (float $v): float => ($v - $mean) ** 2, $values)) / ($n - 1);
+
+        return round(sqrt($variance), 4);
     }
 
     /** @param list<float> $values */

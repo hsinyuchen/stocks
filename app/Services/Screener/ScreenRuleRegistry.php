@@ -11,6 +11,8 @@ use App\Services\Screener\Rules\ForeignSellingStreak;
 use App\Services\Screener\Rules\HighMarginUsage;
 use App\Services\Screener\Rules\HighReturnOnEquity;
 use App\Services\Screener\Rules\HighShortRatio;
+use App\Services\Screener\Rules\ImpulseMacdBullishCross;
+use App\Services\Screener\Rules\ImpulseMacdZeroCross;
 use App\Services\Screener\Rules\IndustryOutperformer;
 use App\Services\Screener\Rules\InstitutionalAccumulation;
 use App\Services\Screener\Rules\InventoryDeteriorating;
@@ -38,6 +40,9 @@ class ScreenRuleRegistry
             new KdGoldenCross, new KdDeathCross,
             new AboveMa20, new BelowMa20,
             new MacdBullishCross,
+            // Impulse MACD（LazyBear）：把通道內的動能濾成 0，盤整期自動靜音。
+            // 兩條規則對應影片的「金叉＋擴散」與指標本身的「衝出通道」事件。
+            new ImpulseMacdBullishCross, new ImpulseMacdZeroCross,
             new RsiOversold, new RsiOverbought,
             new VolumeSurge,
             // 籌碼面（僅台股）：與上列技術規則正交，上列全是價格動能的一階衍生。

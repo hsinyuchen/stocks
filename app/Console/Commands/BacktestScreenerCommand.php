@@ -76,22 +76,25 @@ class BacktestScreenerCommand extends Command
 
         $this->newLine();
         $this->table(
-            ['天期', '樣本', '勝率', '平均報酬', '中位數', '基準勝率', '基準平均', '超額'],
+            ['天期', '樣本', '勝率', '平均報酬', '中位數', '標準差', '基準勝率', '基準平均', '超額', 't'],
             array_map(static fn (int $horizon, array $row): array => [
                 $horizon.' 日',
                 $row['samples'],
                 $row['win_rate'] === null ? '—' : $row['win_rate'].'%',
                 $row['mean'] === null ? '—' : sprintf('%+.2f%%', $row['mean']),
                 $row['median'] === null ? '—' : sprintf('%+.2f%%', $row['median']),
+                $row['std'] === null ? '—' : sprintf('%.2f%%', $row['std']),
                 $row['baseline_win_rate'] === null ? '—' : $row['baseline_win_rate'].'%',
                 $row['baseline_mean'] === null ? '—' : sprintf('%+.2f%%', $row['baseline_mean']),
                 $row['edge'] === null ? '—' : sprintf('%+.2f%%', $row['edge']),
+                $row['t'] === null ? '—' : sprintf('%+.1f', $row['t']),
             ], array_keys($result['stats']), $result['stats']),
         );
 
         $this->newLine();
         $this->line('「超額」是訊號組平均報酬減去基準組——基準代表隨機挑一天買進。');
         $this->line('規則賺 2% 而同期基準賺 3% 是輸，只看絕對報酬會把多頭行情誤判成規則有效。');
+        $this->line('「t」是超額除以標準誤的粗估：|t| < 2 就不要當成證據；連續訊號的報酬重疊，實際還要再打折。');
         $this->newLine();
         $this->warn('未計交易成本、滑價與除權息調整；樣本取自目前股池，含存活者偏誤。');
         $this->warn('結果供相對比較，不是預期報酬，也不構成投資建議。');
