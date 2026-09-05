@@ -245,6 +245,12 @@ class CachedMarketDataProvider implements MarketDataProvider
             return false;
         }
 
+        // 週六日台美都不開盤，資料停在週五是常態不是落後；這兩天重抓只會每小時
+        // 拉一次七年份的日線回來比對。國定假日仍會漏過去，見上方說明。
+        if ($today->isWeekend()) {
+            return false;
+        }
+
         if ($newestDate->diffInDays($today) > self::COVERAGE_MAX_LAG_DAYS) {
             return false;
         }

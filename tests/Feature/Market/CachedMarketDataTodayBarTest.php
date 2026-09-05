@@ -21,6 +21,21 @@ class CachedMarketDataTodayBarTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // 釘在平日：涵蓋度重抓在週末刻意不動，這批測試不能跟著真實日期漂。
+        CarbonImmutable::setTestNow('2026-09-02 06:00:00');
+    }
+
+    protected function tearDown(): void
+    {
+        CarbonImmutable::setTestNow();
+
+        parent::tearDown();
+    }
+
     private function bar(string $symbol, string $date, float $close = 2065.0): DailyPriceData
     {
         return new DailyPriceData(

@@ -126,6 +126,33 @@ class CachedMarketDataRepairTest extends TestCase
             $this->assertGreaterThan(0, $candle['close']);
         }
     }
+
+    /** 週六日台美都不開盤，資料停在週五不算落後，不該每小時拉七年份日線回來。 */
+    public function test_coverage_refetch_is_skipped_on_weekends(): void
+    {
+        CarbonImmutable::setTestNow('2026-09-05 06:53:46'); // 週六，正式機 log 的時間
+
+        $upstream = new CleanHistoryProvider;
+        $cache = new CachedMarketDataProvider($upstream, 720);
+
+        $cache->dailyPrices('8299.TWO', 5);
+        $cache->dailyPrices('8299.TWO', 5);
+
+        $this->assertSame(1, $upstream->calls);
+    }
+
+    public function test_coverage_refetch_resumes_on_monday(): void
+    {
+        CarbonImmutable::setTestNow('2026-09-07 06:00:00'); // 週一
+
+        $upstream = new CleanHistoryProvider;
+        $cache = new CachedMarketDataProvider($upstream, 720);
+
+        $cache->dailyPrices('8299.TWO', 5);
+        $cache->dailyPrices('8299.TWO', 5);
+
+        $this->assertSame(2, $upstream->calls);
+    }
 }
 
 /** 表裡已經有資料、又在 TTL 內時，上游不該被碰。 */
