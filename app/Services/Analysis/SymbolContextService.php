@@ -24,6 +24,7 @@ use App\Services\Rates\RatesNarrative;
 use App\Services\SignalEngine;
 use App\Services\Social\SocialArbitrageAssessor;
 use App\Services\TechnicalIndicatorService;
+use App\Support\CompletedBars;
 use App\Support\MarketResolver;
 
 /**
@@ -94,7 +95,8 @@ final class SymbolContextService
     public function forSymbol(string $symbol, array $chipFlows = [], array $marginFlows = [], ?array $brokerBranch = null, string $locale = 'zh'): array
     {
         $quote = $this->marketData->quote($symbol);
-        $prices = $this->marketData->dailyPrices($symbol, self::PRICE_BARS);
+        // 判讀會隨分析落 DB 且不再重算，只能建立在已完成的 K 棒上。見 CompletedBars。
+        $prices = CompletedBars::only($this->marketData->dailyPrices($symbol, self::PRICE_BARS));
         $news = $this->news->relatedNews($symbol, self::NEWS_LIMIT);
         $rates = $this->ratesContext($symbol, $locale);
         $orderInventory = $this->orderInventoryContext($symbol);

@@ -13,6 +13,7 @@ use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\Margin\MarginDataService;
 use App\Services\Social\SocialArbitrageAssessor;
 use App\Services\TechnicalIndicatorService;
+use App\Support\CompletedBars;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -81,7 +82,7 @@ class ScreenerService
             $scanned++;
 
             try {
-                $prices = $this->marketData->dailyPrices($symbol, $historyDays);
+                $prices = CompletedBars::only($this->marketData->dailyPrices($symbol, $historyDays));
 
                 if (count($prices) < 30) {
                     $failures[] = ['symbol' => $symbol, 'reason' => '價格資料不足（<30 根）'];

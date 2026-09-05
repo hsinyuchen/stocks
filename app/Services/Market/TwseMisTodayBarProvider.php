@@ -5,6 +5,7 @@ namespace App\Services\Market;
 use App\Contracts\TodayBarProvider;
 use App\Data\DailyPriceData;
 use App\Support\MarketResolver;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -36,7 +37,11 @@ class TwseMisTodayBarProvider implements TodayBarProvider
     /** 單次請求的標的數上限。實測 30 檔一次回滿；上游未公布上限，保守分批。 */
     private const CHUNK = 30;
 
-    public function __construct(private readonly int $timeoutSeconds = 10) {}
+    /**
+     * 逾時取短：這是補強不是主源，而消費端目前逐檔呼叫——自選快報掃 30 檔、MIS 掛掉
+     * 時每檔都等滿逾時，10 秒會撞到 ANALYSIS_INLINE_WORKER 下的 max_execution_time。
+     */
+    public function __construct(private readonly int $timeoutSeconds = 5) {}
 
     public function todayBars(array $symbols): array
     {
@@ -133,8 +138,8 @@ class TwseMisTodayBarProvider implements TodayBarProvider
      */
     private function symbolFor(array $row, array $channels): ?string
     {
-        $code = strtoupper(trim((string) ($row['c'] ?? '')));
-        $exchange = strtolower(trim((string) ($row['ex'] ?? '')));
+        $code = strtoupper($this->text($row['c'] ?? null));
+        $exchange = strtolower($this->text($row['ex'] ?? null));
 
         if ($code === '' || $exchange === '') {
             return null;
@@ -155,7 +160,10 @@ class TwseMisTodayBarProvider implements TodayBarProvider
         $open = $this->number($row['o'] ?? null);
         $high = $this->number($row['h'] ?? null);
         $low = $this->number($row['l'] ?? null);
-        $close = $this->number($row['z'] ?? null);
+        // 逐筆交易後，盤中快照沒撮合到的那一刻 z 會是 '-'，最近成交價在 pz。
+        // 這是社群對 getStockInfo.jsp 的共同紀錄，本專案尚未在盤中親眼驗過；
+        // 沒有它的話冷門股的當日棒會忽隱忽現，還被 negative cache 記 60 秒。
+        $close = $this->number($row['z'] ?? null) ?? $this->number($row['pz'] ?? null);
 
         // 開盤前與整日無成交時這些欄位是 '-'。缺任何一個就不產棒：半根 K 棒
         // 進到指標計算裡，比少一根更難查。
@@ -173,31 +181,66 @@ class TwseMisTodayBarProvider implements TodayBarProvider
             // MIS 的 v 是「張」，DailyPrice 全站以「股」為單位（FinMind 的
             // Trading_Volume 亦然）。實測 2330 的 19,752 張 ×1000 與 FinMind 相等。
             volume: (int) round(($this->number($row['v'] ?? null) ?? 0.0) * 1000),
+            partial: $this->isPartial($date),
         );
     }
 
-    /** `20260902` → `2026-09-02`。非八位數字一律視為不可用。 */
+    /**
+     * 這根是不是還在盤中。
+     *
+     * 以台北時間判斷「是今天且還沒到 13:30」，不用回應裡的 `t`（最後成交時間）：
+     * 冷門股最後一筆可能落在 13:2x，收盤後看起來仍像盤中。收盤後 MIS 的值就是
+     * 定案值（與 FinMind 實測一致）。
+     */
+    private function isPartial(string $date): bool
+    {
+        $taipei = CarbonImmutable::now('Asia/Taipei');
+
+        return $date === $taipei->toDateString() && $taipei->format('H:i:s') < '13:30:00';
+    }
+
+    /** 外部 JSON 的欄位不保證是字串：陣列強轉會拋 ErrorException，繞過 best-effort 邊界。 */
+    private function text(mixed $value): string
+    {
+        return is_scalar($value) ? trim((string) $value) : '';
+    }
+
+    /**
+     * `20260902` → `2026-09-02`。非八位數字、或不是真實日期（`20269999`）一律不可用：
+     * 週／月聚合會拿這個字串去 parse，錯的日期在那裡才炸、更難追。
+     */
     private function date(mixed $value): ?string
     {
-        $raw = trim((string) $value);
+        $raw = $this->text($value);
 
         if (preg_match('/^\d{8}$/', $raw) !== 1) {
             return null;
         }
 
-        return substr($raw, 0, 4).'-'.substr($raw, 4, 2).'-'.substr($raw, 6, 2);
+        [$year, $month, $day] = [(int) substr($raw, 0, 4), (int) substr($raw, 4, 2), (int) substr($raw, 6, 2)];
+
+        if (! checkdate($month, $day, $year)) {
+            return null;
+        }
+
+        return sprintf('%04d-%02d-%02d', $year, $month, $day);
     }
 
-    /** MIS 用 '-' 表示「沒有這個值」，空字串與非數字同樣視為缺值。 */
+    /**
+     * MIS 用 '-' 表示「沒有這個值」，空字串與非數字同樣視為缺值。
+     * `1e309` 這種轉出來是 INF，JSON 序列化會失敗，一併擋掉。
+     */
     private function number(mixed $value): ?float
     {
-        $raw = trim((string) $value);
+        $raw = $this->text($value);
 
         if ($raw === '' || ! is_numeric($raw)) {
             return null;
         }
 
-        return (float) $raw;
+        $number = (float) $raw;
+
+        return is_finite($number) ? $number : null;
     }
 
     /** `2330.TW` → `tse_2330.tw`；`8299.TWO` → `otc_8299.tw`。 */

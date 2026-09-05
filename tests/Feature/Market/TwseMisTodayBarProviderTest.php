@@ -3,6 +3,7 @@
 namespace Tests\Feature\Market;
 
 use App\Services\Market\TwseMisTodayBarProvider;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -128,6 +129,68 @@ class TwseMisTodayBarProviderTest extends TestCase
         Http::fake(['mis.twse.com.tw/*' => fn () => throw new ConnectionException('timeout')]);
 
         $this->assertSame([], (new TwseMisTodayBarProvider)->todayBars(['8299.TWO']));
+    }
+
+    /** 外部 JSON 的欄位可能是陣列：強轉字串會拋 ErrorException，繞過 best-effort 邊界。 */
+    public function test_array_valued_fields_do_not_throw(): void
+    {
+        Http::fake(['mis.twse.com.tw/*' => Http::response($this->payload([
+            ['c' => [], 'ex' => 'otc', 'd' => '20260902'],
+            $this->row('8299', 'otc', ['o' => ['x']]),
+        ]))]);
+
+        $this->assertSame([], (new TwseMisTodayBarProvider)->todayBars(['8299.TWO']));
+    }
+
+    /** 八位數字但不是真實日期（20269999），週／月聚合 parse 時才會炸。 */
+    public function test_impossible_calendar_date_produces_no_bar(): void
+    {
+        Http::fake(['mis.twse.com.tw/*' => Http::response($this->payload([
+            $this->row('8299', 'otc', ['d' => '20269999']),
+        ]))]);
+
+        $this->assertSame([], (new TwseMisTodayBarProvider)->todayBars(['8299.TWO']));
+    }
+
+    /** 1e309 轉成 INF，JSON 序列化會失敗。 */
+    public function test_non_finite_number_produces_no_bar(): void
+    {
+        Http::fake(['mis.twse.com.tw/*' => Http::response($this->payload([
+            $this->row('8299', 'otc', ['z' => '1e309']),
+        ]))]);
+
+        $this->assertSame([], (new TwseMisTodayBarProvider)->todayBars(['8299.TWO']));
+    }
+
+    /** 盤中沒撮合到的那一刻 z 是 '-'，最近成交價在 pz。 */
+    public function test_close_falls_back_to_pz_when_z_is_dash(): void
+    {
+        Http::fake(['mis.twse.com.tw/*' => Http::response($this->payload([
+            $this->row('8299', 'otc', ['z' => '-', 'pz' => '2070.0000']),
+        ]))]);
+
+        $bar = (new TwseMisTodayBarProvider)->todayBars(['8299.TWO'])['8299.TWO'] ?? null;
+
+        $this->assertNotNull($bar);
+        $this->assertSame(2070.0, $bar->close);
+    }
+
+    /** 今天且台北 13:30 前是盤中未完成棒；收盤後與非今日都是完成棒。 */
+    public function test_partial_flag_follows_taipei_session(): void
+    {
+        Http::fake(['mis.twse.com.tw/*' => Http::response($this->payload([$this->row('8299', 'otc')]))]);
+        $provider = new TwseMisTodayBarProvider;
+
+        CarbonImmutable::setTestNow('2026-09-02 02:00:00'); // 台北 10:00
+        $this->assertTrue($provider->todayBars(['8299.TWO'])['8299.TWO']->partial);
+
+        CarbonImmutable::setTestNow('2026-09-02 06:00:00'); // 台北 14:00
+        $this->assertFalse($provider->todayBars(['8299.TWO'])['8299.TWO']->partial);
+
+        CarbonImmutable::setTestNow('2026-09-03 02:00:00'); // 隔天盤中，但棒是 09-02 的
+        $this->assertFalse($provider->todayBars(['8299.TWO'])['8299.TWO']->partial);
+
+        CarbonImmutable::setTestNow();
     }
 
     /** 非八位數字的日期不可用——寧可不補，也不要讓一根日期錯的棒進到指標裡。 */

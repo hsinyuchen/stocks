@@ -10,7 +10,6 @@ use App\Services\Fake\FakeTodayBarProvider;
 use App\Services\Market\CachedMarketDataProvider;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 /**
@@ -25,8 +24,9 @@ class CachedMarketDataTodayBarTest extends TestCase
     {
         parent::setUp();
 
-        // 釘在平日：涵蓋度重抓在週末刻意不動，這批測試不能跟著真實日期漂。
-        CarbonImmutable::setTestNow('2026-09-02 06:00:00');
+        // 釘在平日、台北 15:00（涵蓋度重抓只在當地 14:30 後才試），
+        // 這批測試不能跟著真實日期漂。
+        CarbonImmutable::setTestNow('2026-09-02 07:00:00');
     }
 
     protected function tearDown(): void
@@ -87,8 +87,11 @@ class CachedMarketDataTodayBarTest extends TestCase
         );
     }
 
-    /** 上游補上官方收盤值之後，DB 裡的才是定案值，不能再被記憶體裡那根蓋掉。 */
-    public function test_today_bar_does_not_override_a_bar_the_upstream_already_supplied(): void
+    /**
+     * 同一天：MIS 那根蓋掉 DB 那根。DB 裡的「今天」只可能是 Yahoo 備援在盤中寫下的
+     * 未完成棒，留著它會把 MIS 的即時／定案值擋在門外直到 TTL 到期。
+     */
+    public function test_today_bar_replaces_the_stored_bar_for_the_same_day(): void
     {
         $upstream = new RecentHistoryProvider;
         $newest = $upstream->newestDate();
@@ -96,7 +99,6 @@ class CachedMarketDataTodayBarTest extends TestCase
         $cache = new CachedMarketDataProvider(
             $upstream,
             720,
-            // 與上游最新那根同一天，但收盤價不同。
             todayBars: new FakeTodayBarProvider(['8299.TWO' => $this->bar('8299.TWO', $newest, 9999.0)]),
         );
 
@@ -104,8 +106,26 @@ class CachedMarketDataTodayBarTest extends TestCase
         $last = $prices[count($prices) - 1];
 
         $this->assertSame($newest, $last->date);
-        $this->assertNotSame(9999.0, $last->close, '上游已供應的那一天必須以 DB 的定案值為準。');
-        $this->assertCount(5, $prices, '同一天不得追加成兩根。');
+        $this->assertSame(9999.0, $last->close);
+        $this->assertCount(5, $prices, '同一天是取代不是追加。');
+    }
+
+    /** 比 DB 最新那根還舊的當日棒（跨日後 MIS 回前一交易日）不得覆蓋。 */
+    public function test_today_bar_older_than_stored_history_is_ignored(): void
+    {
+        $upstream = new RecentHistoryProvider;
+        $older = CarbonImmutable::parse($upstream->newestDate())->subDay()->toDateString();
+
+        $cache = new CachedMarketDataProvider(
+            $upstream,
+            720,
+            todayBars: new FakeTodayBarProvider(['8299.TWO' => $this->bar('8299.TWO', $older, 9999.0)]),
+        );
+
+        $prices = $cache->dailyPrices('8299.TWO', 5);
+
+        $this->assertNotSame(9999.0, $prices[count($prices) - 1]->close);
+        $this->assertNotSame(9999.0, $prices[count($prices) - 2]->close);
     }
 
     /** 沒有注入 TodayBarProvider 時（美股、既有呼叫點）行為必須完全不變。 */
@@ -162,7 +182,7 @@ class CachedMarketDataTodayBarTest extends TestCase
         $this->assertSame(2, $upstream->calls, '節流期間內不得重複重抓。');
     }
 
-    /** 節流視窗過了以後可以再試一次。 */
+    /** 節流視窗是 60 分鐘：59 分鐘不重抓、61 分鐘可以。用時間旅行，不清快取。 */
     public function test_coverage_refetch_resumes_after_the_throttle_window(): void
     {
         $upstream = new RecentHistoryProvider;
@@ -172,10 +192,13 @@ class CachedMarketDataTodayBarTest extends TestCase
         $cache->dailyPrices('8299.TWO', 5);
         $this->assertSame(2, $upstream->calls);
 
-        Cache::flush(); // 等同節流視窗到期
-
+        CarbonImmutable::setTestNow('2026-09-02 07:59:00');
         $cache->dailyPrices('8299.TWO', 5);
-        $this->assertSame(3, $upstream->calls);
+        $this->assertSame(2, $upstream->calls, '59 分鐘內不得重抓。');
+
+        CarbonImmutable::setTestNow('2026-09-02 08:01:00');
+        $cache->dailyPrices('8299.TWO', 5);
+        $this->assertSame(3, $upstream->calls, '過了 60 分鐘要能再試。');
     }
 
     /**

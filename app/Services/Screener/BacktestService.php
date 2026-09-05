@@ -8,6 +8,7 @@ use App\Services\Chip\ChipDataService;
 use App\Services\Margin\MarginDataService;
 use App\Services\Screener\Rules\MarginRule;
 use App\Services\TechnicalIndicatorService;
+use App\Support\CompletedBars;
 
 /**
  * 選股規則的歷史回放。
@@ -67,7 +68,7 @@ class BacktestService
 
         foreach ($pool as $symbol => $name) {
             try {
-                $prices = $this->marketData->dailyPrices($symbol, $historyDays);
+                $prices = CompletedBars::only($this->marketData->dailyPrices($symbol, $historyDays));
             } catch (\Throwable $exception) {
                 $failures[] = ['symbol' => $symbol, 'reason' => $exception->getMessage()];
 

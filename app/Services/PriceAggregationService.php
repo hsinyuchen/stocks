@@ -58,6 +58,8 @@ class PriceAggregationService
                 low: min(array_map(fn ($p) => $p->low, $prices)),
                 close: $last->close,
                 volume: (int) array_sum(array_map(fn ($p) => $p->volume, $prices)),
+                // 含任何一根盤中棒的週／月棒本身就是未完成的。
+                partial: array_reduce($prices, fn (bool $carry, DailyPriceData $p): bool => $carry || $p->partial, false),
             );
         }
 

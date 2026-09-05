@@ -115,6 +115,10 @@ class CachedMarketDataProviderTest extends TestCase
 
     public function test_second_call_is_served_from_db_without_hitting_upstream(): void
     {
+        // stub 的資料固定到 2026-06-12；釘住現在，讓「純 TTL 命中」不受涵蓋度重抓影響
+        // （落後 18 天 > 10 天上界）。
+        CarbonImmutable::setTestNow('2026-06-30 07:00:00');
+
         $upstream = new CountingMarketProvider;
         $cache = new CachedMarketDataProvider($upstream, 720);
 

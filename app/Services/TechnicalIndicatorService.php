@@ -22,6 +22,13 @@ class TechnicalIndicatorService
         $volumes = array_column($normalized, 'volume');
         $count = count($closes);
 
+        // 最後一根若是盤中未完成棒，它的量只有半天，不能進「規模基準」：一根 1,000 股
+        // 的盤初棒會把 20 日均量拉低 5%，籌碼占比因此跨過 1% 門檻、立場翻轉——
+        // 而那只是開盤進度不同，籌碼本身沒變。價格類指標照舊含它（使用者要的是
+        // 與看盤軟體一致的即時線圖），只有量的分母要用完成的棒。
+        $lastPartial = (bool) ($this->readField($prices[array_key_last($prices)], 'partial') ?? false);
+        $completedVolumes = $lastPartial ? array_slice($volumes, 0, -1) : $volumes;
+
         // 不足週期就回 null，不用手上僅有的幾根冒充 MA。
         // 舊版對 8 根資料照樣輸出「MA20」，SignalEngine 會據此給出 stance。
         $ma5 = $count >= 5 ? $this->average(array_slice($closes, -5)) : null;
@@ -62,7 +69,7 @@ class TechnicalIndicatorService
             // 不足 20 根時為 null（與 ma20／rsi／布林同樣的暖身處理），
             // 呼叫端會據此退回「規模不明」而不是拿殘缺的均量當基準。
             'volume' => (int) $volumes[$n],
-            'volume_ma20' => $count >= 20 ? round($this->average(array_slice($volumes, -20)), 2) : null,
+            'volume_ma20' => count($completedVolumes) >= 20 ? round($this->average(array_slice($completedVolumes, -20)), 2) : null,
         ];
     }
 

@@ -292,5 +292,8 @@ class YahooChartMarketDataProviderTest extends TestCase
         $this->assertSame(199.0, $quote->price);
         $this->assertSame(6.5, $quote->change);
         $this->assertSame(3.3766, $quote->changePercent);
+        // 這條路拿到的是歷史收盤，asOf 必須是資料日期而不是 now()：標成「現在」
+        // 會讓報價卡、警報與損益都以為它是即時價。
+        $this->assertSame('2026-08-27T00:00:00+00:00', $quote->asOf);
     }
 }

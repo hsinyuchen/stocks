@@ -73,6 +73,7 @@ final class OhlcRepair
             low: $low,
             close: $close,
             volume: $volume,
+            partial: $bar->partial,
         );
     }
 

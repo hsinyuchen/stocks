@@ -26,6 +26,28 @@ class TechnicalIndicatorServiceTest extends TestCase
         $this->assertGreaterThan(0, $snapshot['ma5']);
     }
 
+    /**
+     * 最後一根是盤中未完成棒時，它的量只有半天，不能進 20 日均量：一根 1,000 股的
+     * 盤初棒會把均量拉低 5%，籌碼占比因此跨過 1% 門檻、立場翻轉。
+     */
+    public function test_partial_last_bar_is_excluded_from_volume_ma20(): void
+    {
+        $bars = [];
+        for ($i = 0; $i < 21; $i++) {
+            $bars[] = new DailyPriceData('2330.TW', sprintf('2026-08-%02d', $i + 1), 100.0, 101.0, 99.0, 100.0, 1_000_000);
+        }
+        $bars[] = new DailyPriceData('2330.TW', '2026-08-22', 100.0, 101.0, 99.0, 100.0, 1_000, partial: true);
+
+        $snapshot = (new TechnicalIndicatorService)->calculate($bars);
+
+        $this->assertSame(1_000_000.0, $snapshot['volume_ma20']);
+        $this->assertSame(1_000, $snapshot['volume'], '當日量本身照回，只有均量分母略過它');
+
+        $completed = array_slice($bars, 0, 21);
+        $completed[] = new DailyPriceData('2330.TW', '2026-08-22', 100.0, 101.0, 99.0, 100.0, 1_000);
+        $this->assertSame(950_050.0, (new TechnicalIndicatorService)->calculate($completed)['volume_ma20'], '同一根若已完成就要算進去');
+    }
+
     public function test_throws_for_empty_prices(): void
     {
         $this->expectException(InvalidArgumentException::class);

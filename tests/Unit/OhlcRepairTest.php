@@ -85,6 +85,13 @@ class OhlcRepairTest extends TestCase
         $this->assertSame($bar, OhlcRepair::repair($bar));
     }
 
+    public function test_partial_flag_survives_repair(): void
+    {
+        $bar = new DailyPriceData('6546.TWO', '2026-09-02', 81.19, 82.9, 81.3, 81.9, 1000, partial: true);
+
+        $this->assertTrue(OhlcRepair::repair($bar)->partial);
+    }
+
     public function test_repair_all_drops_dead_bars_and_reindexes(): void
     {
         $bars = [

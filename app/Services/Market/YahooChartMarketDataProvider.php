@@ -132,6 +132,9 @@ class YahooChartMarketDataProvider implements MarketDataProvider
      * Fallback quote derived from the daily close series when the chart meta
      * carries no intraday `regularMarketPrice`.
      *
+     * asOf 用序列最後一根的**資料日期**，不用 now()：這條路拿到的是歷史收盤，標成
+     * 「現在」會讓報價卡上的時間與警報、損益的判斷都以為它是即時價。
+     *
      * @param  list<array{date: string, close: float}>  $rows
      */
     private function quoteFromCloses(string $symbol, array $rows, mixed $regularMarketTime): MarketQuoteData
@@ -150,7 +153,7 @@ class YahooChartMarketDataProvider implements MarketDataProvider
             price: round($last, 4),
             change: round($change, 4),
             changePercent: round($changePercent, 4),
-            asOf: CarbonImmutable::now()->toIso8601String(),
+            asOf: $rows[count($rows) - 1]['date'].'T00:00:00+00:00',
         );
     }
 

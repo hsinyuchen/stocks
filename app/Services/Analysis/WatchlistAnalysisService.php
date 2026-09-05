@@ -20,6 +20,7 @@ use App\Services\Margin\MarginDataService;
 use App\Services\Rates\RatesNarrative;
 use App\Services\SignalEngine;
 use App\Services\TechnicalIndicatorService;
+use App\Support\CompletedBars;
 use App\Support\MarketResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
@@ -311,7 +312,7 @@ class WatchlistAnalysisService
         }
 
         try {
-            $prices = $this->marketData->dailyPrices($symbol, self::PRICE_BARS);
+            $prices = CompletedBars::only($this->marketData->dailyPrices($symbol, self::PRICE_BARS));
         } catch (Throwable $exception) {
             Log::warning('brief: stock prices failed', ['symbol' => $symbol, 'error' => $exception->getMessage()]);
             $prices = [];

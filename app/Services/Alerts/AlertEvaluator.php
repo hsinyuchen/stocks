@@ -18,6 +18,7 @@ use App\Services\Screener\ScreenRule;
 use App\Services\Screener\ScreenRuleRegistry;
 use App\Services\Social\SocialArbitrageAssessor;
 use App\Services\TechnicalIndicatorService;
+use App\Support\CompletedBars;
 use Illuminate\Support\Facades\Log;
 
 class AlertEvaluator
@@ -181,7 +182,8 @@ class AlertEvaluator
         }
 
         try {
-            $prices = $this->marketData->dailyPrices($symbol, self::HISTORY_DAYS);
+            // 警報是一次性觸發，不能被盤中未完成棒引爆。見 CompletedBars。
+            $prices = CompletedBars::only($this->marketData->dailyPrices($symbol, self::HISTORY_DAYS));
         } catch (\Throwable $exception) {
             $failedDaily[$symbol] = true;
             Log::warning('alert: daily prices unavailable', ['symbol' => $symbol, 'error' => $exception->getMessage()]);

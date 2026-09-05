@@ -14,6 +14,7 @@ use App\Services\Chip\ChipDataService;
 use App\Services\Fundamentals\FundamentalsService;
 use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\TechnicalIndicatorService;
+use App\Support\CompletedBars;
 use App\Support\DailyDataFreshness;
 use App\Support\MarketResolver;
 use App\Support\OhlcRepair;
@@ -86,7 +87,7 @@ class HealthSnapshotBuilder
         return $this->memo["fresh:{$instrument->id}:{$bars}"] ??= $this->build(
             $instrument,
             $bars,
-            $this->marketData->dailyPrices($instrument->symbol, $bars),
+            CompletedBars::only($this->marketData->dailyPrices($instrument->symbol, $bars)),
             $this->chip->forInstrument($instrument),
             cachedOnly: false,
         );
