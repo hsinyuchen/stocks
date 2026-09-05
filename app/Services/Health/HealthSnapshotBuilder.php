@@ -16,6 +16,7 @@ use App\Services\Fundamentals\OrderInventoryAssessor;
 use App\Services\TechnicalIndicatorService;
 use App\Support\DailyDataFreshness;
 use App\Support\MarketResolver;
+use App\Support\OhlcRepair;
 
 /**
  * 判讀的**唯一** IO 邊界：把四條輸入（行情、籌碼、估值、財報序列）取齊，
@@ -191,6 +192,11 @@ class HealthSnapshotBuilder
      *
      * 取最後 $bars 根：SQL 先降冪限筆再翻回升冪，指標計算一律吃升冪序列。
      *
+     * **直接讀 model 就要自己做 CachedMarketDataProvider 讀出口做的兩件事**：SQL 先過
+     * 掉死列、讀出後過 OhlcRepair。漏掉的話上游一根壞 K 棒（open 超出 [low, high]）
+     * 會在 build() 的 calculate() 拋例外，個股頁的 healthPayload() 沒攔、整頁 500——
+     * 這條路徑正是 2026-09-05 圖表修好後仍會炸的漏網之魚。
+     *
      * @return list<DailyPriceData>
      */
     private function cachedPrices(Instrument $instrument, int $bars): array
@@ -199,8 +205,9 @@ class HealthSnapshotBuilder
             return [];
         }
 
-        return DailyPrice::query()
+        $rows = DailyPrice::query()
             ->where('instrument_id', $instrument->id)
+            ->traded()
             ->orderByDesc('priced_at')
             // 同一天理論上只有一列（unique 索引），排序仍加 id 讓結果完全確定。
             ->orderByDesc('id')
@@ -219,6 +226,8 @@ class HealthSnapshotBuilder
                 volume: (int) $row->volume,
             ))
             ->all();
+
+        return OhlcRepair::repairAll($rows);
     }
 
     /**

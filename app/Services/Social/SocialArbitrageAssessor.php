@@ -101,6 +101,8 @@ class SocialArbitrageAssessor
     {
         $closes = DailyPrice::query()
             ->where('instrument_id', $instrument->id)
+            // 無成交日的 close 是 0，落在視窗尾端會算成 −100%。
+            ->traded()
             ->whereBetween('priced_at', [$from, $to])
             ->orderBy('priced_at')
             // 同一天理論上只有一列（unique 索引），排序仍加 id 讓結果完全確定。
@@ -154,6 +156,7 @@ class SocialArbitrageAssessor
 
         $volume = (float) DailyPrice::query()
             ->where('instrument_id', $instrument->id)
+            ->traded()
             ->whereBetween('priced_at', [$from, $to])
             ->sum('volume');
 
