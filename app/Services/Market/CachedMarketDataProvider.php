@@ -9,6 +9,7 @@ use App\Data\MarketQuoteData;
 use App\Models\DailyPrice;
 use App\Models\Instrument;
 use App\Support\MarketResolver;
+use App\Support\OhlcRepair;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use RuntimeException;
@@ -88,6 +89,7 @@ class CachedMarketDataProvider implements MarketDataProvider
     private function withTodayBar(Instrument $instrument, array $prices, int $days): array
     {
         $bar = $this->todayBar($instrument->symbol);
+        $bar = $bar === null ? null : OhlcRepair::repair($bar);
 
         if ($bar === null) {
             return $prices;
@@ -364,10 +366,16 @@ class CachedMarketDataProvider implements MarketDataProvider
         return $agreeing >= (int) ceil(count($ratios) * self::REBASE_AGREEMENT_SHARE);
     }
 
-    /** @return list<DailyPriceData> */
+    /**
+     * 讀出時逐根過 {@see OhlcRepair}——這是所有消費端共用的唯一出口，表內已經存下
+     * 的壞列（正式機 6546 有 113 筆在視窗內）在這裡修，不需要跑資料修正。
+     * 寫入端刻意保留上游原值，之後要追查來源還看得到。
+     *
+     * @return list<DailyPriceData>
+     */
     private function readFromDatabase(Instrument $instrument, int $days): array
     {
-        return $instrument->dailyPrices()
+        $bars = $instrument->dailyPrices()
             ->orderByDesc('priced_at')
             ->limit($days)
             ->get()
@@ -383,5 +391,7 @@ class CachedMarketDataProvider implements MarketDataProvider
                 volume: (int) $row->volume,
             ))
             ->all();
+
+        return OhlcRepair::repairAll($bars);
     }
 }
